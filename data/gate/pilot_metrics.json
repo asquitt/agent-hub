@@ -1,0 +1,13 @@
+{
+  "reliability_success_rate": 1.0,
+  "pilot_workloads": 58,
+  "partner_roi_ratio": 1.27,
+  "partner_roi_sample_size": 2,
+  "contribution_margin_ratio": 0.31,
+  "multi_agent_tasks": 142,
+  "evidence_refs": [
+    "docs/evidence/S07.md",
+    "docs/evidence/S08.md",
+    "docs/evidence/S09.md"
+  ]
+}

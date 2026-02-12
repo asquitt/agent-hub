@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: dev test lint migrate eval trust discovery-load cli-test compose-up compose-down
+.PHONY: dev test lint migrate eval trust gate discovery-load cli-test compose-up compose-down
 
 dev:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -9,7 +9,7 @@ test:
 	pytest -q
 
 lint:
-	$(PYTHON) -m py_compile agenthub/*.py src/api/*.py src/delegation/*.py src/discovery/*.py src/eval/*.py src/trust/*.py tools/manifest/*.py tools/capability_search/*.py tools/eval/*.py tools/trust/*.py
+	$(PYTHON) -m py_compile agenthub/*.py src/api/*.py src/delegation/*.py src/discovery/*.py src/eval/*.py src/gate/*.py src/trust/*.py tools/manifest/*.py tools/capability_search/*.py tools/eval/*.py tools/gate/*.py tools/trust/*.py
 
 migrate:
 	@echo "Apply migrations with your Postgres DSN"
@@ -21,6 +21,9 @@ eval:
 
 trust:
 	$(PYTHON) tools/trust/recompute_trust.py --agent-id @demo:invoice-summarizer --owner owner-dev
+
+gate:
+	$(PYTHON) tools/gate/review_gate.py --metrics data/gate/pilot_metrics.json --out docs/gate/S10_GATE_REVIEW.json
 
 discovery-load:
 	pytest tests/discovery/test_load_sla.py -q
