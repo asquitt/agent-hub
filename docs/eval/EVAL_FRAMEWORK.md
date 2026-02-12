@@ -15,6 +15,18 @@ This document defines the implemented D09 core eval runner behavior:
   - `transformation`
   - `action`
 
+## S38 Tier 2 Safety Harness
+- Tier 2 suite id: `tier2-safety-v1`
+- Safety vectors covered:
+  - `prompt_injection`
+  - `secret_exfiltration`
+  - `jailbreak`
+- Harness behavior:
+  - deterministic pattern-based detection against adversarial prompt corpus,
+  - structured findings with expected-vs-detected categories,
+  - false-positive/false-negative accounting,
+  - persisted safety-category summaries for regression tracking.
+
 ## Runner Guarantees
 - Sandbox execution via ephemeral temp directory per run.
 - Deterministic seed: `42`.
@@ -39,6 +51,11 @@ This document defines the implemented D09 core eval runner behavior:
 Run local suite:
 ```bash
 python3 tools/eval/agenthub_eval.py eval --manifest tests/eval/fixtures/three-capability-agent.yaml --agent-id @eval:demo
+```
+
+Run tier-2 safety suite:
+```bash
+python3 tools/eval/agenthub_eval.py eval --manifest tests/eval/fixtures/three-capability-agent.yaml --agent-id @eval:demo --tier tier2
 ```
 
 ## API Visibility Contract

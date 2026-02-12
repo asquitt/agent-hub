@@ -22,6 +22,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     eval_parser = sub.add_parser("eval", help="Run local eval suite against a manifest")
     eval_parser.add_argument("--manifest", required=True, help="Path to agent manifest YAML")
     eval_parser.add_argument("--agent-id", required=False, help="Agent identifier override")
+    eval_parser.add_argument(
+        "--tier",
+        required=False,
+        default="tier1",
+        choices=["tier1", "tier2", "all"],
+        help="Eval tier to execute",
+    )
 
     return parser.parse_args(argv)
 
@@ -30,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(list(sys.argv[1:] if argv is None else argv))
 
     if args.command == "eval":
-        result = run_eval_from_manifest_path(manifest_path=args.manifest, agent_id=args.agent_id)
+        result = run_eval_from_manifest_path(manifest_path=args.manifest, agent_id=args.agent_id, tier=args.tier)
         print(json.dumps(result, indent=2))
         return 0
 
