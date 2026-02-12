@@ -101,6 +101,7 @@ def _serialize_agent(agent) -> dict[str, Any]:
     trust = compute_trust_score(agent_id=agent.agent_id, owner=agent.owner)
     return {
         "id": agent.agent_id,
+        "tenant_id": getattr(agent, "tenant_id", "tenant-default"),
         "namespace": agent.namespace,
         "slug": agent.slug,
         "status": agent.status,
@@ -116,12 +117,16 @@ def _serialize_agent(agent) -> dict[str, Any]:
     }
 
 
-def _cache_idempotent(owner: str, key: str, payload: dict[str, Any]) -> dict[str, Any]:
-    composite = (owner, key)
+def _cache_idempotent(owner: str, tenant_id: str, key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    composite = _idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id)
     if composite in STORE.idempotency_cache:
         return copy.deepcopy(STORE.idempotency_cache[composite])
     STORE.idempotency_cache[composite] = copy.deepcopy(payload)
     return payload
+
+
+def _idempotency_cache_key(owner: str, key: str, tenant_id: str) -> tuple[str, str, str]:
+    return (owner, tenant_id, key)
 
 
 def _resolve_operator_role(owner: str, requested_role: str | None) -> str:
@@ -152,6 +157,13 @@ def _delegate_policy_signals(delegate_agent_id: str) -> tuple[float | None, list
     return trust, permissions
 
 
+def _resolve_tenant_id(raw_tenant_id: str | None) -> str:
+    if raw_tenant_id is None:
+        return "tenant-default"
+    normalized = raw_tenant_id.strip()
+    return normalized if normalized else "tenant-default"
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -174,9 +186,11 @@ def register_agent(
     request: AgentRegistrationRequest,
     owner: str = Depends(require_api_key),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
     key = _require_idempotency_key(idempotency_key)
-    existing = STORE.idempotency_cache.get((owner, key))
+    tenant_id = _resolve_tenant_id(x_tenant_id)
+    existing = STORE.idempotency_cache.get(_idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id))
     if existing:
         return copy.deepcopy(existing)
 
@@ -185,15 +199,15 @@ def register_agent(
         raise HTTPException(status_code=422, detail={"message": "manifest validation failed", "errors": errors})
 
     try:
-        STORE.reserve_namespace(request.namespace, owner)
-        agent = STORE.register_agent(request.namespace, request.manifest, owner)
+        STORE.reserve_namespace(request.namespace, owner, tenant_id=tenant_id)
+        agent = STORE.register_agent(request.namespace, request.manifest, owner, tenant_id=tenant_id)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     response = _serialize_agent(agent)
-    return _cache_idempotent(owner, key, response)
+    return _cache_idempotent(owner, tenant_id, key, response)
 
 
 @app.get("/v1/agents")
@@ -202,8 +216,10 @@ def list_agents(
     status: str | None = Query(default=None),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
-    agents = STORE.list_agents(namespace=namespace, status=status)
+    tenant_id = _resolve_tenant_id(x_tenant_id)
+    agents = STORE.list_agents(namespace=namespace, status=status, tenant_id=tenant_id)
     sliced = agents[offset : offset + limit]
     return {
         "data": [_serialize_agent(a) for a in sliced],
@@ -212,9 +228,10 @@ def list_agents(
 
 
 @app.get("/v1/agents/{agent_id}/versions")
-def list_versions(agent_id: str) -> dict[str, Any]:
+def list_versions(agent_id: str, x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        versions = STORE.list_versions(agent_id)
+        versions = STORE.list_versions(agent_id, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="agent not found") from exc
 
@@ -235,9 +252,14 @@ def list_versions(agent_id: str) -> dict[str, Any]:
 
 
 @app.get("/v1/agents/{agent_id}/versions/{version}")
-def get_version(agent_id: str, version: str) -> dict[str, Any]:
+def get_version(
+    agent_id: str,
+    version: str,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        record = STORE.get_version(agent_id, version)
+        record = STORE.get_version(agent_id, version, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="version not found") from exc
 
@@ -253,10 +275,16 @@ def get_version(agent_id: str, version: str) -> dict[str, Any]:
 
 
 @app.get("/v1/agents/{agent_id}/versions/{base_version}/behavioral-diff/{target_version}")
-def get_behavioral_diff(agent_id: str, base_version: str, target_version: str) -> dict[str, Any]:
+def get_behavioral_diff(
+    agent_id: str,
+    base_version: str,
+    target_version: str,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        base = STORE.get_version(agent_id, base_version)
-        target = STORE.get_version(agent_id, target_version)
+        base = STORE.get_version(agent_id, base_version, tenant_id=tenant_id)
+        target = STORE.get_version(agent_id, target_version, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="version not found") from exc
 
@@ -269,10 +297,16 @@ def get_behavioral_diff(agent_id: str, base_version: str, target_version: str) -
 
 
 @app.get("/v1/agents/{agent_id}/compare/{base_version}/{target_version}")
-def compare_versions(agent_id: str, base_version: str, target_version: str) -> dict[str, Any]:
+def compare_versions(
+    agent_id: str,
+    base_version: str,
+    target_version: str,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        base = STORE.get_version(agent_id, base_version)
-        target = STORE.get_version(agent_id, target_version)
+        base = STORE.get_version(agent_id, base_version, tenant_id=tenant_id)
+        target = STORE.get_version(agent_id, target_version, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="version not found") from exc
 
@@ -302,14 +336,16 @@ def fork_agent(
     request: AgentForkRequest,
     owner: str = Depends(require_api_key),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
     key = _require_idempotency_key(idempotency_key)
-    existing = STORE.idempotency_cache.get((owner, key))
+    tenant_id = _resolve_tenant_id(x_tenant_id)
+    existing = STORE.idempotency_cache.get(_idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id))
     if existing:
         return copy.deepcopy(existing)
 
     try:
-        source = STORE.get_agent(agent_id)
+        source = STORE.get_agent(agent_id, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="agent not found") from exc
 
@@ -321,8 +357,8 @@ def fork_agent(
         raise HTTPException(status_code=422, detail={"message": "manifest validation failed", "errors": errors})
 
     try:
-        STORE.reserve_namespace(request.namespace, owner)
-        forked = STORE.register_agent(request.namespace, latest_manifest, owner)
+        STORE.reserve_namespace(request.namespace, owner, tenant_id=tenant_id)
+        forked = STORE.register_agent(request.namespace, latest_manifest, owner, tenant_id=tenant_id)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
@@ -332,13 +368,14 @@ def fork_agent(
         "source_agent_id": agent_id,
         "forked_agent": _serialize_agent(forked),
     }
-    return _cache_idempotent(owner, key, response)
+    return _cache_idempotent(owner, tenant_id, key, response)
 
 
 @app.get("/v1/namespaces/{namespace}")
-def list_namespace_agents(namespace: str) -> dict[str, Any]:
+def list_namespace_agents(namespace: str, x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> dict[str, Any]:
     ns = namespace if namespace.startswith("@") else f"@{namespace}"
-    agents = STORE.list_agents(namespace=ns)
+    tenant_id = _resolve_tenant_id(x_tenant_id)
+    agents = STORE.list_agents(namespace=ns, tenant_id=tenant_id)
     return {
         "namespace": ns,
         "data": [_serialize_agent(a) for a in agents],
@@ -984,9 +1021,10 @@ def post_usage_event(
 
 
 @app.get("/v1/agents/{agent_id}")
-def get_agent(agent_id: str) -> dict[str, Any]:
+def get_agent(agent_id: str, x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        agent = STORE.get_agent(agent_id)
+        agent = STORE.get_agent(agent_id, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="agent not found") from exc
     return _serialize_agent(agent)
@@ -998,9 +1036,11 @@ def update_agent(
     request: AgentUpdateRequest,
     owner: str = Depends(require_api_key),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
     key = _require_idempotency_key(idempotency_key)
-    existing = STORE.idempotency_cache.get((owner, key))
+    tenant_id = _resolve_tenant_id(x_tenant_id)
+    existing = STORE.idempotency_cache.get(_idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id))
     if existing:
         return copy.deepcopy(existing)
 
@@ -1009,7 +1049,7 @@ def update_agent(
         raise HTTPException(status_code=422, detail={"message": "manifest validation failed", "errors": errors})
 
     try:
-        agent = STORE.update_agent(agent_id, request.manifest, owner)
+        agent = STORE.update_agent(agent_id, request.manifest, owner, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="agent not found") from exc
     except PermissionError as exc:
@@ -1018,7 +1058,7 @@ def update_agent(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     response = _serialize_agent(agent)
-    return _cache_idempotent(owner, key, response)
+    return _cache_idempotent(owner, tenant_id, key, response)
 
 
 @app.delete("/v1/agents/{agent_id}")
@@ -1026,18 +1066,20 @@ def delete_agent(
     agent_id: str,
     owner: str = Depends(require_api_key),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
     key = _require_idempotency_key(idempotency_key)
-    existing = STORE.idempotency_cache.get((owner, key))
+    tenant_id = _resolve_tenant_id(x_tenant_id)
+    existing = STORE.idempotency_cache.get(_idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id))
     if existing:
         return copy.deepcopy(existing)
 
     try:
-        agent = STORE.delete_agent(agent_id, owner)
+        agent = STORE.delete_agent(agent_id, owner, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="agent not found") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     response = {"id": agent.agent_id, "status": agent.status}
-    return _cache_idempotent(owner, key, response)
+    return _cache_idempotent(owner, tenant_id, key, response)

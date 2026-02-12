@@ -24,6 +24,7 @@ class VersionRecord:
 @dataclass
 class AgentRecord:
     agent_id: str
+    tenant_id: str
     namespace: str
     slug: str
     owner: str
@@ -100,26 +101,32 @@ class RegistryStore:
             )
         return versions
 
-    def reserve_namespace(self, namespace: str, owner: str) -> None:
+    def reserve_namespace(self, namespace: str, owner: str, tenant_id: str = "tenant-default") -> None:
         with self._lock:
             assert self._conn is not None
             row = self._conn.execute(
-                "SELECT owner FROM registry_namespaces WHERE namespace = ?",
+                "SELECT owner, tenant_id FROM registry_namespaces WHERE namespace = ?",
                 (namespace,),
             ).fetchone()
             if row is None:
                 with self._conn:
                     self._conn.execute(
-                        "INSERT INTO registry_namespaces(namespace, owner) VALUES (?, ?)",
-                        (namespace, owner),
+                        "INSERT INTO registry_namespaces(namespace, owner, tenant_id) VALUES (?, ?, ?)",
+                        (namespace, owner, tenant_id),
                     )
-                self.namespaces[namespace] = owner
+                self.namespaces[f"{tenant_id}:{namespace}"] = owner
                 return
-            if str(row["owner"]) != owner:
+            if str(row["owner"]) != owner or str(row["tenant_id"]) != tenant_id:
                 raise PermissionError("namespace already reserved by another owner")
-            self.namespaces[namespace] = owner
+            self.namespaces[f"{tenant_id}:{namespace}"] = owner
 
-    def register_agent(self, namespace: str, manifest: dict[str, Any], owner: str) -> AgentRecord:
+    def register_agent(
+        self,
+        namespace: str,
+        manifest: dict[str, Any],
+        owner: str,
+        tenant_id: str = "tenant-default",
+    ) -> AgentRecord:
         with self._lock:
             assert self._conn is not None
             slug = manifest["identity"]["id"]
@@ -135,10 +142,10 @@ class RegistryStore:
             with self._conn:
                 self._conn.execute(
                     """
-                    INSERT INTO registry_agents(agent_id, namespace, slug, owner, status)
-                    VALUES (?, ?, ?, ?, 'active')
+                    INSERT INTO registry_agents(agent_id, tenant_id, namespace, slug, owner, status)
+                    VALUES (?, ?, ?, ?, ?, 'active')
                     """,
-                    (agent_id, namespace, slug, owner),
+                    (agent_id, tenant_id, namespace, slug, owner),
                 )
                 self._conn.execute(
                     """
@@ -149,6 +156,7 @@ class RegistryStore:
                 )
             record = AgentRecord(
                 agent_id=agent_id,
+                tenant_id=tenant_id,
                 namespace=namespace,
                 slug=slug,
                 owner=owner,
@@ -158,11 +166,19 @@ class RegistryStore:
             self.agents[agent_id] = record
             return record
 
-    def list_agents(self, namespace: str | None = None, status: str | None = None) -> list[AgentRecord]:
+    def list_agents(
+        self,
+        namespace: str | None = None,
+        status: str | None = None,
+        tenant_id: str | None = None,
+    ) -> list[AgentRecord]:
         with self._lock:
             assert self._conn is not None
-            query = "SELECT agent_id, namespace, slug, owner, status FROM registry_agents WHERE 1=1"
+            query = "SELECT agent_id, tenant_id, namespace, slug, owner, status FROM registry_agents WHERE 1=1"
             params: list[str] = []
+            if tenant_id is not None:
+                query += " AND tenant_id = ?"
+                params.append(tenant_id)
             if namespace is not None:
                 query += " AND namespace = ?"
                 params.append(namespace)
@@ -178,6 +194,7 @@ class RegistryStore:
                 records.append(
                     AgentRecord(
                         agent_id=agent_id,
+                        tenant_id=str(row["tenant_id"]),
                         namespace=str(row["namespace"]),
                         slug=str(row["slug"]),
                         owner=str(row["owner"]),
@@ -187,21 +204,32 @@ class RegistryStore:
                 )
             return records
 
-    def get_agent(self, agent_id: str) -> AgentRecord:
+    def get_agent(self, agent_id: str, tenant_id: str | None = None) -> AgentRecord:
         with self._lock:
             assert self._conn is not None
-            row = self._conn.execute(
-                """
-                SELECT agent_id, namespace, slug, owner, status
-                FROM registry_agents
-                WHERE agent_id = ?
-                """,
-                (agent_id,),
-            ).fetchone()
+            if tenant_id is None:
+                row = self._conn.execute(
+                    """
+                    SELECT agent_id, tenant_id, namespace, slug, owner, status
+                    FROM registry_agents
+                    WHERE agent_id = ?
+                    """,
+                    (agent_id,),
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    """
+                    SELECT agent_id, tenant_id, namespace, slug, owner, status
+                    FROM registry_agents
+                    WHERE agent_id = ? AND tenant_id = ?
+                    """,
+                    (agent_id, tenant_id),
+                ).fetchone()
             if row is None:
                 raise KeyError("agent not found")
             return AgentRecord(
                 agent_id=str(row["agent_id"]),
+                tenant_id=str(row["tenant_id"]),
                 namespace=str(row["namespace"]),
                 slug=str(row["slug"]),
                 owner=str(row["owner"]),
@@ -209,9 +237,15 @@ class RegistryStore:
                 versions=self._load_versions(agent_id),
             )
 
-    def update_agent(self, agent_id: str, manifest: dict[str, Any], owner: str) -> AgentRecord:
+    def update_agent(
+        self,
+        agent_id: str,
+        manifest: dict[str, Any],
+        owner: str,
+        tenant_id: str | None = None,
+    ) -> AgentRecord:
         with self._lock:
-            agent = self.get_agent(agent_id)
+            agent = self.get_agent(agent_id, tenant_id=tenant_id)
             if agent.owner != owner:
                 raise PermissionError("owner mismatch")
 
@@ -237,11 +271,11 @@ class RegistryStore:
                     (agent_id,),
                 )
 
-            return self.get_agent(agent_id)
+            return self.get_agent(agent_id, tenant_id=tenant_id)
 
-    def delete_agent(self, agent_id: str, owner: str) -> AgentRecord:
+    def delete_agent(self, agent_id: str, owner: str, tenant_id: str | None = None) -> AgentRecord:
         with self._lock:
-            agent = self.get_agent(agent_id)
+            agent = self.get_agent(agent_id, tenant_id=tenant_id)
             if agent.owner != owner:
                 raise PermissionError("owner mismatch")
             assert self._conn is not None
@@ -254,17 +288,17 @@ class RegistryStore:
                     """,
                     (agent_id,),
                 )
-            return self.get_agent(agent_id)
+            return self.get_agent(agent_id, tenant_id=tenant_id)
 
-    def list_versions(self, agent_id: str) -> list[VersionRecord]:
+    def list_versions(self, agent_id: str, tenant_id: str | None = None) -> list[VersionRecord]:
         with self._lock:
-            _ = self.get_agent(agent_id)
+            _ = self.get_agent(agent_id, tenant_id=tenant_id)
             return self._load_versions(agent_id)
 
-    def get_version(self, agent_id: str, version: str) -> VersionRecord:
+    def get_version(self, agent_id: str, version: str, tenant_id: str | None = None) -> VersionRecord:
         with self._lock:
             assert self._conn is not None
-            _ = self.get_agent(agent_id)
+            _ = self.get_agent(agent_id, tenant_id=tenant_id)
             row = self._conn.execute(
                 """
                 SELECT version, manifest_json, eval_summary_json
