@@ -20,11 +20,46 @@ PILOT_PROFILES = {
             {"connector_id": "jira-delivery", "category": "delivery", "baseline_minutes": 16, "automated_minutes": 5},
         ],
         "workloads": [
-            {"workload_id": "incident-triage", "connector_id": "zendesk-support", "weekly_tasks": 42, "criticality": "high"},
-            {"workload_id": "case-enrichment", "connector_id": "salesforce-crm", "weekly_tasks": 34, "criticality": "high"},
-            {"workload_id": "knowledge-sync", "connector_id": "snowflake-warehouse", "weekly_tasks": 24, "criticality": "medium"},
-            {"workload_id": "ops-alert-routing", "connector_id": "slack-ops", "weekly_tasks": 40, "criticality": "medium"},
-            {"workload_id": "release-risk-brief", "connector_id": "jira-delivery", "weekly_tasks": 20, "criticality": "medium"},
+            {
+                "workload_id": "incident-triage",
+                "connector_id": "zendesk-support",
+                "weekly_tasks": 42,
+                "criticality": "high",
+                "workflow_steps": 4,
+                "cross_system_hops": 2,
+            },
+            {
+                "workload_id": "case-enrichment",
+                "connector_id": "salesforce-crm",
+                "weekly_tasks": 34,
+                "criticality": "high",
+                "workflow_steps": 4,
+                "cross_system_hops": 3,
+            },
+            {
+                "workload_id": "knowledge-sync",
+                "connector_id": "snowflake-warehouse",
+                "weekly_tasks": 24,
+                "criticality": "medium",
+                "workflow_steps": 3,
+                "cross_system_hops": 2,
+            },
+            {
+                "workload_id": "ops-alert-routing",
+                "connector_id": "slack-ops",
+                "weekly_tasks": 40,
+                "criticality": "medium",
+                "workflow_steps": 3,
+                "cross_system_hops": 2,
+            },
+            {
+                "workload_id": "release-risk-brief",
+                "connector_id": "jira-delivery",
+                "weekly_tasks": 20,
+                "criticality": "medium",
+                "workflow_steps": 4,
+                "cross_system_hops": 3,
+            },
         ],
     },
     "pilot-b": {
@@ -37,10 +72,38 @@ PILOT_PROFILES = {
             {"connector_id": "teams-ops", "category": "collaboration", "baseline_minutes": 8, "automated_minutes": 3},
         ],
         "workloads": [
-            {"workload_id": "support-escalation", "connector_id": "freshdesk-support", "weekly_tasks": 36, "criticality": "high"},
-            {"workload_id": "pipeline-hygiene", "connector_id": "hubspot-crm", "weekly_tasks": 28, "criticality": "medium"},
-            {"workload_id": "weekly-forecast-sync", "connector_id": "bigquery-warehouse", "weekly_tasks": 18, "criticality": "medium"},
-            {"workload_id": "incident-broadcast", "connector_id": "teams-ops", "weekly_tasks": 30, "criticality": "medium"},
+            {
+                "workload_id": "support-escalation",
+                "connector_id": "freshdesk-support",
+                "weekly_tasks": 36,
+                "criticality": "high",
+                "workflow_steps": 6,
+                "cross_system_hops": 4,
+            },
+            {
+                "workload_id": "pipeline-hygiene",
+                "connector_id": "hubspot-crm",
+                "weekly_tasks": 28,
+                "criticality": "medium",
+                "workflow_steps": 5,
+                "cross_system_hops": 3,
+            },
+            {
+                "workload_id": "weekly-forecast-sync",
+                "connector_id": "bigquery-warehouse",
+                "weekly_tasks": 18,
+                "criticality": "high",
+                "workflow_steps": 6,
+                "cross_system_hops": 5,
+            },
+            {
+                "workload_id": "incident-broadcast",
+                "connector_id": "teams-ops",
+                "weekly_tasks": 30,
+                "criticality": "medium",
+                "workflow_steps": 5,
+                "cross_system_hops": 4,
+            },
         ],
     },
 }
@@ -53,6 +116,14 @@ def _load_json(path: Path, default):
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return default
+
+
+def _p95(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = max(0, int(round(0.95 * (len(ordered) - 1))))
+    return float(ordered[index])
 
 
 def build_metrics(pilot_id: str) -> dict:
@@ -71,9 +142,12 @@ def build_metrics(pilot_id: str) -> dict:
     estimated = [float(row.get("estimated_cost_usd", 0.0)) for row in delegations if row.get("estimated_cost_usd") is not None]
     actual = [float(row.get("actual_cost_usd", 0.0)) for row in delegations if row.get("actual_cost_usd") is not None]
     cost_variance = 0.0
+    cost_variance_p95 = 0.0
+    deltas: list[float] = []
     if estimated and actual and len(estimated) == len(actual):
         deltas = [abs(a - e) / max(e, 1e-6) for e, a in zip(estimated, actual)]
         cost_variance = mean(deltas)
+        cost_variance_p95 = _p95(deltas)
 
     unresolved_incidents = sum(1 for row in incidents if not row.get("resolved"))
     avg_trust = mean([float(row.get("score", 0.0)) for row in trust_scores]) if trust_scores else 0.0
@@ -87,6 +161,9 @@ def build_metrics(pilot_id: str) -> dict:
     planned_weekly_tasks = 0
     baseline_minutes_total = 0
     automated_minutes_total = 0
+    workload_steps_total = 0
+    workload_hops_total = 0
+    high_risk_workloads = 0
     for workload in workloads:
         connector_id = workload["connector_id"]
         weekly_tasks = int(workload["weekly_tasks"])
@@ -95,6 +172,12 @@ def build_metrics(pilot_id: str) -> dict:
         connector = connector_map.get(connector_id, {})
         baseline_minutes_total += weekly_tasks * int(connector.get("baseline_minutes", 0))
         automated_minutes_total += weekly_tasks * int(connector.get("automated_minutes", 0))
+        steps = int(workload.get("workflow_steps", 1))
+        hops = int(workload.get("cross_system_hops", 1))
+        workload_steps_total += steps
+        workload_hops_total += hops
+        if str(workload.get("criticality", "")).lower() == "high":
+            high_risk_workloads += 1
 
     active_connectors = len([connector_id for connector_id, volume in connector_volumes.items() if volume > 0])
     configured_connectors = len(connectors)
@@ -105,10 +188,19 @@ def build_metrics(pilot_id: str) -> dict:
     platform_spend_usd = planned_weekly_tasks * float(profile["platform_cost_per_task_usd"])
     net_roi_usd = labor_savings_usd - platform_spend_usd
     roi_ratio = net_roi_usd / max(platform_spend_usd, 1e-6)
+    margin_proxy_ratio = net_roi_usd / max(labor_savings_usd, 1e-6)
+    cost_per_planned_task = platform_spend_usd / max(planned_weekly_tasks, 1)
+    workload_count = len(workloads)
+    avg_workflow_steps = (workload_steps_total / workload_count) if workload_count else 0.0
+    avg_cross_system_hops = (workload_hops_total / workload_count) if workload_count else 0.0
+    high_risk_ratio = (high_risk_workloads / workload_count) if workload_count else 0.0
+    complexity_penalty = min(0.15, max(0.0, ((avg_workflow_steps - 3.0) * 0.015) + (high_risk_ratio * 0.03)))
+    complexity_adjusted_reliability = max(0.0, reliability - complexity_penalty)
 
     return {
         "reliability": {
             "delegation_success_rate": round(reliability, 6),
+            "complexity_adjusted_success_rate": round(complexity_adjusted_reliability, 6),
             "total_delegations": total_delegations,
             "completed_delegations": completed_delegations,
             "hard_stop_count": hard_stops,
@@ -116,6 +208,9 @@ def build_metrics(pilot_id: str) -> dict:
         },
         "cost": {
             "avg_relative_cost_variance": round(cost_variance, 6),
+            "p95_relative_cost_variance": round(cost_variance_p95, 6),
+            "modeled_platform_spend_usd": round(platform_spend_usd, 6),
+            "cost_per_planned_task_usd": round(cost_per_planned_task, 6),
             "metering_events": metering_events,
         },
         "trust": {
@@ -143,6 +238,11 @@ def build_metrics(pilot_id: str) -> dict:
             "planned_weekly_tasks": planned_weekly_tasks,
             "profiles": workloads,
         },
+        "complexity": {
+            "avg_workflow_steps": round(avg_workflow_steps, 6),
+            "avg_cross_system_hops": round(avg_cross_system_hops, 6),
+            "high_risk_workload_ratio": round(high_risk_ratio, 6),
+        },
         "roi": {
             "labor_rate_usd_per_hour": float(profile["labor_rate_usd_per_hour"]),
             "platform_cost_per_task_usd": float(profile["platform_cost_per_task_usd"]),
@@ -151,6 +251,7 @@ def build_metrics(pilot_id: str) -> dict:
             "estimated_platform_spend_usd": round(platform_spend_usd, 6),
             "net_roi_usd": round(net_roi_usd, 6),
             "roi_ratio": round(roi_ratio, 6),
+            "margin_proxy_ratio": round(margin_proxy_ratio, 6),
         },
     }
 

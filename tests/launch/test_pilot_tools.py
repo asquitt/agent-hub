@@ -61,5 +61,9 @@ def test_export_pilot_metrics_and_compare_scripts(tmp_path: Path) -> None:
     assert a_payload["metrics"]["connectors"]["coverage_ratio"] >= 0.75
     assert "roi" in a_payload["metrics"]
     assert a_payload["metrics"]["roi"]["net_roi_usd"] > 0
+    assert "complexity" in b_payload["metrics"]
+    assert b_payload["metrics"]["complexity"]["avg_workflow_steps"] >= 5
+    assert b_payload["metrics"]["cost"]["p95_relative_cost_variance"] >= 0
     assert "deltas" in comparison
     assert "net_roi_usd" in comparison["deltas"]
+    assert "p95_relative_cost_variance" in comparison["deltas"]

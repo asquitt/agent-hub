@@ -48,6 +48,16 @@ def main() -> None:
                 - float(_metric(a_metrics, "cost", "avg_relative_cost_variance")),
                 6,
             ),
+            "p95_relative_cost_variance": round(
+                float(_metric(b_metrics, "cost", "p95_relative_cost_variance"))
+                - float(_metric(a_metrics, "cost", "p95_relative_cost_variance")),
+                6,
+            ),
+            "cost_per_planned_task_usd": round(
+                float(_metric(b_metrics, "cost", "cost_per_planned_task_usd"))
+                - float(_metric(a_metrics, "cost", "cost_per_planned_task_usd")),
+                6,
+            ),
             "avg_trust_score": round(
                 float(_metric(b_metrics, "trust", "avg_trust_score")) - float(_metric(a_metrics, "trust", "avg_trust_score")),
                 6,
@@ -58,6 +68,21 @@ def main() -> None:
                 float(_metric(b_metrics, "connectors", "coverage_ratio")) - float(_metric(a_metrics, "connectors", "coverage_ratio")),
                 6,
             ),
+            "complexity_adjusted_success_rate": round(
+                float(_metric(b_metrics, "reliability", "complexity_adjusted_success_rate"))
+                - float(_metric(a_metrics, "reliability", "complexity_adjusted_success_rate")),
+                6,
+            ),
+            "avg_workflow_steps": round(
+                float(_metric(b_metrics, "complexity", "avg_workflow_steps"))
+                - float(_metric(a_metrics, "complexity", "avg_workflow_steps")),
+                6,
+            ),
+            "high_risk_workload_ratio": round(
+                float(_metric(b_metrics, "complexity", "high_risk_workload_ratio"))
+                - float(_metric(a_metrics, "complexity", "high_risk_workload_ratio")),
+                6,
+            ),
             "planned_weekly_tasks": int(_metric(b_metrics, "workloads", "planned_weekly_tasks", default=0))
             - int(_metric(a_metrics, "workloads", "planned_weekly_tasks", default=0)),
             "net_roi_usd": round(
@@ -66,6 +91,10 @@ def main() -> None:
             ),
             "roi_ratio": round(
                 float(_metric(b_metrics, "roi", "roi_ratio")) - float(_metric(a_metrics, "roi", "roi_ratio")),
+                6,
+            ),
+            "margin_proxy_ratio": round(
+                float(_metric(b_metrics, "roi", "margin_proxy_ratio")) - float(_metric(a_metrics, "roi", "margin_proxy_ratio")),
                 6,
             ),
         },
