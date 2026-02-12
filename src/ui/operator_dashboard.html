@@ -6,16 +6,31 @@
     <title>AgentHub Operator Console</title>
     <style>
       :root {
-        --bg-1: #08131f;
-        --bg-2: #13293d;
-        --panel: rgba(255, 255, 255, 0.92);
+        --bg-night: #08131f;
+        --bg-deep: #0f2738;
+        --bg-highlight: #1b4965;
+        --panel: rgba(247, 250, 252, 0.94);
         --ink: #102a43;
         --ink-soft: #486581;
-        --accent: #f86f03;
+        --accent: #ff7b00;
+        --accent-alt: #0e7490;
+        --ok: #15803d;
+        --warn: #b45309;
       }
 
       * {
         box-sizing: border-box;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
 
       body {
@@ -23,24 +38,28 @@
         min-height: 100vh;
         font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
         color: var(--ink);
-        background: radial-gradient(circle at 20% 20%, #19456b 0%, var(--bg-1) 45%, var(--bg-2) 100%);
+        background:
+          radial-gradient(circle at 18% 20%, rgba(27, 73, 101, 0.85) 0%, transparent 38%),
+          radial-gradient(circle at 78% 0%, rgba(255, 123, 0, 0.22) 0%, transparent 30%),
+          linear-gradient(160deg, var(--bg-night) 0%, var(--bg-deep) 55%, #133b57 100%);
       }
 
       .shell {
-        max-width: 1200px;
+        max-width: 1260px;
         margin: 0 auto;
         padding: 20px;
       }
 
       .hero {
-        color: #fff;
-        margin-bottom: 18px;
+        color: #f0f4f8;
+        margin-bottom: 16px;
+        animation: rise 0.32s ease-out;
       }
 
       .hero h1 {
         margin: 0 0 4px;
         font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
-        font-size: 2rem;
+        font-size: 2.1rem;
         letter-spacing: 0.02em;
       }
 
@@ -49,15 +68,17 @@
         color: #d9e2ec;
       }
 
-      .controls {
+      .controls,
+      .replay-controls {
         display: grid;
         gap: 10px;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
         background: var(--panel);
         border-radius: 16px;
         padding: 14px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-        margin-bottom: 16px;
+        box-shadow: 0 12px 28px rgba(2, 12, 23, 0.28);
+        margin-bottom: 12px;
+        animation: rise 0.38s ease-out;
       }
 
       label {
@@ -65,7 +86,7 @@
         flex-direction: column;
         gap: 6px;
         color: var(--ink-soft);
-        font-size: 0.8rem;
+        font-size: 0.76rem;
         text-transform: uppercase;
         letter-spacing: 0.03em;
       }
@@ -83,8 +104,15 @@
         cursor: pointer;
         border: 0;
         color: #fff;
-        background: linear-gradient(120deg, #ef5b0c, var(--accent));
         font-weight: 600;
+      }
+
+      .primary-btn {
+        background: linear-gradient(120deg, #ef5b0c, var(--accent));
+      }
+
+      .secondary-btn {
+        background: linear-gradient(120deg, #0b7285, var(--accent-alt));
       }
 
       .grid {
@@ -98,6 +126,7 @@
         border-radius: 14px;
         padding: 12px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+        animation: rise 0.44s ease-out;
       }
 
       .card h2 {
@@ -107,27 +136,45 @@
 
       pre {
         margin: 0;
-        max-height: 260px;
+        max-height: 300px;
         overflow: auto;
         padding: 10px;
         border-radius: 10px;
         background: #f0f4f8;
-        font-size: 0.78rem;
+        font-size: 0.76rem;
       }
 
       .status {
         color: #f0f4f8;
         min-height: 20px;
-        margin-top: 10px;
+        margin: 10px 0 6px;
         font-size: 0.9rem;
+      }
+
+      .status.ok {
+        color: #bbf7d0;
+      }
+
+      .status.warn {
+        color: #fed7aa;
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          padding: 14px;
+        }
+
+        .hero h1 {
+          font-size: 1.7rem;
+        }
       }
     </style>
   </head>
   <body>
     <main class="shell">
       <section class="hero">
-        <h1>Operator Console</h1>
-        <p>Minimum workflow view for search, detail, eval, trust, and delegation telemetry.</p>
+        <h1>Operator Console v2</h1>
+        <p>Timeline explorer, policy/cost overlay, and replay diagnostics for delegation workflows.</p>
       </section>
 
       <section class="controls">
@@ -150,9 +197,19 @@
           Search Query
           <input id="query" value="normalize records" />
         </label>
-        <button id="loadBtn">Load Dashboard</button>
-        <button id="refreshBtn">Admin Refresh</button>
+        <button class="primary-btn" id="loadBtn">Load Dashboard</button>
+        <button class="secondary-btn" id="refreshBtn">Admin Refresh</button>
       </section>
+
+      <section class="replay-controls">
+        <label>
+          Delegation Replay ID
+          <input id="replayDelegationId" placeholder="delegation id from timeline" />
+        </label>
+        <button class="secondary-btn" id="replayBtn">Load Replay</button>
+      </section>
+
+      <p class="status" id="status"></p>
 
       <section class="grid">
         <article class="card">
@@ -172,12 +229,22 @@
           <pre id="trustOut">{}</pre>
         </article>
         <article class="card">
+          <h2>Policy/Cost Overlay</h2>
+          <pre id="overlayOut">{}</pre>
+        </article>
+        <article class="card">
           <h2>Delegations</h2>
           <pre id="delegOut">[]</pre>
         </article>
+        <article class="card">
+          <h2>Timeline Explorer</h2>
+          <pre id="timelineOut">[]</pre>
+        </article>
+        <article class="card">
+          <h2>Replay</h2>
+          <pre id="replayOut">{}</pre>
+        </article>
       </section>
-
-      <p class="status" id="status"></p>
     </main>
 
     <script>
@@ -186,50 +253,88 @@
       const agentId = document.getElementById("agentId");
       const query = document.getElementById("query");
       const statusOut = document.getElementById("status");
+      const replayDelegationId = document.getElementById("replayDelegationId");
 
       function render(id, payload) {
         document.getElementById(id).textContent = JSON.stringify(payload, null, 2);
       }
 
+      function baseHeaders() {
+        return {
+          "X-API-Key": apiKey.value,
+          "X-Operator-Role": role.value,
+        };
+      }
+
       async function loadDashboard() {
         const params = new URLSearchParams({ agent_id: agentId.value, query: query.value });
         const response = await fetch(`/v1/operator/dashboard?${params}`, {
-          headers: {
-            "X-API-Key": apiKey.value,
-            "X-Operator-Role": role.value,
-          },
+          headers: baseHeaders(),
         });
         const data = await response.json();
         if (!response.ok) {
+          statusOut.className = "status warn";
           statusOut.textContent = `Dashboard load failed: ${JSON.stringify(data)}`;
           return;
         }
+
         render("searchOut", data.sections.search);
         render("agentOut", data.sections.agent_detail);
         render("evalOut", data.sections.eval);
         render("trustOut", data.sections.trust);
+        render("overlayOut", data.sections.policy_cost_overlay);
         render("delegOut", data.sections.delegations);
+        render("timelineOut", data.sections.timeline);
+
+        const firstDelegation = (data.sections.delegations || [])[0];
+        if (firstDelegation && firstDelegation.delegation_id && !replayDelegationId.value) {
+          replayDelegationId.value = firstDelegation.delegation_id;
+        }
+
+        statusOut.className = "status ok";
         statusOut.textContent = `Loaded dashboard as ${data.role}`;
       }
 
       async function refreshOperator() {
         const response = await fetch("/v1/operator/refresh", {
           method: "POST",
-          headers: {
-            "X-API-Key": apiKey.value,
-            "X-Operator-Role": role.value,
-          },
+          headers: baseHeaders(),
         });
         const data = await response.json();
         if (!response.ok) {
+          statusOut.className = "status warn";
           statusOut.textContent = `Refresh failed: ${JSON.stringify(data)}`;
           return;
         }
+        statusOut.className = "status ok";
         statusOut.textContent = `Refresh status: ${data.status} (${data.role})`;
+      }
+
+      async function loadReplay() {
+        if (!replayDelegationId.value) {
+          statusOut.className = "status warn";
+          statusOut.textContent = "Replay requires a delegation id.";
+          return;
+        }
+
+        const response = await fetch(`/v1/operator/replay/${encodeURIComponent(replayDelegationId.value)}`, {
+          headers: baseHeaders(),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          statusOut.className = "status warn";
+          statusOut.textContent = `Replay load failed: ${JSON.stringify(data)}`;
+          return;
+        }
+
+        render("replayOut", data);
+        statusOut.className = "status ok";
+        statusOut.textContent = `Loaded replay for ${data.delegation_id}`;
       }
 
       document.getElementById("loadBtn").addEventListener("click", loadDashboard);
       document.getElementById("refreshBtn").addEventListener("click", refreshOperator);
+      document.getElementById("replayBtn").addEventListener("click", loadReplay);
     </script>
   </body>
 </html>

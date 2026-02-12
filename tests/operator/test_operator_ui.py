@@ -58,6 +58,7 @@ def test_operator_ui_journey_smoke_and_observability_sections() -> None:
         headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s11-operator-delegation"},
     )
     assert create.status_code == 200, create.text
+    delegation_id = create.json()["delegation_id"]
 
     ui = client.get("/operator")
     assert ui.status_code == 200
@@ -71,9 +72,28 @@ def test_operator_ui_journey_smoke_and_observability_sections() -> None:
     assert dashboard.status_code == 200, dashboard.text
     payload = dashboard.json()
     assert payload["role"] == "viewer"
-    assert set(payload["sections"].keys()) == {"search", "agent_detail", "eval", "trust", "delegations"}
+    assert set(payload["sections"].keys()) == {
+        "search",
+        "agent_detail",
+        "eval",
+        "trust",
+        "delegations",
+        "policy_cost_overlay",
+        "timeline",
+    }
     assert isinstance(payload["sections"]["search"]["results"], list)
     assert payload["sections"]["delegations"]
+    assert payload["sections"]["policy_cost_overlay"]["totals"]["delegation_count"] >= 1
+    assert payload["sections"]["timeline"]
+
+    replay = client.get(
+        f"/v1/operator/replay/{delegation_id}",
+        headers={"X-API-Key": "partner-owner-key", "X-Operator-Role": "viewer"},
+    )
+    assert replay.status_code == 200
+    replay_payload = replay.json()
+    assert replay_payload["delegation_id"] == delegation_id
+    assert replay_payload["timeline"]
 
 
 def test_operator_role_boundaries_for_refresh_endpoint() -> None:
