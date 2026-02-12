@@ -29,3 +29,19 @@
 | S14 | D15 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S14.md |
 | S15 | D16 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S15.md |
 | S16 | D18 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S16.md |
+
+## Continuation Tracker (Post-S16)
+| Segment | Deliverable(s) | Status | Last Updated | Owner | Plan Doc Updated? | Evidence File |
+|---|---|---|---|---|---|---|
+| S17 | Runtime Policy Engine v2 | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S17.md |
+| S18 | Capability Search v2 | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S18.md |
+| S19 | Delegation Contracts v2 | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S19.md |
+| S20 | Cost Governance v2 | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S20.md |
+| S21 | Trust Graph v2 | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S21.md |
+| S22 | Federated Execution Gateway | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S22.md |
+| S23 | Registry UX/API Productization | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S23.md |
+| S24 | Lease-to-Install Promotion Flow | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S24.md |
+| S25 | Marketplace Alpha | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S25.md |
+| S26 | Design-Partner Pilot A | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S26.md |
+| S27 | Design-Partner Pilot B | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S27.md |
+| S28 | Gate Review v2 + GA Decision | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S28.md |
