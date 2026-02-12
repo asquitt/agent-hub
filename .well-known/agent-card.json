@@ -1,0 +1,36 @@
+{
+  "id": "agenthub-discovery-service",
+  "name": "AgentHub Discovery Service",
+  "description": "Agent-native capability discovery API with trust and cost-aware ranking.",
+  "version": "0.1.0",
+  "url": "https://api.agenthub.dev/v1/discovery",
+  "skills": [
+    {
+      "id": "search_capabilities",
+      "name": "Search Capabilities",
+      "description": "Semantic and constrained discovery over registered capabilities."
+    },
+    {
+      "id": "check_compatibility",
+      "name": "Check Compatibility",
+      "description": "Input/output schema compatibility analysis for runtime delegation."
+    },
+    {
+      "id": "get_agent_manifest",
+      "name": "Get Agent Manifest",
+      "description": "Fetch manifest details for a target agent and version."
+    }
+  ],
+  "security": {
+    "minimum_trust_score": 0.7,
+    "allowed_sources": ["first_party", "partner"],
+    "policy": {
+      "injection_protection": "strict",
+      "pii_handling": "deny"
+    }
+  },
+  "meta": {
+    "protocols": ["MCP", "A2A", "HTTP"],
+    "service_tier": "agent-native"
+  }
+}

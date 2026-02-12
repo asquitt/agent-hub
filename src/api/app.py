@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -10,12 +12,16 @@ from src.api.manifest_validation import validate_manifest_object
 from src.api.models import (
     AgentRegistrationRequest,
     AgentUpdateRequest,
+    CompatibilityRequest,
+    ContractMatchRequest,
+    DiscoverySearchRequest,
     MatchRequest,
     RecommendRequest,
     SearchRequest,
     TrustUsageEventRequest,
 )
 from src.api.store import STORE
+from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
 from src.trust.scoring import compute_trust_score, record_usage_event
 from tools.capability_search.mock_engine import (
@@ -26,6 +32,7 @@ from tools.capability_search.mock_engine import (
 )
 
 app = FastAPI(title="AgentHub Registry Service", version="0.1.0")
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -235,6 +242,55 @@ def recommend_capabilities(request: RecommendRequest) -> dict[str, Any]:
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/v1/discovery/search")
+def discovery_search(request: DiscoverySearchRequest) -> dict[str, Any]:
+    return DISCOVERY_SERVICE.semantic_discovery(query=request.query, constraints=request.constraints or {})
+
+
+@app.post("/v1/discovery/contract-match")
+def discovery_contract_match(request: ContractMatchRequest) -> dict[str, Any]:
+    constraints = request.constraints or {}
+    return DISCOVERY_SERVICE.contract_match(
+        input_required=[str(x) for x in request.input_schema.get("required", [])],
+        output_required=[str(x) for x in request.output_schema.get("required", [])],
+        max_cost_usd=constraints.get("max_cost_usd"),
+    )
+
+
+@app.post("/v1/discovery/compatibility")
+def discovery_compatibility(request: CompatibilityRequest) -> dict[str, Any]:
+    return DISCOVERY_SERVICE.compatibility_report(my_schema=request.my_schema, agent_id=request.agent_id)
+
+
+@app.get("/v1/discovery/mcp-tools")
+def discovery_mcp_tools() -> dict[str, Any]:
+    return {"tools": mcp_tool_declarations()}
+
+
+@app.get("/v1/discovery/agent-manifest")
+def discovery_agent_manifest(agent_id: str, version: str | None = None) -> dict[str, Any]:
+    try:
+        agent = STORE.get_agent(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="agent not found") from exc
+
+    if version:
+        try:
+            record = STORE.get_version(agent_id, version)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="version not found") from exc
+        return {"agent_id": agent_id, "version": version, "manifest": record.manifest}
+
+    latest = agent.versions[-1]
+    return {"agent_id": agent_id, "version": latest.version, "manifest": latest.manifest}
+
+
+@app.get("/.well-known/agent-card.json")
+def discovery_agent_card() -> dict[str, Any]:
+    card_path = ROOT / ".well-known" / "agent-card.json"
+    return json.loads(card_path.read_text(encoding="utf-8"))
 
 
 @app.get("/v1/agents/{agent_id}/trust")

@@ -89,3 +89,25 @@ class TrustUsageEventRequest(BaseModel):
     success: bool
     cost_usd: float = Field(ge=0)
     latency_ms: float = Field(ge=0)
+
+
+class DiscoverySearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=2)
+    constraints: dict[str, Any] | None = None
+
+
+class ContractMatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any]
+    constraints: dict[str, Any] | None = None
+
+
+class CompatibilityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    my_schema: dict[str, Any]
+    agent_id: str

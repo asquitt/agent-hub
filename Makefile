@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: dev test lint migrate eval trust compose-up compose-down
+.PHONY: dev test lint migrate eval trust discovery-load compose-up compose-down
 
 dev:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -21,6 +21,9 @@ eval:
 
 trust:
 	$(PYTHON) tools/trust/recompute_trust.py --agent-id @demo:invoice-summarizer --owner owner-dev
+
+discovery-load:
+	pytest tests/discovery/test_load_sla.py -q
 
 compose-up:
 	docker compose up --build -d
