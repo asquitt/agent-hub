@@ -85,3 +85,87 @@ def test_anti_gaming_flags_sybil_and_canary() -> None:
     assert "publisher_reputation_gated_for_insufficient_independent_usage" in score["flags"]
     assert "canary_failure_detected" in score["flags"]
     assert score["score"] < 40
+
+
+def test_manipulation_penalty_detects_review_burst_without_usage() -> None:
+    agent_id = "@demo:burst-agent"
+    owner = "owner-burst"
+
+    eval_storage.append_result(
+        {
+            "agent_id": agent_id,
+            "version": "1.0.0",
+            "metrics": {"accuracy": 0.98},
+            "completed_at": _iso_now(),
+        }
+    )
+    trust_storage.append(
+        "publisher_profiles",
+        {"owner": owner, "account_age_days": 120, "publisher_agent_count": 5, "independent_usage_agents": 5},
+    )
+    trust_storage.append(
+        "security_audits",
+        {"agent_id": agent_id, "score": 0.9, "canary_failed": False, "occurred_at": _iso_now()},
+    )
+
+    # Simulate suspicious high-rating review burst from a single reviewer identity.
+    for idx in range(8):
+        trust_storage.append(
+            "reviews",
+            {
+                "agent_id": agent_id,
+                "rating": 5,
+                "verified_usage": True,
+                "reviewer_id": "same-reviewer",
+                "occurred_at": _iso_now(),
+            },
+        )
+
+    score = compute_trust_score(agent_id=agent_id, owner=owner)
+    assert "review_burst_detected" in score["flags"]
+    assert "low_reviewer_diversity_detected" in score["flags"]
+    assert "community_usage_mismatch_penalty_applied" in score["flags"]
+    assert score["breakdown"]["manipulation_penalty"] > 0
+
+
+def test_trust_score_stability_under_adversarial_unverified_reviews() -> None:
+    agent_id = "@demo:stable-agent"
+    owner = "owner-stable"
+
+    trust_storage.append(
+        "publisher_profiles",
+        {"owner": owner, "account_age_days": 200, "publisher_agent_count": 6, "independent_usage_agents": 6},
+    )
+    eval_storage.append_result(
+        {
+            "agent_id": agent_id,
+            "version": "1.0.0",
+            "metrics": {"accuracy": 0.9},
+            "completed_at": _iso_now(),
+        }
+    )
+    trust_storage.append("security_audits", {"agent_id": agent_id, "score": 0.85, "occurred_at": _iso_now()})
+    for idx in range(5):
+        trust_storage.append("usage_events", {"agent_id": agent_id, "success": True, "occurred_at": _iso_now()})
+        trust_storage.append(
+            "reviews",
+            {
+                "agent_id": agent_id,
+                "rating": 4,
+                "verified_usage": True,
+                "reviewer_id": f"legit-{idx}",
+                "occurred_at": _iso_now(),
+            },
+        )
+
+    baseline = compute_trust_score(agent_id=agent_id, owner=owner)["score"]
+
+    # Adversarial input: many unverified 5-star reviews should be ignored.
+    for idx in range(30):
+        trust_storage.append(
+            "reviews",
+            {"agent_id": agent_id, "rating": 5, "verified_usage": False, "reviewer_id": f"bot-{idx}"},
+        )
+
+    after_attack = compute_trust_score(agent_id=agent_id, owner=owner)["score"]
+    assert abs(after_attack - baseline) <= 5

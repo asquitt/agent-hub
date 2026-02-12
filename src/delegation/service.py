@@ -6,8 +6,36 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from src.cost_governance.service import budget_state_from_ratio, record_metering_event
 from src.delegation import storage
 from src.trust.scoring import record_usage_event
+
+DELEGATION_CONTRACT_V2 = {
+    "version": "delegation-contract-v2",
+    "idempotency_required": True,
+    "sla": {
+        "p95_latency_ms_target": 3000,
+        "max_end_to_end_timeout_ms": 8000,
+    },
+    "timeouts_ms": {
+        "discovery": 500,
+        "negotiation": 800,
+        "execution": 5000,
+        "delivery": 800,
+        "settlement": 900,
+    },
+    "retry_matrix": {
+        "transient_network_error": {"max_retries": 2, "backoff_ms": [100, 250], "idempotency_required": True},
+        "delegate_timeout": {"max_retries": 1, "backoff_ms": [200], "idempotency_required": True},
+        "policy_denied": {"max_retries": 0, "backoff_ms": [], "idempotency_required": True},
+        "hard_stop_budget": {"max_retries": 0, "backoff_ms": [], "idempotency_required": True},
+    },
+    "circuit_breakers": {
+        "soft_alert_pct": 80,
+        "reauthorization_pct": 100,
+        "hard_stop_pct": 120,
+    },
+}
 
 
 def _utc_now() -> str:
@@ -20,16 +48,11 @@ def _stage(name: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def _apply_budget_controls(estimated: float, actual: float, auto_reauthorize: bool) -> tuple[str, dict[str, Any]]:
     ratio = actual / max(estimated, 0.000001)
-    controls = {
-        "soft_alert": ratio >= 0.8,
-        "reauthorization_required": ratio >= 1.0,
-        "hard_stop": ratio >= 1.2,
-        "ratio": round(ratio, 4),
-    }
+    controls = budget_state_from_ratio(ratio=ratio, auto_reauthorize=auto_reauthorize)
 
     if controls["hard_stop"]:
         return "hard_stop", controls
-    if controls["reauthorization_required"] and not auto_reauthorize:
+    if controls["state"] == "reauthorization_required":
         return "needs_reauthorization", controls
     return "ok", controls
 
@@ -117,6 +140,17 @@ def create_delegation(
     lifecycle.append(_stage("feedback", {"success": delegation_success, "quality_score": 1.0 if delegation_success else 0.0}))
 
     record_usage_event(agent_id=delegate_agent_id, success=delegation_success, cost_usd=actual_cost, latency_ms=latency_ms)
+    record_metering_event(
+        actor=requester_agent_id,
+        operation="delegation.create",
+        cost_usd=actual_cost,
+        metadata={
+            "delegation_id": delegation_id,
+            "delegate_agent_id": delegate_agent_id,
+            "budget_ratio": controls["ratio"],
+            "budget_state": controls["state"],
+        },
+    )
 
     row = {
         "delegation_id": delegation_id,
@@ -127,6 +161,7 @@ def create_delegation(
         "actual_cost_usd": actual_cost,
         "max_budget_usd": max_budget_usd,
         "status": settlement_status,
+        "contract": DELEGATION_CONTRACT_V2,
         "policy_decision": policy_decision,
         "lifecycle": lifecycle,
         "audit_trail": audit_trail,
@@ -146,6 +181,7 @@ def get_delegation_status(delegation_id: str) -> dict[str, Any] | None:
     return {
         "delegation_id": row["delegation_id"],
         "status": row["status"],
+        "contract": row.get("contract", DELEGATION_CONTRACT_V2),
         "requester_agent_id": row["requester_agent_id"],
         "delegate_agent_id": row["delegate_agent_id"],
         "estimated_cost_usd": row["estimated_cost_usd"],
@@ -155,3 +191,7 @@ def get_delegation_status(delegation_id: str) -> dict[str, Any] | None:
         "lifecycle": row["lifecycle"],
         "audit_trail": row["audit_trail"],
     }
+
+
+def delegation_contract() -> dict[str, Any]:
+    return DELEGATION_CONTRACT_V2

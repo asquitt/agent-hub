@@ -16,6 +16,7 @@ WEIGHTS = {
     "freshness": 0.10,
 }
 INCIDENT_PENALTY_WEIGHT = 0.20
+MANIPULATION_PENALTY_WEIGHT = 0.15
 
 
 @dataclass
@@ -53,6 +54,14 @@ def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
+def _recency_weight(raw_ts: str | None, half_life_days: float = 30.0) -> float:
+    when = _parse_dt(raw_ts)
+    if when is None:
+        return 0.7
+    age_days = max(0.0, (_utc_now() - when).total_seconds() / 86400.0)
+    return _clamp(0.5 ** (age_days / max(half_life_days, 1.0)))
+
+
 def _eval_signal(agent_id: str) -> float:
     latest = latest_result(agent_id)
     if not latest:
@@ -72,8 +81,20 @@ def _usage_signal(agent_id: str) -> tuple[float, int]:
             relevant.append(row)
     if not relevant:
         return 0.5, 0
-    successes = sum(1 for row in relevant if row.get("success") is True)
-    return _clamp(successes / len(relevant)), len(relevant)
+
+    weighted_success = 0.0
+    weight_total = 0.0
+    for row in relevant:
+        recency = _recency_weight(row.get("occurred_at"), half_life_days=20.0)
+        latency_ms = float(row.get("latency_ms", 300.0))
+        cost_usd = float(row.get("cost_usd", 0.1))
+        evidence_quality = _clamp((0.6 * (1.0 - min(latency_ms, 5000.0) / 5000.0)) + (0.4 * (1.0 - min(cost_usd, 5.0) / 5.0)))
+        weight = max(0.05, recency * evidence_quality)
+        weight_total += weight
+        if row.get("success") is True:
+            weighted_success += weight
+
+    return _clamp(weighted_success / max(weight_total, 1e-6)), len(relevant)
 
 
 def _publisher_profile(owner: str) -> dict[str, Any]:
@@ -107,7 +128,31 @@ def _community_signal(agent_id: str) -> tuple[float, list[str]]:
     if not verified:
         return 0.5, flags
 
-    avg = sum(float(r.get("rating", 0.0)) for r in verified) / (5.0 * len(verified))
+    weighted_rating = 0.0
+    weight_total = 0.0
+    reviewers = []
+    for row in verified:
+        rating = _clamp(float(row.get("rating", 0.0)) / 5.0)
+        evidence_quality = _clamp(float(row.get("evidence_quality", 1.0)))
+        reviewer_reputation = _clamp(float(row.get("reviewer_reputation", 1.0)))
+        recency = _recency_weight(row.get("occurred_at"), half_life_days=45.0)
+        weight = max(0.05, evidence_quality * reviewer_reputation * recency)
+        weighted_rating += rating * weight
+        weight_total += weight
+        reviewer = row.get("reviewer_id") or row.get("reviewer")
+        if reviewer:
+            reviewers.append(str(reviewer))
+
+    if reviewers:
+        diversity = len(set(reviewers)) / max(1, len(reviewers))
+        if len(reviewers) >= 5 and diversity < 0.4:
+            flags.append("low_reviewer_diversity_detected")
+
+    recent_verified = [r for r in verified if _recency_weight(r.get("occurred_at"), half_life_days=1.0) > 0.7]
+    if len(recent_verified) >= 5 and all(float(r.get("rating", 0.0)) >= 4.5 for r in recent_verified):
+        flags.append("review_burst_detected")
+
+    avg = weighted_rating / max(weight_total, 1e-6)
     return _clamp(avg), flags
 
 
@@ -119,7 +164,10 @@ def _security_signal(agent_id: str) -> tuple[float, list[str]]:
 
     rows.sort(key=lambda r: r.get("occurred_at", ""), reverse=True)
     row = rows[0]
-    signal = _clamp(float(row.get("score", 0.7)))
+    base_score = _clamp(float(row.get("score", 0.7)))
+    evidence_quality = _clamp(float(row.get("evidence_quality", 1.0)))
+    recency = _recency_weight(row.get("occurred_at"), half_life_days=60.0)
+    signal = _clamp(base_score * ((0.75 * evidence_quality) + (0.25 * recency)))
 
     if row.get("canary_failed") is True:
         signal = min(signal, 0.3)
@@ -151,6 +199,23 @@ def _incident_penalty(agent_id: str) -> float:
             continue
         total += severity.get(str(row.get("severity", "medium")).lower(), 0.5)
     return _clamp(total / max(1, len(rows)))
+
+
+def _manipulation_penalty(
+    *,
+    community_signal: float,
+    usage_events_30d: int,
+    flags: list[str],
+) -> float:
+    penalty = 0.0
+    if community_signal >= 0.9 and usage_events_30d < 3:
+        penalty += 0.35
+        flags.append("community_usage_mismatch_penalty_applied")
+    if "low_reviewer_diversity_detected" in flags:
+        penalty += 0.2
+    if "review_burst_detected" in flags:
+        penalty += 0.2
+    return _clamp(penalty)
 
 
 def _apply_sybil_resistance(raw_score: float, owner: str, flags: list[str]) -> float:
@@ -185,6 +250,11 @@ def compute_trust_score(agent_id: str, owner: str) -> dict[str, Any]:
     flags.extend(publisher_flags)
     flags.extend(community_flags)
     flags.extend(security_flags)
+    manipulation_penalty = _manipulation_penalty(
+        community_signal=community_signal,
+        usage_events_30d=usage_events,
+        flags=flags,
+    )
 
     weighted = (
         WEIGHTS["eval_pass_rate"] * eval_signal
@@ -194,6 +264,7 @@ def compute_trust_score(agent_id: str, owner: str) -> dict[str, Any]:
         + WEIGHTS["security_audit"] * security_signal
         + WEIGHTS["freshness"] * freshness_signal
         - INCIDENT_PENALTY_WEIGHT * incident_penalty
+        - MANIPULATION_PENALTY_WEIGHT * manipulation_penalty
     )
 
     raw_score = _clamp(weighted) * 100
@@ -210,6 +281,7 @@ def compute_trust_score(agent_id: str, owner: str) -> dict[str, Any]:
         "security_audit": round(security_signal, 4),
         "freshness": round(freshness_signal, 4),
         "incident_penalty": round(incident_penalty, 4),
+        "manipulation_penalty": round(manipulation_penalty, 4),
         "usage_events_30d": usage_events,
     }
 
@@ -223,6 +295,7 @@ def compute_trust_score(agent_id: str, owner: str) -> dict[str, Any]:
         "flags": sorted(set(flags)),
         "weights": WEIGHTS,
         "incident_penalty_weight": INCIDENT_PENALTY_WEIGHT,
+        "manipulation_penalty_weight": MANIPULATION_PENALTY_WEIGHT,
         "computed_at": _utc_now().isoformat(),
     }
     storage.upsert_score(score_row)

@@ -312,3 +312,35 @@ def test_trust_endpoint_recalculates_on_usage_and_eval(client: TestClient) -> No
     after_eval = client.get(f"/v1/agents/{agent_id}/trust")
     assert after_eval.status_code == 200
     assert after_eval.json()["breakdown"]["eval_pass_rate"] >= 0.9
+
+
+def test_fork_and_compare_version_workflow(client: TestClient) -> None:
+    agent_id = register_default_agent(client, version="1.0.0")
+    manifest = load_yaml(VALID_MANIFEST_PATH)
+    run_tier1_eval(manifest=manifest, agent_id=agent_id, version="1.0.0")
+
+    updated_manifest = load_yaml(VALID_MANIFEST_PATH)
+    updated_manifest["identity"]["version"] = "1.1.0"
+    updated_manifest["capabilities"][0]["description"] = "Updated capability behavior for compare flow."
+    update = client.put(
+        f"/v1/agents/{agent_id}",
+        json={"manifest": updated_manifest},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s23-update"},
+    )
+    assert update.status_code == 200
+
+    run_tier1_eval(manifest=updated_manifest, agent_id=agent_id, version="1.1.0")
+
+    compare = client.get(f"/v1/agents/{agent_id}/compare/1.0.0/1.1.0", headers={"X-API-Key": "dev-owner-key"})
+    assert compare.status_code == 200
+    payload = compare.json()
+    assert "behavioral_diff" in payload
+    assert "eval_delta" in payload
+
+    fork = client.post(
+        f"/v1/agents/{agent_id}/fork",
+        json={"namespace": "@forks23", "new_slug": "invoice-summarizer-fork"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s23-fork"},
+    )
+    assert fork.status_code == 200
+    assert fork.json()["forked_agent"]["namespace"] == "@forks23"

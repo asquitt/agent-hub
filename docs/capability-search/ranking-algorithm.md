@@ -103,3 +103,15 @@ function search(request, candidates):
 - Policy filters run before vector similarity ranking to avoid unsafe candidates surfacing.
 - Ranking is deterministic for identical input + candidate snapshot.
 - Full score breakdown is returned for auditability.
+
+## S18 Upgrade Notes (Capability Search v2)
+- Search now emits an explainability block:
+  - `why_selected`: semantic + policy + ranking reasons for each returned candidate.
+  - `why_rejected`: deterministic policy and semantic rejection reasons for non-returned candidates.
+- Added `ranking_mode` support:
+  - `baseline`: D02 overlap-based relevance.
+  - `v2` (default): weighted semantic relevance with capability-name emphasis and synonym support.
+- Benchmark harness:
+  - Dataset: `tools/capability_search/benchmark_dataset_s18.json`
+  - Script: `tools/capability_search/benchmark.py`
+  - Output artifact: `data/capability_search/s18_benchmark_results.json`

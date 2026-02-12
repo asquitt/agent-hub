@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from fastapi.responses import HTMLResponse
 from src.api.auth import require_api_key
 from src.api.manifest_validation import validate_manifest_object
 from src.api.models import (
+    AgentForkRequest,
     AgentRegistrationRequest,
     AgentUpdateRequest,
     BillingInvoiceGenerateRequest,
@@ -21,11 +23,16 @@ from src.api.models import (
     ContractMatchRequest,
     DelegationRequest,
     DiscoverySearchRequest,
+    FederatedExecutionRequest,
     KnowledgeContributeRequest,
     KnowledgeValidationRequest,
     LeaseCreateRequest,
     LeasePromoteRequest,
+    LeaseRollbackRequest,
     MatchRequest,
+    MarketplaceListingCreateRequest,
+    MarketplacePurchaseRequest,
+    MarketplaceSettlementRequest,
     RecommendRequest,
     SearchRequest,
     TrustUsageEventRequest,
@@ -39,12 +46,15 @@ from src.billing import (
     record_usage_event as billing_record_usage_event,
     refund_invoice,
 )
-from src.delegation.service import create_delegation, get_delegation_status
+from src.cost_governance.service import list_metering_events, record_metering_event
+from src.delegation.service import create_delegation, delegation_contract, get_delegation_status
 from src.delegation.storage import load_records
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
+from src.federation import execute_federated, list_federation_audit
 from src.knowledge import contribute_entry, query_entries, validate_entry
-from src.lease import create_lease, get_lease, promote_lease
+from src.lease import create_lease, get_lease, promote_lease, rollback_install
+from src.marketplace import create_listing, get_contract, list_listings, purchase_listing, settle_contract
 from src.policy import evaluate_delegation_policy, evaluate_install_promotion_policy
 from src.trust.scoring import compute_trust_score, record_usage_event as trust_record_usage_event
 from src.versioning import compute_behavioral_diff
@@ -63,6 +73,7 @@ OPERATOR_ROLE_BY_OWNER = {
     "owner-platform": "admin",
     "owner-partner": "viewer",
 }
+DELEGATION_IDEMPOTENCY_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -76,6 +87,11 @@ def _extract_required_fields(schema: dict[str, Any]) -> list[str]:
     if not isinstance(required, list):
         return []
     return [str(item) for item in required]
+
+
+def _request_hash(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _serialize_agent(agent) -> dict[str, Any]:
@@ -144,6 +160,12 @@ def healthz() -> dict[str, str]:
 @app.get("/operator", response_class=HTMLResponse)
 def operator_console() -> str:
     ui_path = ROOT / "src" / "ui" / "operator_dashboard.html"
+    return ui_path.read_text(encoding="utf-8")
+
+
+@app.get("/operator/versioning", response_class=HTMLResponse)
+def operator_versioning_console() -> str:
+    ui_path = ROOT / "src" / "ui" / "version_compare.html"
     return ui_path.read_text(encoding="utf-8")
 
 
@@ -246,6 +268,73 @@ def get_behavioral_diff(agent_id: str, base_version: str, target_version: str) -
     }
 
 
+@app.get("/v1/agents/{agent_id}/compare/{base_version}/{target_version}")
+def compare_versions(agent_id: str, base_version: str, target_version: str) -> dict[str, Any]:
+    try:
+        base = STORE.get_version(agent_id, base_version)
+        target = STORE.get_version(agent_id, target_version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="version not found") from exc
+
+    base_eval = (latest_result(agent_id=agent_id, version=base_version) or {}).get("metrics", {})
+    target_eval = (latest_result(agent_id=agent_id, version=target_version) or {}).get("metrics", {})
+    metric_keys = sorted(set(base_eval.keys()).union(target_eval.keys()))
+    eval_delta = {
+        key: round(float(target_eval.get(key, 0.0)) - float(base_eval.get(key, 0.0)), 6)
+        for key in metric_keys
+        if isinstance(base_eval.get(key, 0.0), (int, float)) and isinstance(target_eval.get(key, 0.0), (int, float))
+    }
+
+    return {
+        "agent_id": agent_id,
+        "base_version": base_version,
+        "target_version": target_version,
+        "behavioral_diff": compute_behavioral_diff(base.manifest, target.manifest),
+        "eval_base": base_eval,
+        "eval_target": target_eval,
+        "eval_delta": eval_delta,
+    }
+
+
+@app.post("/v1/agents/{agent_id}/fork")
+def fork_agent(
+    agent_id: str,
+    request: AgentForkRequest,
+    owner: str = Depends(require_api_key),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    key = _require_idempotency_key(idempotency_key)
+    existing = STORE.idempotency_cache.get((owner, key))
+    if existing:
+        return copy.deepcopy(existing)
+
+    try:
+        source = STORE.get_agent(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="agent not found") from exc
+
+    latest_manifest = copy.deepcopy(source.versions[-1].manifest)
+    latest_manifest["identity"]["id"] = request.new_slug
+
+    errors = validate_manifest_object(latest_manifest)
+    if errors:
+        raise HTTPException(status_code=422, detail={"message": "manifest validation failed", "errors": errors})
+
+    try:
+        STORE.reserve_namespace(request.namespace, owner)
+        forked = STORE.register_agent(request.namespace, latest_manifest, owner)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    response = {
+        "source_agent_id": agent_id,
+        "forked_agent": _serialize_agent(forked),
+    }
+    return _cache_idempotent(owner, key, response)
+
+
 @app.get("/v1/namespaces/{namespace}")
 def list_namespace_agents(namespace: str) -> dict[str, Any]:
     ns = namespace if namespace.startswith("@") else f"@{namespace}"
@@ -259,12 +348,19 @@ def list_namespace_agents(namespace: str) -> dict[str, Any]:
 @app.post("/v1/capabilities/search")
 def search_capabilities(request: SearchRequest) -> dict[str, Any]:
     try:
-        return mock_search_capabilities(
+        result = mock_search_capabilities(
             query=request.query,
             filters=request.filters.model_dump(exclude_none=True) if request.filters else None,
             pagination=request.pagination.model_dump(exclude_none=True) if request.pagination else None,
             ranking_weights=request.ranking_weights,
         )
+        record_metering_event(
+            actor="runtime.search",
+            operation="capabilities.search",
+            cost_usd=max(0.0002, 0.00005 * len(result.get("data", []))),
+            metadata={"query": request.query, "result_count": len(result.get("data", []))},
+        )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -272,13 +368,20 @@ def search_capabilities(request: SearchRequest) -> dict[str, Any]:
 @app.post("/v1/capabilities/match")
 def match_capabilities(request: MatchRequest) -> dict[str, Any]:
     try:
-        return mock_match_capabilities(
+        result = mock_match_capabilities(
             input_required=_extract_required_fields(request.input_schema),
             output_required=_extract_required_fields(request.output_schema),
             compatibility_mode=request.filters.compatibility_mode if request.filters else "backward_compatible",
             filters=request.filters.model_dump(exclude_none=True) if request.filters else None,
             pagination=request.pagination.model_dump(exclude_none=True) if request.pagination else None,
         )
+        record_metering_event(
+            actor="runtime.search",
+            operation="capabilities.match",
+            cost_usd=max(0.00015, 0.00005 * len(result.get("data", []))),
+            metadata={"result_count": len(result.get("data", []))},
+        )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -316,13 +419,20 @@ def list_agent_capabilities(agent_id: str) -> dict[str, Any]:
 @app.post("/v1/capabilities/recommend")
 def recommend_capabilities(request: RecommendRequest) -> dict[str, Any]:
     try:
-        return mock_recommend_capabilities(
+        result = mock_recommend_capabilities(
             task_description=request.task_description,
             current_capability_ids=request.current_capability_ids,
             filters=request.filters.model_dump(exclude_none=True) if request.filters else None,
             pagination=request.pagination.model_dump(exclude_none=True) if request.pagination else None,
             ranking_weights=request.ranking_weights,
         )
+        record_metering_event(
+            actor="runtime.search",
+            operation="capabilities.recommend",
+            cost_usd=max(0.0002, 0.00005 * len(result.get("data", []))),
+            metadata={"result_count": len(result.get("data", []))},
+        )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -480,6 +590,12 @@ def post_capability_promote(
         signature=request.signature,
     )
     if not policy_decision["allowed"]:
+        record_metering_event(
+            actor=owner,
+            operation="capabilities.lease_promote_denied",
+            cost_usd=0.0,
+            metadata={"lease_id": lease_id, "violations": policy_decision["violated_constraints"]},
+        )
         raise HTTPException(
             status_code=403,
             detail={
@@ -495,6 +611,14 @@ def post_capability_promote(
             signature=request.signature,
             attestation_hash=request.attestation_hash,
             policy_approved=request.policy_approved,
+            approval_ticket=request.approval_ticket,
+            compatibility_verified=request.compatibility_verified,
+        )
+        record_metering_event(
+            actor=owner,
+            operation="capabilities.lease_promote",
+            cost_usd=0.0003,
+            metadata={"lease_id": lease_id, "status": promoted.get("status")},
         )
         promoted["policy_decision"] = policy_decision
         return promoted
@@ -504,6 +628,27 @@ def post_capability_promote(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/v1/capabilities/installs/{install_id}/rollback")
+def post_install_rollback(
+    install_id: str,
+    request: LeaseRollbackRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        rolled_back = rollback_install(install_id=install_id, owner=owner, reason=request.reason)
+        record_metering_event(
+            actor=owner,
+            operation="capabilities.install_rollback",
+            cost_usd=0.0001,
+            metadata={"install_id": install_id},
+        )
+        return rolled_back
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="install not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @app.post("/v1/knowledge/contribute")
@@ -619,8 +764,95 @@ def post_billing_refund(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/v1/marketplace/listings")
+def post_marketplace_listing(
+    request: MarketplaceListingCreateRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        listing = create_listing(
+            owner=owner,
+            capability_ref=request.capability_ref,
+            unit_price_usd=request.unit_price_usd,
+            max_units_per_purchase=request.max_units_per_purchase,
+            policy_purchase_limit_usd=request.policy_purchase_limit_usd,
+        )
+        record_metering_event(actor=owner, operation="marketplace.listing_create", cost_usd=0.0, metadata={"listing_id": listing["listing_id"]})
+        return listing
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/v1/marketplace/listings")
+def get_marketplace_listings(_owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    return {"data": list_listings()}
+
+
+@app.post("/v1/marketplace/purchase")
+def post_marketplace_purchase(
+    request: MarketplacePurchaseRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        contract = purchase_listing(
+            buyer=owner,
+            listing_id=request.listing_id,
+            units=request.units,
+            max_total_usd=request.max_total_usd,
+            policy_approved=request.policy_approved,
+        )
+        record_metering_event(actor=owner, operation="marketplace.purchase", cost_usd=contract["estimated_total_usd"], metadata={"contract_id": contract["contract_id"]})
+        return contract
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="listing not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/v1/marketplace/contracts/{contract_id}")
+def get_marketplace_contract(contract_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        return get_contract(contract_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="contract not found") from exc
+
+
+@app.post("/v1/marketplace/contracts/{contract_id}/settle")
+def post_marketplace_settlement(
+    contract_id: str,
+    request: MarketplaceSettlementRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        settled = settle_contract(contract_id=contract_id, actor=owner, units_used=request.units_used)
+        record_metering_event(actor=owner, operation="marketplace.settle", cost_usd=0.0, metadata={"contract_id": contract_id})
+        return settled
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="contract not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/v1/delegations")
-def post_delegation(request: DelegationRequest, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+def post_delegation(
+    request: DelegationRequest,
+    owner: str = Depends(require_api_key),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    key = _require_idempotency_key(idempotency_key)
+    request_payload = request.model_dump(mode="json")
+    request_digest = _request_hash(request_payload)
+    cache_key = (owner, key)
+    existing = DELEGATION_IDEMPOTENCY_CACHE.get(cache_key)
+    if existing:
+        if existing["request_hash"] != request_digest:
+            raise HTTPException(status_code=409, detail="idempotency key replay with different request payload")
+        return copy.deepcopy(existing["response"])
+
     delegate_trust_score, delegate_permissions = _delegate_policy_signals(request.delegate_agent_id)
     policy_decision = evaluate_delegation_policy(
         actor="runtime.delegation",
@@ -658,13 +890,60 @@ def post_delegation(request: DelegationRequest, _owner: str = Depends(require_ap
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {
+    response = {
+        "contract": delegation_contract(),
         "delegation_id": row["delegation_id"],
         "status": row["status"],
         "budget_controls": row["budget_controls"],
         "policy_decision": policy_decision,
         "lifecycle": row["lifecycle"],
     }
+    DELEGATION_IDEMPOTENCY_CACHE[cache_key] = {
+        "request_hash": request_digest,
+        "response": copy.deepcopy(response),
+    }
+    return response
+
+
+@app.get("/v1/delegations/contract")
+def get_delegation_contract_endpoint(_owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    return delegation_contract()
+
+
+@app.get("/v1/cost/metering")
+def get_cost_metering_endpoint(limit: int = Query(default=50, ge=1, le=500), _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    return {"data": list_metering_events(limit=limit)}
+
+
+@app.post("/v1/federation/execute")
+def post_federated_execute(request: FederatedExecutionRequest, owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        result = execute_federated(
+            actor=owner,
+            domain_id=request.domain_id,
+            domain_token=request.domain_token,
+            task_spec=request.task_spec,
+            payload=request.payload,
+            policy_context=request.policy_context,
+            estimated_cost_usd=request.estimated_cost_usd,
+            max_budget_usd=request.max_budget_usd,
+        )
+        record_metering_event(
+            actor=owner,
+            operation="federation.execute",
+            cost_usd=request.estimated_cost_usd,
+            metadata={"domain_id": request.domain_id},
+        )
+        return result
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/v1/federation/audit")
+def get_federation_audit(limit: int = Query(default=50, ge=1, le=500), _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    return {"data": list_federation_audit(limit=limit)}
 
 
 @app.get("/v1/delegations/{delegation_id}/status")

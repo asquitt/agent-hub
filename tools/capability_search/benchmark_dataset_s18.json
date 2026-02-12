@@ -1,0 +1,47 @@
+[
+  {
+    "query": "extract invoice totals",
+    "filters": {
+      "min_trust_score": 0.8,
+      "max_cost_usd": 0.05
+    },
+    "relevant_capability_ids": ["summarize-invoice", "normalize-receipt"]
+  },
+  {
+    "query": "classify support ticket severity",
+    "filters": {
+      "min_trust_score": 0.8,
+      "max_latency_ms": 120
+    },
+    "relevant_capability_ids": ["classify-ticket"]
+  },
+  {
+    "query": "resolve customer incidents automatically",
+    "filters": {
+      "min_trust_score": 0.8
+    },
+    "relevant_capability_ids": ["apply-remediation", "classify-ticket"]
+  },
+  {
+    "query": "policy screening for onboarding",
+    "filters": {
+      "min_trust_score": 0.8
+    },
+    "relevant_capability_ids": ["run-policy-screening", "validate-identity"]
+  },
+  {
+    "query": "billing account setup for onboarding",
+    "filters": {
+      "min_trust_score": 0.75
+    },
+    "relevant_capability_ids": ["provision-billing"]
+  },
+  {
+    "query": "execute approved outbound payments",
+    "filters": {
+      "required_permissions": ["payments.execute"],
+      "min_trust_score": 0.9
+    },
+    "relevant_capability_ids": ["execute-payment"]
+  }
+]

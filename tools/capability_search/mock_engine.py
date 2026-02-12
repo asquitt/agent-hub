@@ -14,6 +14,14 @@ DEFAULT_WEIGHTS = {
     "latency": 0.10,
     "freshness": 0.10,
 }
+KEYWORD_SYNONYMS = {
+    "invoice": {"bill", "billing"},
+    "billing": {"invoice", "bill"},
+    "ticket": {"incident", "case"},
+    "incident": {"ticket", "case"},
+    "classify": {"triage", "categorize"},
+    "payment": {"payout", "pay"},
+}
 
 
 def load_mock_capabilities() -> list[dict[str, Any]]:
@@ -76,28 +84,122 @@ def _validate_filters(filters: dict[str, Any] | None) -> None:
             raise ValueError("min_trust_score must be in [0,1]")
 
 
-def _passes_policy_filters(candidate: dict[str, Any], filters: dict[str, Any] | None) -> bool:
+def _policy_rejection_reasons(candidate: dict[str, Any], filters: dict[str, Any] | None) -> list[dict[str, Any]]:
+    reasons: list[dict[str, Any]] = []
     if not filters:
-        return True
+        return reasons
 
     if "min_trust_score" in filters and candidate["trust_score"] < filters["min_trust_score"]:
-        return False
+        reasons.append(
+            {
+                "code": "policy.min_trust_score",
+                "detail": "candidate trust score below minimum threshold",
+                "expected": filters["min_trust_score"],
+                "observed": candidate["trust_score"],
+            }
+        )
 
     if "max_latency_ms" in filters and candidate["p95_latency_ms"] > filters["max_latency_ms"]:
-        return False
+        reasons.append(
+            {
+                "code": "policy.max_latency_ms",
+                "detail": "candidate latency exceeds allowed maximum",
+                "expected": filters["max_latency_ms"],
+                "observed": candidate["p95_latency_ms"],
+            }
+        )
 
     if "max_cost_usd" in filters and candidate["estimated_cost_usd"] > filters["max_cost_usd"]:
-        return False
+        reasons.append(
+            {
+                "code": "policy.max_cost_usd",
+                "detail": "candidate estimated cost exceeds allowed maximum",
+                "expected": filters["max_cost_usd"],
+                "observed": candidate["estimated_cost_usd"],
+            }
+        )
 
     required_permissions = set(filters.get("required_permissions", []))
     if required_permissions and not required_permissions.issubset(set(candidate.get("permissions", []))):
-        return False
+        reasons.append(
+            {
+                "code": "policy.required_permissions",
+                "detail": "candidate missing one or more required permissions",
+                "expected": sorted(required_permissions),
+                "observed": sorted(set(candidate.get("permissions", []))),
+            }
+        )
 
     allowed_protocols = set(filters.get("allowed_protocols", []))
     if allowed_protocols and not allowed_protocols.intersection(set(candidate.get("protocols", []))):
-        return False
+        reasons.append(
+            {
+                "code": "policy.allowed_protocols",
+                "detail": "candidate does not support any allowed protocol",
+                "expected": sorted(allowed_protocols),
+                "observed": sorted(set(candidate.get("protocols", []))),
+            }
+        )
 
-    return True
+    return reasons
+
+
+def _passes_policy_filters(candidate: dict[str, Any], filters: dict[str, Any] | None) -> bool:
+    return len(_policy_rejection_reasons(candidate, filters)) == 0
+
+
+def _semantic_relevance(query_tokens: set[str], candidate: dict[str, Any], ranking_mode: str) -> tuple[float, list[dict[str, Any]]]:
+    name_tokens = _tokenize(candidate["capability_name"])
+    description_tokens = _tokenize(candidate["description"])
+    tag_tokens = {token.lower() for token in candidate.get("tags", [])}
+    corpus_tokens = name_tokens | description_tokens | tag_tokens
+    overlap_tokens = query_tokens.intersection(corpus_tokens)
+
+    if not query_tokens:
+        return 0.0, [{"type": "semantic", "detail": "query is empty after tokenization"}]
+
+    # Baseline: simple overlap ratio used for D02.
+    if ranking_mode == "baseline":
+        baseline = len(overlap_tokens) / max(1, len(query_tokens))
+        if baseline <= 0:
+            return 0.0, [{"type": "semantic", "detail": "no token overlap between query and candidate"}]
+        return min(1.0, baseline), [
+            {"type": "semantic", "detail": f"{len(overlap_tokens)} token(s) overlapped with query"},
+        ]
+
+    # S18 v2: weighted semantic scoring with phrase/name emphasis and synonym support.
+    synonym_hits = 0
+    for token in query_tokens:
+        synonyms = KEYWORD_SYNONYMS.get(token, set())
+        if synonyms.intersection(corpus_tokens):
+            synonym_hits += 1
+
+    name_overlap = len(query_tokens.intersection(name_tokens))
+    desc_overlap = len(query_tokens.intersection(description_tokens))
+    tag_overlap = len(query_tokens.intersection(tag_tokens))
+
+    base = (
+        (2.0 * name_overlap)
+        + (1.2 * tag_overlap)
+        + (1.0 * desc_overlap)
+        + (0.6 * synonym_hits)
+    ) / max(1.0, 2.0 * len(query_tokens))
+
+    phrase_bonus = 0.0
+    query_phrase = " ".join(sorted(query_tokens))
+    candidate_phrase = " ".join(sorted(name_tokens))
+    if query_phrase and query_phrase == candidate_phrase:
+        phrase_bonus = 0.1
+
+    relevance = min(1.0, base + phrase_bonus)
+    if relevance <= 0:
+        return 0.0, [{"type": "semantic", "detail": "candidate failed weighted semantic scoring"}]
+
+    return relevance, [
+        {"type": "semantic", "detail": f"weighted relevance score {relevance:.3f}"},
+        {"type": "semantic", "detail": f"name_overlap={name_overlap}, tag_overlap={tag_overlap}, desc_overlap={desc_overlap}"},
+        {"type": "semantic", "detail": f"synonym_hits={synonym_hits}"},
+    ]
 
 
 def _default_pagination(pagination: dict[str, Any] | None) -> dict[str, Any]:
@@ -231,29 +333,90 @@ def search_capabilities(
     filters: dict[str, Any] | None = None,
     pagination: dict[str, Any] | None = None,
     ranking_weights: dict[str, float] | None = None,
+    ranking_mode: str = "v2",
 ) -> dict[str, Any]:
+    if ranking_mode not in {"baseline", "v2"}:
+        raise ValueError("ranking_mode must be baseline or v2")
+
     _validate_filters(filters)
     weights = _normalize_weights(ranking_weights)
     query_tokens = _tokenize(query)
 
     candidates = []
     relevance_scores: dict[str, float] = {}
+    selected_reasons: dict[str, list[dict[str, Any]]] = {}
+    rejected: list[dict[str, Any]] = []
     for candidate in load_mock_capabilities():
-        if not _passes_policy_filters(candidate, filters):
+        rejections = _policy_rejection_reasons(candidate, filters)
+        if rejections:
+            rejected.append(
+                {
+                    "agent_id": candidate["agent_id"],
+                    "capability_id": candidate["capability_id"],
+                    "reasons": rejections,
+                }
+            )
             continue
 
-        corpus = " ".join([candidate["capability_name"], candidate["description"], *candidate.get("tags", [])])
-        corpus_tokens = _tokenize(corpus)
-        overlap = len(query_tokens.intersection(corpus_tokens))
-        relevance = overlap / max(1, len(query_tokens))
+        relevance, reasons = _semantic_relevance(query_tokens, candidate, ranking_mode)
         if relevance <= 0:
+            rejected.append(
+                {
+                    "agent_id": candidate["agent_id"],
+                    "capability_id": candidate["capability_id"],
+                    "reasons": reasons,
+                }
+            )
             continue
 
         candidates.append(candidate)
         relevance_scores[candidate["capability_id"]] = min(1.0, relevance)
+        selected_reasons[candidate["capability_id"]] = reasons
 
     scored = _build_scored_results(candidates, relevance_scores, weights)
-    return _apply_pagination(scored, pagination)
+    if ranking_mode == "v2":
+        for row in scored:
+            row["search_v2_score"] = round(
+                (0.75 * row["composite_score"]) + (0.25 * row["score_breakdown"]["capability_relevance"]),
+                6,
+            )
+        scored.sort(
+            key=lambda r: (
+                -r["search_v2_score"],
+                -r["trust_score"],
+                r["estimated_cost_usd"],
+                r["p95_latency_ms"],
+                r["freshness_days"],
+                f"{r['agent_id']}/{r['capability_id']}",
+            )
+        )
+
+    paged = _apply_pagination(scored, pagination)
+
+    why_selected = []
+    for row in paged["data"]:
+        cid = row["capability_id"]
+        reasons = list(selected_reasons.get(cid, []))
+        reasons.append({"type": "policy", "detail": "candidate passed policy-first constraints"})
+        reasons.append({"type": "ranking", "detail": f"composite_score={row['composite_score']}"})
+        if ranking_mode == "v2":
+            reasons.append({"type": "ranking", "detail": f"search_v2_score={row['search_v2_score']}"})
+        row["why_selected"] = reasons
+        why_selected.append(
+            {
+                "agent_id": row["agent_id"],
+                "capability_id": cid,
+                "reasons": reasons,
+            }
+        )
+
+    rejected.sort(key=lambda r: (r["agent_id"], r["capability_id"]))
+    paged["explainability"] = {
+        "why_selected": why_selected,
+        "why_rejected": rejected,
+        "ranking_mode": ranking_mode,
+    }
+    return paged
 
 
 def match_capabilities(

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.app import app
+from src.api.app import DELEGATION_IDEMPOTENCY_CACHE, app
 
 
 @pytest.fixture(autouse=True)
@@ -27,6 +27,7 @@ def isolate_delegation_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("AGENTHUB_DELEGATION_RECORDS_PATH", str(records))
     monkeypatch.setenv("AGENTHUB_DELEGATION_BALANCES_PATH", str(balances))
     monkeypatch.setenv("AGENTHUB_TRUST_USAGE_EVENTS_PATH", str(tmp_path / "usage_events.json"))
+    DELEGATION_IDEMPOTENCY_CACHE.clear()
 
 
 def client() -> TestClient:
@@ -45,7 +46,7 @@ def test_full_delegation_lifecycle_and_audit_trail() -> None:
                 "max_budget_usd": 20,
                 "simulated_actual_cost_usd": 8,
             },
-            headers={"X-API-Key": "dev-owner-key"},
+            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-lifecycle-1"},
         )
         assert response.status_code == 200
         payload = response.json()
@@ -74,7 +75,7 @@ def test_budget_hard_ceiling_rejects_request() -> None:
                 "estimated_cost_usd": 50,
                 "max_budget_usd": 20,
             },
-            headers={"X-API-Key": "dev-owner-key"},
+            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-budget-hardceiling-1"},
         )
         assert response.status_code == 400
         detail = response.json()["detail"]
@@ -95,7 +96,7 @@ def test_circuit_breakers_100_and_120_thresholds() -> None:
                 "simulated_actual_cost_usd": 10,
                 "auto_reauthorize": False,
             },
-            headers={"X-API-Key": "dev-owner-key"},
+            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-circuit-100"},
         )
         assert at_100.status_code == 200
         assert at_100.json()["status"] == "pending_reauthorization"
@@ -111,7 +112,7 @@ def test_circuit_breakers_100_and_120_thresholds() -> None:
                 "max_budget_usd": 20,
                 "simulated_actual_cost_usd": 12.5,
             },
-            headers={"X-API-Key": "dev-owner-key"},
+            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-circuit-120"},
         )
         assert at_120.status_code == 200
         assert at_120.json()["status"] == "failed_hard_stop"
@@ -131,10 +132,67 @@ def test_policy_boundary_enforces_trust_and_permissions() -> None:
                 "min_delegate_trust_score": 0.9,
                 "required_permissions": ["payments.execute"],
             },
-            headers={"X-API-Key": "dev-owner-key"},
+            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-policy-boundary-1"},
         )
         assert blocked.status_code == 403
         detail = blocked.json()["detail"]
         assert detail["policy_decision"]["decision"] == "deny"
         assert "trust.floor_not_met" in detail["policy_decision"]["violated_constraints"]
         assert "permissions.missing_required" in detail["policy_decision"]["violated_constraints"]
+
+
+def test_delegation_idempotent_replay_returns_same_response() -> None:
+    payload = {
+        "requester_agent_id": "@demo:invoice-summarizer",
+        "delegate_agent_id": "@demo:support-orchestrator",
+        "task_spec": "Classify and remediate ticket",
+        "estimated_cost_usd": 10,
+        "max_budget_usd": 20,
+        "simulated_actual_cost_usd": 8,
+    }
+    headers = {"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-replay-1"}
+    with TestClient(app) as c:
+        first = c.post("/v1/delegations", json=payload, headers=headers)
+        second = c.post("/v1/delegations", json=payload, headers=headers)
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json() == second.json()
+
+
+def test_delegation_idempotency_key_reuse_with_different_payload_rejected() -> None:
+    with TestClient(app) as c:
+        first = c.post(
+            "/v1/delegations",
+            json={
+                "requester_agent_id": "@demo:invoice-summarizer",
+                "delegate_agent_id": "@demo:support-orchestrator",
+                "task_spec": "Task A",
+                "estimated_cost_usd": 8,
+                "max_budget_usd": 20,
+            },
+            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-replay-2"},
+        )
+        assert first.status_code == 200
+
+        second = c.post(
+            "/v1/delegations",
+            json={
+                "requester_agent_id": "@demo:invoice-summarizer",
+                "delegate_agent_id": "@demo:support-orchestrator",
+                "task_spec": "Task B",
+                "estimated_cost_usd": 9,
+                "max_budget_usd": 20,
+            },
+            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-replay-2"},
+        )
+        assert second.status_code == 409
+
+
+def test_delegation_contract_v2_endpoint() -> None:
+    with TestClient(app) as c:
+        response = c.get("/v1/delegations/contract", headers={"X-API-Key": "dev-owner-key"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["version"] == "delegation-contract-v2"
+        assert payload["idempotency_required"] is True
+        assert payload["sla"]["p95_latency_ms_target"] == 3000

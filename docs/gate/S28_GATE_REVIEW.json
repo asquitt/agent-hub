@@ -1,0 +1,65 @@
+{
+  "decision": "NO_GO",
+  "checks": [
+    {
+      "criterion": "Reliability target met in pilot workloads",
+      "id": "reliability_target_met",
+      "passed": true,
+      "observed": {
+        "reliability_success_rate": 1.0,
+        "pilot_workloads": 2
+      },
+      "threshold": {
+        "reliability_success_rate_min": 0.99,
+        "pilot_workloads_min": 1
+      }
+    },
+    {
+      "criterion": "Positive design-partner ROI evidence",
+      "id": "positive_roi_evidence",
+      "passed": true,
+      "observed": {
+        "partner_roi_ratio": 1.431667,
+        "partner_roi_sample_size": 2
+      },
+      "threshold": {
+        "partner_roi_ratio_min": 1.05,
+        "partner_roi_sample_size_min": 1
+      }
+    },
+    {
+      "criterion": "Sustainable unit economics under real multi-agent load",
+      "id": "sustainable_unit_economics",
+      "passed": false,
+      "observed": {
+        "contribution_margin_ratio": 0.0,
+        "multi_agent_tasks": 2
+      },
+      "threshold": {
+        "contribution_margin_ratio_min": 0.2,
+        "multi_agent_tasks_min": 100
+      }
+    }
+  ],
+  "blocking_reasons": [
+    "Sustainable unit economics under real multi-agent load"
+  ],
+  "thresholds": {
+    "reliability_success_rate_min": 0.99,
+    "partner_roi_ratio_min": 1.05,
+    "contribution_margin_ratio_min": 0.2,
+    "minimum_multi_agent_tasks": 100
+  },
+  "metrics_snapshot": {
+    "reliability_success_rate": 1.0,
+    "pilot_workloads": 2,
+    "partner_roi_ratio": 1.431667,
+    "partner_roi_sample_size": 2,
+    "contribution_margin_ratio": 0.0,
+    "multi_agent_tasks": 2
+  },
+  "sources": {
+    "pilot_a": "data/pilots/pilot_a_weekly.json",
+    "pilot_b": "data/pilots/pilot_b_weekly.json"
+  }
+}

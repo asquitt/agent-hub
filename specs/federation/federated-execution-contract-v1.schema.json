@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.dev/specs/federated-execution-contract-v1.schema.json",
+  "title": "FederatedExecutionRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "domain_id",
+    "domain_token",
+    "task_spec",
+    "payload",
+    "policy_context",
+    "estimated_cost_usd",
+    "max_budget_usd"
+  ],
+  "properties": {
+    "domain_id": { "type": "string", "minLength": 3 },
+    "domain_token": { "type": "string", "minLength": 8 },
+    "task_spec": { "type": "string", "minLength": 3 },
+    "payload": { "type": "object" },
+    "policy_context": { "type": "object" },
+    "estimated_cost_usd": { "type": "number", "exclusiveMinimum": 0 },
+    "max_budget_usd": { "type": "number", "exclusiveMinimum": 0 }
+  }
+}

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgentHub Version Compare</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        background: linear-gradient(135deg, #f2f6ff, #e3eefc);
+        color: #102a43;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+      }
+      .panel {
+        background: #fff;
+        border-radius: 12px;
+        padding: 14px;
+        box-shadow: 0 8px 18px rgba(16, 42, 67, 0.12);
+        margin-bottom: 12px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      input,
+      button {
+        width: 100%;
+        border: 1px solid #bcccdc;
+        border-radius: 8px;
+        padding: 10px;
+        font: inherit;
+      }
+      button {
+        border: 0;
+        color: #fff;
+        background: #0b7285;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      pre {
+        margin: 0;
+        max-height: 420px;
+        overflow: auto;
+        background: #f0f4f8;
+        border-radius: 8px;
+        padding: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Version Compare</h1>
+    <p>Compare behavioral diff and eval deltas between two versions.</p>
+
+    <section class="panel">
+      <div class="grid">
+        <input id="apiKey" value="dev-owner-key" placeholder="API key" />
+        <input id="agentId" value="@demo:invoice-summarizer" placeholder="Agent ID" />
+        <input id="baseVersion" value="1.0.0" placeholder="Base Version" />
+        <input id="targetVersion" value="1.1.0" placeholder="Target Version" />
+      </div>
+      <button id="compareBtn">Compare Versions</button>
+    </section>
+
+    <section class="panel">
+      <pre id="output">{}</pre>
+    </section>
+
+    <script>
+      async function compareVersions() {
+        const apiKey = document.getElementById("apiKey").value;
+        const agentId = document.getElementById("agentId").value;
+        const base = document.getElementById("baseVersion").value;
+        const target = document.getElementById("targetVersion").value;
+        const output = document.getElementById("output");
+        const response = await fetch(`/v1/agents/${encodeURIComponent(agentId)}/compare/${encodeURIComponent(base)}/${encodeURIComponent(target)}`, {
+          headers: { "X-API-Key": apiKey },
+        });
+        const data = await response.json();
+        output.textContent = JSON.stringify(data, null, 2);
+      }
+
+      document.getElementById("compareBtn").addEventListener("click", compareVersions);
+    </script>
+  </body>
+</html>

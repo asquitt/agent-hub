@@ -45,6 +45,9 @@ def test_openapi_has_request_response_schemas() -> None:
         "AgentCapabilitiesResponse",
         "ConstraintFilters",
         "PaginationRequest",
+        "SearchExplainability",
+        "ExplainabilityReason",
+        "ExplainabilityItem",
         "ErrorResponse",
     ]:
         assert schema_name in schemas
@@ -88,3 +91,14 @@ def test_openapi_supports_policy_first_constraints() -> None:
         "compatibility_mode",
     ]:
         assert required_filter in filters
+
+
+def test_openapi_search_response_includes_explainability() -> None:
+    spec = load_openapi()
+    search_response = spec["components"]["schemas"]["SearchResponse"]
+    assert "explainability" in search_response["properties"]
+
+    explainability = spec["components"]["schemas"]["SearchExplainability"]["properties"]
+    assert "why_selected" in explainability
+    assert "why_rejected" in explainability
+    assert "ranking_mode" in explainability

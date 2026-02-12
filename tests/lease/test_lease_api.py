@@ -35,6 +35,8 @@ def test_lease_create_and_promote_success() -> None:
             "attestation_hash": lease["attestation_hash"],
             "signature": f"sig:{lease['attestation_hash']}:owner-dev",
             "policy_approved": True,
+            "approval_ticket": "APR-1001",
+            "compatibility_verified": True,
         },
         headers={"X-API-Key": "dev-owner-key"},
     )
@@ -65,6 +67,8 @@ def test_lease_permission_boundary_blocks_other_owner_promote() -> None:
             "attestation_hash": lease["attestation_hash"],
             "signature": f"sig:{lease['attestation_hash']}:owner-partner",
             "policy_approved": True,
+            "approval_ticket": "APR-1002",
+            "compatibility_verified": True,
         },
         headers={"X-API-Key": "partner-owner-key"},
     )
@@ -99,6 +103,8 @@ def test_lease_ttl_expiry_blocks_promotion() -> None:
                 "attestation_hash": lease["attestation_hash"],
                 "signature": f"sig:{lease['attestation_hash']}:owner-dev",
                 "policy_approved": True,
+                "approval_ticket": "APR-1003",
+                "compatibility_verified": True,
             },
             headers={"X-API-Key": "dev-owner-key"},
         )
@@ -127,6 +133,8 @@ def test_lease_promotion_requires_policy_approval() -> None:
             "attestation_hash": lease["attestation_hash"],
             "signature": f"sig:{lease['attestation_hash']}:owner-dev",
             "policy_approved": False,
+            "approval_ticket": "APR-1004",
+            "compatibility_verified": True,
         },
         headers={"X-API-Key": "dev-owner-key"},
     )
@@ -134,3 +142,52 @@ def test_lease_promotion_requires_policy_approval() -> None:
     detail = denied.json()["detail"]
     assert detail["policy_decision"]["decision"] == "deny"
     assert "approval.policy_required" in detail["policy_decision"]["violated_constraints"]
+
+
+def test_lease_promotion_requires_compatibility_and_supports_rollback() -> None:
+    client = TestClient(app)
+    lease_response = client.post(
+        "/v1/capabilities/lease",
+        json={
+            "requester_agent_id": "@demo:invoice-summarizer",
+            "capability_ref": "@seed:data-normalizer/normalize-records",
+            "ttl_seconds": 600,
+        },
+        headers={"X-API-Key": "dev-owner-key"},
+    )
+    lease = lease_response.json()
+
+    blocked = client.post(
+        f"/v1/capabilities/leases/{lease['lease_id']}/promote",
+        json={
+            "attestation_hash": lease["attestation_hash"],
+            "signature": f"sig:{lease['attestation_hash']}:owner-dev",
+            "policy_approved": True,
+            "approval_ticket": "APR-1005",
+            "compatibility_verified": False,
+        },
+        headers={"X-API-Key": "dev-owner-key"},
+    )
+    assert blocked.status_code == 403
+
+    promoted = client.post(
+        f"/v1/capabilities/leases/{lease['lease_id']}/promote",
+        json={
+            "attestation_hash": lease["attestation_hash"],
+            "signature": f"sig:{lease['attestation_hash']}:owner-dev",
+            "policy_approved": True,
+            "approval_ticket": "APR-1006",
+            "compatibility_verified": True,
+        },
+        headers={"X-API-Key": "dev-owner-key"},
+    )
+    assert promoted.status_code == 200
+    install_id = promoted.json()["promotion"]["install_id"]
+
+    rollback = client.post(
+        f"/v1/capabilities/installs/{install_id}/rollback",
+        json={"reason": "compatibility regression"},
+        headers={"X-API-Key": "dev-owner-key"},
+    )
+    assert rollback.status_code == 200
+    assert rollback.json()["status"] == "rolled_back"

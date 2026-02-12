@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 LEASES: dict[str, dict[str, Any]] = {}
+INSTALLS: dict[str, dict[str, Any]] = {}
 
 
 def _now_epoch() -> int:
@@ -74,6 +75,8 @@ def promote_lease(
     signature: str,
     attestation_hash: str,
     policy_approved: bool,
+    approval_ticket: str,
+    compatibility_verified: bool,
 ) -> dict[str, Any]:
     if lease_id not in LEASES:
         raise KeyError("lease not found")
@@ -90,15 +93,51 @@ def promote_lease(
         raise ValueError("lease is not active")
     if not policy_approved:
         raise PermissionError("policy approval required")
+    if not approval_ticket.startswith("APR-"):
+        raise PermissionError("approval ticket required")
+    if not compatibility_verified:
+        raise PermissionError("compatibility verification required")
     if attestation_hash != row["attestation_hash"]:
         raise PermissionError("attestation hash mismatch")
     if signature != _expected_signature(attestation_hash=attestation_hash, owner=owner):
         raise PermissionError("invalid attestation signature")
+
+    install_id = str(uuid.uuid4())
+    INSTALLS[install_id] = {
+        "install_id": install_id,
+        "lease_id": lease_id,
+        "owner": owner,
+        "requester_agent_id": row["requester_agent_id"],
+        "installed_ref": f"{row['requester_agent_id']}::{row['capability_ref']}",
+        "status": "active",
+        "compatibility_verified": compatibility_verified,
+        "approval_ticket": approval_ticket,
+        "created_at": _iso_from_epoch(_now_epoch()),
+        "rolled_back_at": None,
+        "rollback_reason": None,
+    }
 
     row["status"] = "promoted"
     row["promotion"] = {
         "promoted_at": _iso_from_epoch(_now_epoch()),
         "installed_ref": f"{row['requester_agent_id']}::{row['capability_ref']}",
         "attestation_hash": attestation_hash,
+        "approval_ticket": approval_ticket,
+        "compatibility_verified": compatibility_verified,
+        "install_id": install_id,
     }
+    return row.copy()
+
+
+def rollback_install(install_id: str, owner: str, reason: str) -> dict[str, Any]:
+    if install_id not in INSTALLS:
+        raise KeyError("install not found")
+    row = INSTALLS[install_id]
+    if row["owner"] != owner:
+        raise PermissionError("owner mismatch")
+    if row["status"] == "rolled_back":
+        return row.copy()
+    row["status"] = "rolled_back"
+    row["rolled_back_at"] = _iso_from_epoch(_now_epoch())
+    row["rollback_reason"] = reason
     return row.copy()

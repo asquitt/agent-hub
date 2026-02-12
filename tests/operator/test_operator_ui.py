@@ -49,7 +49,7 @@ def test_operator_ui_journey_smoke_and_observability_sections() -> None:
             "max_budget_usd": 5.0,
             "simulated_actual_cost_usd": 1.8,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s11-operator-delegation"},
     )
     assert create.status_code == 200, create.text
 
@@ -91,3 +91,10 @@ def test_operator_role_boundaries_for_refresh_endpoint() -> None:
     )
     assert admin.status_code == 200
     assert admin.json()["status"] == "refreshed"
+
+
+def test_operator_versioning_page_serves_compare_ui() -> None:
+    client = TestClient(app)
+    page = client.get("/operator/versioning")
+    assert page.status_code == 200
+    assert "Version Compare" in page.text

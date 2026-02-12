@@ -29,6 +29,20 @@ Trust scoring combines eval, usage, reputation, community, security, freshness, 
 - Review fraud resistance:
   - Only verified-usage reviews are included in community signal.
 
+## S21 Trust Graph v2 Enhancements
+- Recency weighting:
+  - Usage, review, and security evidence apply decay weights so recent evidence contributes more than stale evidence.
+- Evidence quality weighting:
+  - Usage signal weights latency/cost quality.
+  - Review signal weights `evidence_quality` and optional reviewer reputation.
+  - Security signal weights audit score by recency + evidence quality.
+- Suspicious-pattern detection:
+  - Flags low reviewer diversity (`low_reviewer_diversity_detected`).
+  - Flags suspicious positive review bursts (`review_burst_detected`).
+  - Applies mismatch penalty when very high community sentiment is not supported by runtime usage.
+- Manipulation penalty:
+  - Additional bounded penalty term (`manipulation_penalty_weight`) is applied to reduce adversarial score inflation.
+
 ## API Contract
 - `GET /v1/agents/{id}/trust` returns:
   - score, tier, badge, breakdown, anti-gaming flags, and weights

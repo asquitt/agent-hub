@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from src.cost_governance.service import record_metering_event
 from src.policy import (
     evaluate_compatibility_policy,
     evaluate_contract_match_policy,
@@ -84,6 +85,12 @@ class DiscoveryService:
             row["cost_optimized_score"] = round((0.7 * row["composite_score"]) + (0.3 * cost_bonus), 6)
 
         rows.sort(key=lambda r: (-r["cost_optimized_score"], r["estimated_cost_usd"], r["p95_latency_ms"]))
+        record_metering_event(
+            actor="runtime.discovery",
+            operation="discovery.semantic_search",
+            cost_usd=max(0.0002, 0.00005 * len(rows)),
+            metadata={"query": query, "result_count": len(rows)},
+        )
 
         return {
             "data": rows,
@@ -132,6 +139,12 @@ class DiscoveryService:
             "cache": "miss",
             "policy_decision": policy_decision,
         }
+        record_metering_event(
+            actor="runtime.discovery",
+            operation="discovery.contract_match",
+            cost_usd=max(0.00015, 0.00005 * len(result["data"])),
+            metadata={"result_count": len(result["data"])},
+        )
         self._put_cache(payload, out)
         return out
 
@@ -178,6 +191,12 @@ class DiscoveryService:
             "cache": "miss",
             "policy_decision": policy_decision,
         }
+        record_metering_event(
+            actor="runtime.discovery",
+            operation="discovery.compatibility_report",
+            cost_usd=max(0.0001, 0.00003 * len(reports)),
+            metadata={"agent_id": agent_id, "result_count": len(reports)},
+        )
         self._put_cache(payload, out)
         return out
 

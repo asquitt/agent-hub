@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.dev/specs/delegation-contract-v2.schema.json",
+  "title": "DelegationContractV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "idempotency_required",
+    "sla",
+    "timeouts_ms",
+    "retry_matrix",
+    "circuit_breakers"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "delegation-contract-v2"
+    },
+    "idempotency_required": {
+      "type": "boolean",
+      "const": true
+    },
+    "sla": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p95_latency_ms_target", "max_end_to_end_timeout_ms"],
+      "properties": {
+        "p95_latency_ms_target": { "type": "integer", "minimum": 1 },
+        "max_end_to_end_timeout_ms": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "timeouts_ms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discovery", "negotiation", "execution", "delivery", "settlement"],
+      "properties": {
+        "discovery": { "type": "integer", "minimum": 1 },
+        "negotiation": { "type": "integer", "minimum": 1 },
+        "execution": { "type": "integer", "minimum": 1 },
+        "delivery": { "type": "integer", "minimum": 1 },
+        "settlement": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "retry_matrix": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["max_retries", "backoff_ms", "idempotency_required"],
+        "properties": {
+          "max_retries": { "type": "integer", "minimum": 0 },
+          "backoff_ms": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0 }
+          },
+          "idempotency_required": { "type": "boolean", "const": true }
+        }
+      }
+    },
+    "circuit_breakers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["soft_alert_pct", "reauthorization_pct", "hard_stop_pct"],
+      "properties": {
+        "soft_alert_pct": { "type": "integer", "const": 80 },
+        "reauthorization_pct": { "type": "integer", "const": 100 },
+        "hard_stop_pct": { "type": "integer", "const": 120 }
+      }
+    }
+  }
+}

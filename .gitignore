@@ -24,6 +24,8 @@ data/delegations/records.json
 data/evals/results.json
 data/trust/scores.json
 data/trust/usage_events.json
+data/cost/events.json
+data/pilots/
 
 # Secrets
 .env

@@ -77,6 +77,13 @@ class AgentUpdateRequest(BaseModel):
     manifest: dict[str, Any]
 
 
+class AgentForkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    namespace: str = Field(pattern=r"^@[a-z0-9][a-z0-9_-]{1,62}$")
+    new_slug: str = Field(min_length=2, max_length=64, pattern=r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+
+
 class AgentVersionResponse(BaseModel):
     version: str
     manifest: dict[str, Any]
@@ -142,6 +149,14 @@ class LeasePromoteRequest(BaseModel):
     signature: str = Field(min_length=8)
     attestation_hash: str = Field(min_length=12)
     policy_approved: bool = False
+    approval_ticket: str = Field(min_length=6)
+    compatibility_verified: bool = False
+
+
+class LeaseRollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=3)
 
 
 class KnowledgeContributeRequest(BaseModel):
@@ -191,3 +206,39 @@ class BillingRefundRequest(BaseModel):
 
     amount_usd: float = Field(gt=0)
     reason: str = Field(min_length=3)
+
+
+class FederatedExecutionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    domain_id: str = Field(min_length=3)
+    domain_token: str = Field(min_length=8)
+    task_spec: str = Field(min_length=3)
+    payload: dict[str, Any]
+    policy_context: dict[str, Any]
+    estimated_cost_usd: float = Field(gt=0)
+    max_budget_usd: float = Field(gt=0)
+
+
+class MarketplaceListingCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    capability_ref: str = Field(min_length=3)
+    unit_price_usd: float = Field(ge=0)
+    max_units_per_purchase: int = Field(gt=0)
+    policy_purchase_limit_usd: float = Field(gt=0)
+
+
+class MarketplacePurchaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    listing_id: str = Field(min_length=8)
+    units: int = Field(gt=0)
+    max_total_usd: float = Field(gt=0)
+    policy_approved: bool = False
+
+
+class MarketplaceSettlementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    units_used: int = Field(gt=0)

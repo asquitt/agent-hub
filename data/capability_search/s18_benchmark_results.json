@@ -1,0 +1,185 @@
+{
+  "dataset": "tools/capability_search/benchmark_dataset_s18.json",
+  "baseline": {
+    "ranking_mode": "baseline",
+    "queries": 6,
+    "top1_accuracy": 0.833333,
+    "top3_accuracy": 1.0,
+    "mrr": 0.888889,
+    "rows": [
+      {
+        "query": "extract invoice totals",
+        "relevant_capability_ids": [
+          "normalize-receipt",
+          "summarize-invoice"
+        ],
+        "returned_capability_ids": [
+          "summarize-invoice",
+          "normalize-receipt"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      },
+      {
+        "query": "classify support ticket severity",
+        "relevant_capability_ids": [
+          "classify-ticket"
+        ],
+        "returned_capability_ids": [
+          "classify-ticket"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      },
+      {
+        "query": "resolve customer incidents automatically",
+        "relevant_capability_ids": [
+          "apply-remediation",
+          "classify-ticket"
+        ],
+        "returned_capability_ids": [
+          "apply-remediation"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      },
+      {
+        "query": "policy screening for onboarding",
+        "relevant_capability_ids": [
+          "run-policy-screening",
+          "validate-identity"
+        ],
+        "returned_capability_ids": [
+          "validate-identity",
+          "run-policy-screening"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      },
+      {
+        "query": "billing account setup for onboarding",
+        "relevant_capability_ids": [
+          "provision-billing"
+        ],
+        "returned_capability_ids": [
+          "validate-identity",
+          "run-policy-screening",
+          "provision-billing"
+        ],
+        "top1_hit": false,
+        "topk_hit": true,
+        "reciprocal_rank": 0.3333333333333333
+      },
+      {
+        "query": "execute approved outbound payments",
+        "relevant_capability_ids": [
+          "execute-payment"
+        ],
+        "returned_capability_ids": [
+          "execute-payment"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      }
+    ]
+  },
+  "v2": {
+    "ranking_mode": "v2",
+    "queries": 6,
+    "top1_accuracy": 1.0,
+    "top3_accuracy": 1.0,
+    "mrr": 1.0,
+    "rows": [
+      {
+        "query": "extract invoice totals",
+        "relevant_capability_ids": [
+          "normalize-receipt",
+          "summarize-invoice"
+        ],
+        "returned_capability_ids": [
+          "summarize-invoice",
+          "normalize-receipt"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      },
+      {
+        "query": "classify support ticket severity",
+        "relevant_capability_ids": [
+          "classify-ticket"
+        ],
+        "returned_capability_ids": [
+          "classify-ticket"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      },
+      {
+        "query": "resolve customer incidents automatically",
+        "relevant_capability_ids": [
+          "apply-remediation",
+          "classify-ticket"
+        ],
+        "returned_capability_ids": [
+          "apply-remediation"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      },
+      {
+        "query": "policy screening for onboarding",
+        "relevant_capability_ids": [
+          "run-policy-screening",
+          "validate-identity"
+        ],
+        "returned_capability_ids": [
+          "run-policy-screening",
+          "validate-identity"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      },
+      {
+        "query": "billing account setup for onboarding",
+        "relevant_capability_ids": [
+          "provision-billing"
+        ],
+        "returned_capability_ids": [
+          "provision-billing",
+          "summarize-invoice",
+          "run-policy-screening"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      },
+      {
+        "query": "execute approved outbound payments",
+        "relevant_capability_ids": [
+          "execute-payment"
+        ],
+        "returned_capability_ids": [
+          "execute-payment"
+        ],
+        "top1_hit": true,
+        "topk_hit": true,
+        "reciprocal_rank": 1.0
+      }
+    ]
+  },
+  "improvement": {
+    "top1_accuracy_delta": 0.166667,
+    "top3_accuracy_delta": 0.0,
+    "mrr_delta": 0.111111
+  },
+  "policy_regression": false
+}

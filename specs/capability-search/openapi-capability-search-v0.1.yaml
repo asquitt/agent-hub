@@ -385,6 +385,56 @@ components:
           maximum: 1
         score_breakdown:
           $ref: '#/components/schemas/RelevanceBreakdown'
+        why_selected:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExplainabilityReason'
+    ExplainabilityReason:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - detail
+      properties:
+        type:
+          type: string
+        detail:
+          type: string
+    ExplainabilityItem:
+      type: object
+      additionalProperties: false
+      required:
+        - agent_id
+        - capability_id
+        - reasons
+      properties:
+        agent_id:
+          type: string
+        capability_id:
+          type: string
+        reasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExplainabilityReason'
+    SearchExplainability:
+      type: object
+      additionalProperties: false
+      required:
+        - why_selected
+        - why_rejected
+        - ranking_mode
+      properties:
+        why_selected:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExplainabilityItem'
+        why_rejected:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExplainabilityItem'
+        ranking_mode:
+          type: string
+          enum: [baseline, v2]
     PaginationMeta:
       type: object
       additionalProperties: false
@@ -412,6 +462,7 @@ components:
       required:
         - data
         - pagination
+        - explainability
       properties:
         data:
           type: array
@@ -419,6 +470,8 @@ components:
             $ref: '#/components/schemas/CapabilityResult'
         pagination:
           $ref: '#/components/schemas/PaginationMeta'
+        explainability:
+          $ref: '#/components/schemas/SearchExplainability'
         warnings:
           type: array
           items:
