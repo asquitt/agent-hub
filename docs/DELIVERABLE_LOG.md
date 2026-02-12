@@ -57,3 +57,4 @@
 | S38 | Eval tier-2 safety | DONE | 2026-02-13 00:25 UTC | Platform | Yes | docs/evidence/S38.md |
 | S39 | Eval tier-3 outcomes | DONE | 2026-02-13 00:55 UTC | Platform | Yes | docs/evidence/S39.md |
 | S40 | Provenance signing | DONE | 2026-02-13 01:25 UTC | Platform | Yes | docs/evidence/S40.md |
+| S41 | Trust graph v3 | DONE | 2026-02-13 01:55 UTC | Platform | Yes | docs/evidence/S41.md |

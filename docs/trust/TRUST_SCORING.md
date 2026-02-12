@@ -43,6 +43,20 @@ Trust scoring combines eval, usage, reputation, community, security, freshness, 
 - Manipulation penalty:
   - Additional bounded penalty term (`manipulation_penalty_weight`) is applied to reduce adversarial score inflation.
 
+## S41 Trust Graph v3 Enhancements
+- Abuse graph inputs:
+  - Added `interaction_graph` evidence stream (`source_agent_id`, `target_agent_id`, `source_owner`, `edge_type`, `occurred_at`).
+- Collusion detection:
+  - Flags low source diversity in inbound interaction patterns.
+  - Flags reciprocal interaction loops indicative of ring behavior.
+- Sybil-cluster detection:
+  - Flags clusters where a majority of interaction sources belong to very new publisher accounts.
+- Reputation decay tuning:
+  - Applies additional penalty for stale agents with aged eval/usage/review/security evidence.
+- New breakdown fields:
+  - `graph_abuse_penalty`
+  - `reputation_decay_penalty`
+
 ## API Contract
 - `GET /v1/agents/{id}/trust` returns:
   - score, tier, badge, breakdown, anti-gaming flags, and weights

@@ -17,6 +17,8 @@ WEIGHTS = {
 }
 INCIDENT_PENALTY_WEIGHT = 0.20
 MANIPULATION_PENALTY_WEIGHT = 0.15
+GRAPH_ABUSE_PENALTY_WEIGHT = 0.20
+REPUTATION_DECAY_PENALTY_WEIGHT = 0.10
 
 
 @dataclass
@@ -229,6 +231,103 @@ def _apply_sybil_resistance(raw_score: float, owner: str, flags: list[str]) -> f
     return raw_score * multiplier
 
 
+def _graph_abuse_penalty(agent_id: str, flags: list[str]) -> float:
+    rows = storage.load("interaction_graph")
+    if not rows:
+        return 0.0
+
+    cutoff = _utc_now() - timedelta(days=90)
+    related = []
+    outgoing_pairs: set[tuple[str, str]] = set()
+    for row in rows:
+        source_agent = str(row.get("source_agent_id", ""))
+        target_agent = str(row.get("target_agent_id", ""))
+        when = _parse_dt(row.get("occurred_at"))
+        if when is not None and when < cutoff:
+            continue
+        if source_agent and target_agent:
+            outgoing_pairs.add((source_agent, target_agent))
+        if target_agent == agent_id:
+            related.append(row)
+
+    if not related:
+        return 0.0
+
+    penalty = 0.0
+    sources = [str(row.get("source_agent_id", "")) for row in related if row.get("source_agent_id")]
+    unique_sources = {source for source in sources if source}
+    source_diversity = len(unique_sources) / max(1, len(sources))
+    if len(related) >= 6 and source_diversity < 0.4:
+        penalty += 0.35
+        flags.append("collusion_ring_low_diversity_detected")
+
+    reciprocal_sources = 0
+    for source in unique_sources:
+        if (agent_id, source) in outgoing_pairs:
+            reciprocal_sources += 1
+    reciprocal_ratio = reciprocal_sources / max(1, len(unique_sources))
+    if len(unique_sources) >= 2 and reciprocal_ratio > 0.6:
+        penalty += 0.25
+        flags.append("collusion_reciprocal_loop_detected")
+
+    source_owners = {str(row.get("source_owner", "")) for row in related if row.get("source_owner")}
+    if source_owners:
+        sybil_owners = 0
+        for source_owner in source_owners:
+            profile = _publisher_profile(source_owner)
+            if int(profile.get("account_age_days", 0)) < 30:
+                sybil_owners += 1
+        sybil_ratio = sybil_owners / len(source_owners)
+        if len(source_owners) >= 3 and sybil_ratio >= 0.5:
+            penalty += 0.35
+            flags.append("sybil_cluster_interaction_detected")
+
+    return _clamp(penalty)
+
+
+def _reputation_decay_penalty(agent_id: str, flags: list[str]) -> float:
+    timestamps: list[datetime] = []
+    latest_eval = latest_result(agent_id)
+    if latest_eval:
+        when = _parse_dt(latest_eval.get("completed_at"))
+        if when is not None:
+            timestamps.append(when)
+
+    for row in storage.load("usage_events"):
+        if row.get("agent_id") != agent_id:
+            continue
+        when = _parse_dt(row.get("occurred_at"))
+        if when is not None:
+            timestamps.append(when)
+
+    for row in storage.load("reviews"):
+        if row.get("agent_id") != agent_id:
+            continue
+        when = _parse_dt(row.get("occurred_at"))
+        if when is not None:
+            timestamps.append(when)
+
+    for row in storage.load("security_audits"):
+        if row.get("agent_id") != agent_id:
+            continue
+        when = _parse_dt(row.get("occurred_at"))
+        if when is not None:
+            timestamps.append(when)
+
+    if not timestamps:
+        return 0.0
+
+    latest_activity = max(timestamps)
+    inactivity_days = max(0.0, (_utc_now() - latest_activity).total_seconds() / 86400.0)
+    if inactivity_days <= 45:
+        return 0.0
+
+    penalty = _clamp((inactivity_days - 45) / 240.0)
+    if penalty > 0:
+        flags.append("reputation_decay_applied")
+    return penalty
+
+
 def _tier_for(score: float) -> Tier:
     for tier in TIERS:
         if tier.min_score <= score <= tier.max_score:
@@ -255,6 +354,8 @@ def compute_trust_score(agent_id: str, owner: str) -> dict[str, Any]:
         usage_events_30d=usage_events,
         flags=flags,
     )
+    graph_abuse_penalty = _graph_abuse_penalty(agent_id=agent_id, flags=flags)
+    reputation_decay_penalty = _reputation_decay_penalty(agent_id=agent_id, flags=flags)
 
     weighted = (
         WEIGHTS["eval_pass_rate"] * eval_signal
@@ -265,6 +366,8 @@ def compute_trust_score(agent_id: str, owner: str) -> dict[str, Any]:
         + WEIGHTS["freshness"] * freshness_signal
         - INCIDENT_PENALTY_WEIGHT * incident_penalty
         - MANIPULATION_PENALTY_WEIGHT * manipulation_penalty
+        - GRAPH_ABUSE_PENALTY_WEIGHT * graph_abuse_penalty
+        - REPUTATION_DECAY_PENALTY_WEIGHT * reputation_decay_penalty
     )
 
     raw_score = _clamp(weighted) * 100
@@ -282,6 +385,8 @@ def compute_trust_score(agent_id: str, owner: str) -> dict[str, Any]:
         "freshness": round(freshness_signal, 4),
         "incident_penalty": round(incident_penalty, 4),
         "manipulation_penalty": round(manipulation_penalty, 4),
+        "graph_abuse_penalty": round(graph_abuse_penalty, 4),
+        "reputation_decay_penalty": round(reputation_decay_penalty, 4),
         "usage_events_30d": usage_events,
     }
 
@@ -296,6 +401,8 @@ def compute_trust_score(agent_id: str, owner: str) -> dict[str, Any]:
         "weights": WEIGHTS,
         "incident_penalty_weight": INCIDENT_PENALTY_WEIGHT,
         "manipulation_penalty_weight": MANIPULATION_PENALTY_WEIGHT,
+        "graph_abuse_penalty_weight": GRAPH_ABUSE_PENALTY_WEIGHT,
+        "reputation_decay_penalty_weight": REPUTATION_DECAY_PENALTY_WEIGHT,
         "computed_at": _utc_now().isoformat(),
     }
     storage.upsert_score(score_row)

@@ -22,6 +22,7 @@ def isolated_trust_paths(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTHUB_TRUST_SECURITY_AUDITS_PATH", str(tmp_path / "security_audits.json"))
     monkeypatch.setenv("AGENTHUB_TRUST_INCIDENTS_PATH", str(tmp_path / "incidents.json"))
     monkeypatch.setenv("AGENTHUB_TRUST_PUBLISHER_PROFILES_PATH", str(tmp_path / "publisher_profiles.json"))
+    monkeypatch.setenv("AGENTHUB_TRUST_INTERACTION_GRAPH_PATH", str(tmp_path / "interaction_graph.json"))
     monkeypatch.setenv("AGENTHUB_TRUST_SCORES_PATH", str(tmp_path / "scores.json"))
 
 

@@ -26,6 +26,7 @@ data/billing/
 data/evals/results.json
 data/trust/scores.json
 data/trust/usage_events.json
+data/trust/interaction_graph.json
 data/cost/events.json
 data/pilots/
 data/registry/

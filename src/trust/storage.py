@@ -13,6 +13,7 @@ DEFAULT_FILES = {
     "security_audits": TRUST_DIR / "security_audits.json",
     "incidents": TRUST_DIR / "incidents.json",
     "publisher_profiles": TRUST_DIR / "publisher_profiles.json",
+    "interaction_graph": TRUST_DIR / "interaction_graph.json",
     "scores": TRUST_DIR / "scores.json",
 }
 
