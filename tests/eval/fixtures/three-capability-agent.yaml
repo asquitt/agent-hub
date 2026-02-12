@@ -1,0 +1,104 @@
+schema_version: "0.1"
+identity:
+  id: eval-three-capability-agent
+  name: Eval Three Capability Agent
+  version: 0.1.0
+  description: Fixture manifest for tier1 eval validation across three capability categories.
+  owner: eval-platform
+  type: orchestrator
+capabilities:
+  - id: reason-step
+    name: Reason Step
+    category: reasoning
+    description: Determines a routing decision from structured context.
+    input_schema:
+      type: object
+      properties:
+        context:
+          type: string
+      required: [context]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        decision:
+          type: string
+      required: [decision]
+      additionalProperties: false
+    protocols: [MCP]
+    idempotency_key_required: false
+    side_effect_level: none
+  - id: transform-step
+    name: Transform Step
+    category: transformation
+    description: Transforms input records into normalized output.
+    input_schema:
+      type: object
+      properties:
+        record:
+          type: string
+      required: [record]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        normalized_record:
+          type: string
+      required: [normalized_record]
+      additionalProperties: false
+    protocols: [MCP]
+    idempotency_key_required: false
+    side_effect_level: none
+  - id: action-step
+    name: Action Step
+    category: action
+    description: Applies a low-risk action requiring idempotency key enforcement.
+    input_schema:
+      type: object
+      properties:
+        action_id:
+          type: string
+      required: [action_id]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+      additionalProperties: false
+    protocols: [HTTP]
+    idempotency_key_required: true
+    side_effect_level: low
+interfaces:
+  - name: mcp
+    protocol: MCP
+    endpoint: https://example.com/mcp
+    auth: signed_jwt
+    privileged: false
+trust:
+  minimum_trust_score: 0.8
+  allowed_trust_sources: [first_party]
+  policy:
+    injection_protection: strict
+    pii_handling: deny
+    data_retention_days: 7
+    high_risk_approval_required: true
+  budget_guardrails:
+    soft_alert_pct: 80
+    reauthorization_pct: 100
+    hard_stop_pct: 120
+  credential_policy:
+    short_lived_credentials: true
+    max_ttl_minutes: 30
+runtime:
+  execution_mode: deterministic_workflow
+  sandbox: container
+  max_retries: 1
+  timeout_seconds: 20
+  idempotency_required: true
+  replay_safe: true
+  observability:
+    log_privileged_actions: true
+    emit_cost_metrics: true
+    emit_latency_metrics: true

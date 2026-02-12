@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from src.api.app import app
 from src.api.store import STORE
+from src.eval import storage
+from src.eval.runner import run_tier1_eval
 
 ROOT = Path(__file__).resolve().parents[2]
 VALID_MANIFEST_PATH = ROOT / "specs" / "manifest" / "examples" / "simple-tool-agent.yaml"
@@ -17,10 +19,11 @@ INVALID_MANIFEST_PATH = ROOT / "tests" / "manifest" / "fixtures" / "invalid" / "
 
 
 @pytest.fixture(autouse=True)
-def reset_store() -> None:
+def reset_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     STORE.namespaces.clear()
     STORE.agents.clear()
     STORE.idempotency_cache.clear()
+    monkeypatch.setenv("AGENTHUB_EVAL_RESULTS_PATH", str(tmp_path / "results.json"))
 
 
 @pytest.fixture()
@@ -268,3 +271,15 @@ def test_latency_p95_thresholds(client: TestClient) -> None:
 
     assert p95_write < 500, f"p95 write too high: {p95_write:.2f}ms"
     assert p95_read < 200, f"p95 read too high: {p95_read:.2f}ms"
+
+
+def test_eval_results_visible_on_agent_detail(client: TestClient) -> None:
+    agent_id = register_default_agent(client, version="1.0.0")
+    manifest = load_yaml(VALID_MANIFEST_PATH)
+    run_tier1_eval(manifest=manifest, agent_id=agent_id, version="1.0.0")
+
+    response = client.get(f"/v1/agents/{agent_id}")
+    assert response.status_code == 200
+    eval_summary = response.json()["eval_summary"]
+    assert "accuracy" in eval_summary
+    assert "latency_ms" in eval_summary

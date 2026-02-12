@@ -17,7 +17,7 @@
 | S02 | D02 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S02.md |
 | S03 | D03+D04 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S03.md |
 | S04 | D05 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S04.md |
-| S05 | D09 | NOT_STARTED | - | - | No | docs/evidence/S05.md |
+| S05 | D09 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S05.md |
 | S06 | D11 | NOT_STARTED | - | - | No | docs/evidence/S06.md |
 | S07 | D12 | NOT_STARTED | - | - | No | docs/evidence/S07.md |
 | S08 | D13 | NOT_STARTED | - | - | No | docs/evidence/S08.md |

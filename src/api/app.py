@@ -15,6 +15,7 @@ from src.api.models import (
     SearchRequest,
 )
 from src.api.store import STORE
+from src.eval.storage import latest_result
 from tools.capability_search.mock_engine import (
     list_agent_capabilities as mock_list_agent_capabilities,
     match_capabilities as mock_match_capabilities,
@@ -40,6 +41,8 @@ def _extract_required_fields(schema: dict[str, Any]) -> list[str]:
 
 def _serialize_agent(agent) -> dict[str, Any]:
     latest = agent.versions[-1]
+    eval_row = latest_result(agent_id=agent.agent_id, version=latest.version)
+    eval_summary = eval_row["metrics"] if eval_row else {"status": "pending"}
     return {
         "id": agent.agent_id,
         "namespace": agent.namespace,
@@ -47,6 +50,7 @@ def _serialize_agent(agent) -> dict[str, Any]:
         "status": agent.status,
         "latest_version": latest.version,
         "manifest": latest.manifest,
+        "eval_summary": eval_summary,
         "versions": [v.version for v in agent.versions],
     }
 
@@ -115,7 +119,14 @@ def list_versions(agent_id: str) -> dict[str, Any]:
 
     return {
         "agent_id": agent_id,
-        "versions": [{"version": v.version, "published": True} for v in versions],
+        "versions": [
+            {
+                "version": v.version,
+                "published": True,
+                "eval_summary": (latest_result(agent_id=agent_id, version=v.version) or {}).get("metrics", {"status": "pending"}),
+            }
+            for v in versions
+        ],
     }
 
 
@@ -126,11 +137,14 @@ def get_version(agent_id: str, version: str) -> dict[str, Any]:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="version not found") from exc
 
+    eval_row = latest_result(agent_id=agent_id, version=version)
+    eval_summary = eval_row["metrics"] if eval_row else record.eval_summary
+
     return {
         "agent_id": agent_id,
         "version": record.version,
         "manifest": record.manifest,
-        "eval_summary": record.eval_summary,
+        "eval_summary": eval_summary,
     }
 
 
