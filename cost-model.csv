@@ -1,0 +1,5 @@
+year,tier,active_agents,monthly_min_usd,monthly_max_usd,annual_min_usd,annual_max_usd,notes
+0,Prototype,0-50,0,60,0,720,"Local-first development with free tiers"
+1,MVP,100-1000,50,500,600,6000,"Postgres+pgvector, S3 traces, light monitoring"
+2,Growth,1000-5000,500,2000,6000,24000,"Managed DB, higher eval/delegation volume"
+3,Early Scale,5000-10000,2000,5000,24000,60000,"HA posture, stronger observability, larger sandbox footprint"
