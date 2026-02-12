@@ -9,9 +9,10 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
-from src.api.auth import require_api_key
+from src.api.auth import issue_scoped_token, require_api_key, require_api_key_owner, require_scope
 from src.api.manifest_validation import validate_manifest_object
 from src.api.models import (
+    AuthTokenIssueRequest,
     AgentForkRequest,
     AgentRegistrationRequest,
     AgentUpdateRequest,
@@ -167,6 +168,14 @@ def _resolve_tenant_id(raw_tenant_id: str | None) -> str:
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/v1/auth/tokens")
+def issue_auth_token(
+    request: AuthTokenIssueRequest,
+    owner: str = Depends(require_api_key_owner),
+) -> dict[str, Any]:
+    return issue_scoped_token(owner=owner, scopes=request.scopes, ttl_seconds=request.ttl_seconds)
 
 
 @app.get("/operator", response_class=HTMLResponse)
@@ -581,7 +590,7 @@ def operator_dashboard(
 
 @app.post("/v1/operator/refresh")
 def operator_refresh(
-    owner: str = Depends(require_api_key),
+    owner: str = Depends(require_scope("operator.refresh")),
     x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
 ) -> dict[str, str]:
     role = _require_operator_role(owner, x_operator_role, {"admin"})
@@ -784,7 +793,7 @@ def post_billing_reconcile(invoice_id: str, _owner: str = Depends(require_api_ke
 def post_billing_refund(
     invoice_id: str,
     request: BillingRefundRequest,
-    owner: str = Depends(require_api_key),
+    owner: str = Depends(require_scope("billing.refund")),
 ) -> dict[str, Any]:
     if owner != "owner-platform":
         raise HTTPException(status_code=403, detail="billing admin role required")

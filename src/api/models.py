@@ -208,6 +208,13 @@ class BillingRefundRequest(BaseModel):
     reason: str = Field(min_length=3)
 
 
+class AuthTokenIssueRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scopes: list[str] = Field(default_factory=list, max_length=50)
+    ttl_seconds: int = Field(default=1800, ge=1, le=86400)
+
+
 class FederatedExecutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

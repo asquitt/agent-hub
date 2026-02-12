@@ -48,4 +48,5 @@
 | S29 | Persistence foundation | DONE | 2026-02-12 19:35 UTC | Platform | Yes | docs/evidence/S29.md |
 | S30 | Metering and billing ledger | DONE | 2026-02-12 20:20 UTC | Platform | Yes | docs/evidence/S30.md |
 | S31 | Tenancy and namespace isolation | DONE | 2026-02-12 20:55 UTC | Platform | Yes | docs/evidence/S31.md |
+| S32 | Identity v2 | DONE | 2026-02-12 21:25 UTC | Platform | Yes | docs/evidence/S32.md |
 | S30 | Metering and billing ledger | DONE | 2026-02-12 21:05 UTC | Platform | Yes | docs/evidence/S30.md |
