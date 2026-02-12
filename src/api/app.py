@@ -28,6 +28,7 @@ from src.delegation.storage import load_records
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
 from src.trust.scoring import compute_trust_score, record_usage_event
+from src.versioning import compute_behavioral_diff
 from tools.capability_search.mock_engine import (
     list_agent_capabilities as mock_list_agent_capabilities,
     match_capabilities as mock_match_capabilities,
@@ -172,8 +173,11 @@ def list_versions(agent_id: str) -> dict[str, Any]:
                 "version": v.version,
                 "published": True,
                 "eval_summary": (latest_result(agent_id=agent_id, version=v.version) or {}).get("metrics", {"status": "pending"}),
+                "behavioral_impact_from_previous": (
+                    compute_behavioral_diff(versions[idx - 1].manifest, v.manifest) if idx > 0 else None
+                ),
             }
-            for v in versions
+            for idx, v in enumerate(versions)
         ],
     }
 
@@ -193,6 +197,22 @@ def get_version(agent_id: str, version: str) -> dict[str, Any]:
         "version": record.version,
         "manifest": record.manifest,
         "eval_summary": eval_summary,
+    }
+
+
+@app.get("/v1/agents/{agent_id}/versions/{base_version}/behavioral-diff/{target_version}")
+def get_behavioral_diff(agent_id: str, base_version: str, target_version: str) -> dict[str, Any]:
+    try:
+        base = STORE.get_version(agent_id, base_version)
+        target = STORE.get_version(agent_id, target_version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="version not found") from exc
+
+    return {
+        "agent_id": agent_id,
+        "base_version": base_version,
+        "target_version": target_version,
+        "diff": compute_behavioral_diff(base.manifest, target.manifest),
     }
 
 
