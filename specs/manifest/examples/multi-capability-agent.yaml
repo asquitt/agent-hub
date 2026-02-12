@@ -1,0 +1,167 @@
+schema_version: "0.1"
+identity:
+  id: support-resolution-orchestrator
+  name: Support Resolution Orchestrator
+  version: 1.3.2
+  description: Classifies support tickets and executes approved remediation actions.
+  owner: cx-automation
+  type: orchestrator
+requirements:
+  dependencies:
+    - name: ticketing-client
+      version_constraint: ">=4.1.0,<5.0.0"
+    - name: customer-profile-service
+      version_constraint: ">=1.8.0,<2.0.0"
+  permissions:
+    - tickets.read
+    - tickets.write
+    - accounts.read
+  secrets:
+    - id: ticketing_token
+      secret_ref: vault://prod/agenthub/ticketing-token
+  budget:
+    currency: USD
+    per_task_limit: 0.25
+    monthly_limit: 5000
+capabilities:
+  - id: classify-ticket
+    name: Classify Ticket
+    category: reasoning
+    description: Classifies severity, intent, and routing tags for support tickets.
+    input_schema:
+      type: object
+      properties:
+        ticket_text:
+          type: string
+      required:
+        - ticket_text
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        severity:
+          type: string
+          enum: [low, medium, high]
+        intent:
+          type: string
+        route:
+          type: string
+      required:
+        - severity
+        - intent
+      additionalProperties: false
+    protocols:
+      - MCP
+      - INTERNAL
+    permissions:
+      - tickets.read
+    idempotency_key_required: false
+    idempotent: true
+    side_effect_level: none
+  - id: apply-remediation
+    name: Apply Remediation
+    category: action
+    description: Applies approved account changes to resolve customer-impacting issues.
+    input_schema:
+      type: object
+      properties:
+        account_id:
+          type: string
+        action:
+          type: string
+      required:
+        - account_id
+        - action
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        status:
+          type: string
+        change_id:
+          type: string
+      required:
+        - status
+      additionalProperties: false
+    protocols:
+      - A2A
+      - HTTP
+    permissions:
+      - accounts.read
+      - tickets.write
+    idempotency_key_required: true
+    idempotent: true
+    side_effect_level: high
+    cost:
+      mode: usage
+      estimated_cost: 0.12
+      unit: usd_per_action
+interfaces:
+  - name: internal-mcp
+    protocol: MCP
+    endpoint: https://agents.agenthub.local/mcp/support-orchestrator
+    auth: signed_jwt
+    privileged: false
+  - name: external-a2a
+    protocol: A2A
+    endpoint: https://agents.agenthub.local/a2a/support-orchestrator
+    auth: oauth2
+    privileged: false
+  - name: remediation-http
+    protocol: HTTP
+    endpoint: https://agents.agenthub.local/http/remediation
+    auth: mTLS
+    privileged: true
+    permissions:
+      - tickets.write
+      - accounts.read
+    rate_limit:
+      requests_per_minute: 120
+trust:
+  minimum_trust_score: 0.82
+  allowed_trust_sources:
+    - first_party
+    - verified_third_party
+  policy:
+    injection_protection: strict
+    pii_handling: allow_with_approval
+    data_retention_days: 14
+    high_risk_approval_required: true
+    human_approval_actions:
+      - accounts.credit_adjustment
+      - accounts.plan_change
+  budget_guardrails:
+    soft_alert_pct: 80
+    reauthorization_pct: 100
+    hard_stop_pct: 120
+  credential_policy:
+    short_lived_credentials: true
+    max_ttl_minutes: 30
+composition:
+  type: graph
+  deterministic: true
+  steps:
+    - id: classify
+      capability_ref: classify-ticket
+      on_failure: abort
+    - id: remediate
+      capability_ref: apply-remediation
+      on_failure: retry
+runtime:
+  execution_mode: deterministic_workflow
+  sandbox: vm
+  max_retries: 3
+  timeout_seconds: 45
+  idempotency_required: true
+  replay_safe: true
+  observability:
+    log_privileged_actions: true
+    emit_cost_metrics: true
+    emit_latency_metrics: true
+provenance:
+  created_at: "2026-02-12T16:08:00Z"
+  updated_at: "2026-02-12T16:08:00Z"
+  source: first_party
+  source_repo: https://github.com/agenthub/platform
+  commit: b7aa44c1
+  maintainer_contact: cx-automation@agenthub.dev

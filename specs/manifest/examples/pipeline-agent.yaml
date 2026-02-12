@@ -1,0 +1,171 @@
+schema_version: "0.1"
+identity:
+  id: onboarding-pipeline-agent
+  name: Onboarding Pipeline Agent
+  version: 0.9.0
+  description: Executes deterministic onboarding checks across identity, policy, and billing systems.
+  owner: growth-platform
+  type: pipeline
+requirements:
+  dependencies:
+    - name: identity-check-service
+      version_constraint: ">=3.0.0,<4.0.0"
+    - name: policy-screening-service
+      version_constraint: ">=2.0.0,<3.0.0"
+    - name: billing-setup-service
+      version_constraint: ">=5.3.0,<6.0.0"
+  permissions:
+    - applicants.read
+    - applicants.write
+    - billing.setup
+  secrets:
+    - id: billing_token
+      secret_ref: kms://agenthub/prod/billing-token
+capabilities:
+  - id: validate-identity
+    name: Validate Identity
+    category: retrieval
+    description: Pulls and validates identity records for a candidate applicant.
+    input_schema:
+      type: object
+      properties:
+        applicant_id:
+          type: string
+      required:
+        - applicant_id
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        risk_flags:
+          type: array
+          items:
+            type: string
+      required:
+        - verified
+      additionalProperties: false
+    protocols:
+      - INTERNAL
+    permissions:
+      - applicants.read
+    idempotency_key_required: false
+    side_effect_level: none
+  - id: run-policy-screening
+    name: Run Policy Screening
+    category: reasoning
+    description: Applies policy rules to determine onboarding eligibility status.
+    input_schema:
+      $ref_uri: https://schemas.agenthub.dev/onboarding/policy-input.json
+    output_schema:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum: [approve, review, reject]
+        reasons:
+          type: array
+          items:
+            type: string
+      required:
+        - decision
+      additionalProperties: false
+    protocols:
+      - INTERNAL
+    permissions:
+      - applicants.read
+    idempotency_key_required: false
+    side_effect_level: none
+  - id: provision-billing
+    name: Provision Billing
+    category: action
+    description: Provisions billing account records for applicants approved by policy.
+    input_schema:
+      type: object
+      properties:
+        applicant_id:
+          type: string
+      required:
+        - applicant_id
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        billing_account_id:
+          type: string
+        status:
+          type: string
+      required:
+        - status
+      additionalProperties: false
+    protocols:
+      - HTTP
+    permissions:
+      - billing.setup
+      - applicants.write
+    idempotency_key_required: true
+    idempotent: true
+    side_effect_level: low
+interfaces:
+  - name: internal-pipeline
+    protocol: INTERNAL
+    auth: signed_jwt
+    privileged: false
+  - name: billing-api
+    protocol: HTTP
+    endpoint: https://agents.agenthub.local/http/provision-billing
+    auth: api_key
+    privileged: true
+    permissions:
+      - billing.setup
+      - applicants.write
+trust:
+  minimum_trust_score: 0.8
+  allowed_trust_sources:
+    - first_party
+    - partner
+  policy:
+    injection_protection: moderate
+    pii_handling: allow_with_approval
+    data_retention_days: 7
+    high_risk_approval_required: true
+    human_approval_actions:
+      - billing.manual_override
+  budget_guardrails:
+    soft_alert_pct: 80
+    reauthorization_pct: 100
+    hard_stop_pct: 120
+  credential_policy:
+    short_lived_credentials: true
+    max_ttl_minutes: 20
+composition:
+  type: pipeline
+  deterministic: true
+  steps:
+    - id: identity
+      capability_ref: validate-identity
+      on_failure: abort
+    - id: policy
+      capability_ref: run-policy-screening
+      on_failure: abort
+    - id: billing
+      capability_ref: provision-billing
+      on_failure: retry
+runtime:
+  execution_mode: deterministic_workflow
+  sandbox: firecracker
+  max_retries: 2
+  timeout_seconds: 60
+  idempotency_required: true
+  replay_safe: true
+  observability:
+    log_privileged_actions: true
+    emit_cost_metrics: true
+    emit_latency_metrics: true
+provenance:
+  created_at: "2026-02-12T16:10:00Z"
+  source: partner
+  source_repo: https://github.com/agenthub/onboarding-pack
+  commit: c14fb2d8
+  maintainer_contact: onboarding@agenthub.dev

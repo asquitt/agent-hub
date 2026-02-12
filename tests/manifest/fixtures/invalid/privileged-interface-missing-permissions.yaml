@@ -1,0 +1,58 @@
+schema_version: "0.1"
+identity:
+  id: bad-priv-agent
+  name: Bad Privileged Agent
+  version: 1.0.0
+  description: Privileged interface without permissions should fail validation checks.
+  owner: platform
+  type: service
+capabilities:
+  - id: capability
+    name: Capability
+    category: action
+    description: A capability that writes data and requires idempotency keys.
+    input_schema:
+      type: object
+      properties:
+        resource_id:
+          type: string
+    output_schema:
+      type: object
+      properties:
+        status:
+          type: string
+    protocols: [HTTP]
+    idempotency_key_required: true
+    side_effect_level: low
+interfaces:
+  - name: http
+    protocol: HTTP
+    endpoint: https://example.com/http
+    auth: signed_jwt
+    privileged: true
+trust:
+  minimum_trust_score: 0.8
+  allowed_trust_sources: [first_party]
+  policy:
+    injection_protection: strict
+    pii_handling: mask
+    data_retention_days: 1
+    high_risk_approval_required: true
+  budget_guardrails:
+    soft_alert_pct: 80
+    reauthorization_pct: 100
+    hard_stop_pct: 120
+  credential_policy:
+    short_lived_credentials: true
+    max_ttl_minutes: 30
+runtime:
+  execution_mode: deterministic_workflow
+  sandbox: vm
+  max_retries: 1
+  timeout_seconds: 10
+  idempotency_required: true
+  replay_safe: true
+  observability:
+    log_privileged_actions: true
+    emit_cost_metrics: true
+    emit_latency_metrics: true

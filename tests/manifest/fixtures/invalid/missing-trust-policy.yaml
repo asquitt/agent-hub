@@ -1,0 +1,47 @@
+schema_version: "0.1"
+identity:
+  id: bad-trust-agent
+  name: Bad Trust Agent
+  version: 1.0.0
+  description: Missing trust policy metadata should fail validation checks.
+  owner: platform
+  type: assistant
+capabilities:
+  - id: capability
+    name: Capability
+    category: reasoning
+    description: A capability that exists only for invalid fixture testing.
+    input_schema:
+      type: object
+    output_schema:
+      type: object
+    protocols: [A2A]
+    idempotency_key_required: false
+    side_effect_level: none
+interfaces:
+  - name: a2a
+    protocol: A2A
+    endpoint: https://example.com/a2a
+    auth: oauth2
+    privileged: false
+trust:
+  minimum_trust_score: 0.8
+  allowed_trust_sources: [first_party]
+  budget_guardrails:
+    soft_alert_pct: 80
+    reauthorization_pct: 100
+    hard_stop_pct: 120
+  credential_policy:
+    short_lived_credentials: true
+    max_ttl_minutes: 30
+runtime:
+  execution_mode: deterministic_workflow
+  sandbox: container
+  max_retries: 1
+  timeout_seconds: 10
+  idempotency_required: true
+  replay_safe: true
+  observability:
+    log_privileged_actions: true
+    emit_cost_metrics: true
+    emit_latency_metrics: true

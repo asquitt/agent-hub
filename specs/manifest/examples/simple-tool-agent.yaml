@@ -1,0 +1,111 @@
+schema_version: "0.1"
+identity:
+  id: invoice-summarizer
+  name: Invoice Summarizer Agent
+  version: 1.0.0
+  description: Summarizes vendor invoices into normalized accounting records.
+  owner: finance-platform
+  type: tool
+  tags:
+    - finance
+    - summarization
+requirements:
+  dependencies:
+    - name: ocr-parser
+      version_constraint: ">=2.2.0,<3.0.0"
+  permissions:
+    - documents.read
+  secrets:
+    - id: openai_api
+      secret_ref: env://OPENAI_API_KEY
+  budget:
+    currency: USD
+    per_task_limit: 0.05
+    monthly_limit: 500
+capabilities:
+  - id: summarize-invoice
+    name: Summarize Invoice
+    category: transformation
+    description: Extracts structured line items and totals from an invoice payload.
+    input_schema:
+      type: object
+      properties:
+        invoice_text:
+          type: string
+      required:
+        - invoice_text
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        vendor:
+          type: string
+        total:
+          type: number
+        due_date:
+          type: string
+      required:
+        - vendor
+        - total
+      additionalProperties: false
+    protocols:
+      - MCP
+      - A2A
+    permissions:
+      - documents.read
+    idempotency_key_required: false
+    idempotent: true
+    side_effect_level: none
+    cost:
+      mode: token
+      estimated_cost: 0.01
+      unit: usd_per_call
+interfaces:
+  - name: manifest-mcp-interface
+    protocol: MCP
+    endpoint: https://agents.agenthub.local/mcp/invoice-summarizer
+    auth: signed_jwt
+    privileged: false
+    rate_limit:
+      requests_per_minute: 300
+  - name: manifest-a2a-interface
+    protocol: A2A
+    endpoint: https://agents.agenthub.local/a2a/invoice-summarizer
+    auth: signed_jwt
+    privileged: false
+trust:
+  minimum_trust_score: 0.75
+  allowed_trust_sources:
+    - first_party
+    - partner
+  policy:
+    injection_protection: strict
+    pii_handling: mask
+    data_retention_days: 30
+    high_risk_approval_required: true
+    human_approval_actions:
+      - payments.execute
+  budget_guardrails:
+    soft_alert_pct: 80
+    reauthorization_pct: 100
+    hard_stop_pct: 120
+  credential_policy:
+    short_lived_credentials: true
+    max_ttl_minutes: 60
+runtime:
+  execution_mode: deterministic_workflow
+  sandbox: container
+  max_retries: 2
+  timeout_seconds: 20
+  idempotency_required: true
+  replay_safe: true
+  observability:
+    log_privileged_actions: true
+    emit_cost_metrics: true
+    emit_latency_metrics: true
+provenance:
+  created_at: "2026-02-12T16:05:00Z"
+  source: first_party
+  source_repo: https://github.com/agenthub/platform
+  commit: a4c9b2f3
+  maintainer_contact: platform@agenthub.dev

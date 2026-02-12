@@ -1,0 +1,573 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://agenthub.dev/specs/manifest/agent-manifest-spec-v0.1.yaml"
+title: "AgentHub Agent Manifest v0.1"
+description: "Canonical internal contract for AgentHub agent metadata, capability declarations, policy constraints, and interoperability mapping."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - identity
+  - capabilities
+  - interfaces
+  - trust
+  - runtime
+properties:
+  schema_version:
+    type: string
+    const: "0.1"
+  identity:
+    $ref: "#/$defs/identity"
+  requirements:
+    $ref: "#/$defs/requirements"
+  capabilities:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/capability"
+  interfaces:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/interface"
+  trust:
+    $ref: "#/$defs/trust"
+  composition:
+    $ref: "#/$defs/composition"
+  runtime:
+    $ref: "#/$defs/runtime"
+  provenance:
+    $ref: "#/$defs/provenance"
+$defs:
+  semver:
+    type: string
+    pattern: "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+  schemaReference:
+    type: object
+    additionalProperties: false
+    required:
+      - $ref_uri
+    properties:
+      $ref_uri:
+        type: string
+        format: uri-reference
+  jsonSchemaLite:
+    type: object
+    required:
+      - type
+    properties:
+      type:
+        type: string
+        enum:
+          - object
+          - array
+          - string
+          - number
+          - integer
+          - boolean
+          - 'null'
+      properties:
+        type: object
+      required:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+      items:
+        oneOf:
+          - type: object
+          - type: boolean
+      additionalProperties:
+        oneOf:
+          - type: object
+          - type: boolean
+      enum:
+        type: array
+      description:
+        type: string
+    additionalProperties: true
+  toolSchema:
+    oneOf:
+      - $ref: "#/$defs/schemaReference"
+      - $ref: "#/$defs/jsonSchemaLite"
+  identity:
+    type: object
+    additionalProperties: false
+    required:
+      - id
+      - name
+      - version
+      - description
+      - owner
+      - type
+    properties:
+      id:
+        type: string
+        pattern: "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+      name:
+        type: string
+        minLength: 3
+      version:
+        $ref: "#/$defs/semver"
+      description:
+        type: string
+        minLength: 12
+      owner:
+        type: string
+        minLength: 2
+      type:
+        type: string
+        enum:
+          - tool
+          - service
+          - orchestrator
+          - pipeline
+          - assistant
+      tags:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+          minLength: 2
+  dependency:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+      - version_constraint
+    properties:
+      name:
+        type: string
+      version_constraint:
+        type: string
+      optional:
+        type: boolean
+        default: false
+  requirements:
+    type: object
+    additionalProperties: false
+    properties:
+      dependencies:
+        type: array
+        uniqueItems: true
+        items:
+          $ref: "#/$defs/dependency"
+      permissions:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+          pattern: "^[a-z][a-z0-9_.:-]*$"
+      secrets:
+        type: array
+        uniqueItems: true
+        items:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - secret_ref
+          properties:
+            id:
+              type: string
+              minLength: 2
+            secret_ref:
+              type: string
+              pattern: "^(env|vault|kms)://.+"
+      budget:
+        type: object
+        additionalProperties: false
+        properties:
+          currency:
+            type: string
+            minLength: 3
+            maxLength: 3
+            default: USD
+          per_task_limit:
+            type: number
+            minimum: 0
+          monthly_limit:
+            type: number
+            minimum: 0
+  capability:
+    type: object
+    additionalProperties: false
+    required:
+      - id
+      - name
+      - category
+      - description
+      - input_schema
+      - output_schema
+      - protocols
+      - idempotency_key_required
+      - side_effect_level
+    properties:
+      id:
+        type: string
+        pattern: "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+      name:
+        type: string
+        minLength: 3
+      category:
+        type: string
+        enum:
+          - reasoning
+          - retrieval
+          - transformation
+          - communication
+          - orchestration
+          - action
+      description:
+        type: string
+        minLength: 12
+      input_schema:
+        $ref: "#/$defs/toolSchema"
+      output_schema:
+        $ref: "#/$defs/toolSchema"
+      protocols:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          type: string
+          enum:
+            - MCP
+            - A2A
+            - HTTP
+            - INTERNAL
+      permissions:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+          pattern: "^[a-z][a-z0-9_.:-]*$"
+      idempotency_key_required:
+        type: boolean
+      idempotent:
+        type: boolean
+      side_effect_level:
+        type: string
+        enum:
+          - none
+          - low
+          - high
+      cost:
+        type: object
+        additionalProperties: false
+        properties:
+          mode:
+            type: string
+            enum:
+              - fixed
+              - token
+              - usage
+          estimated_cost:
+            type: number
+            minimum: 0
+          unit:
+            type: string
+            minLength: 1
+    allOf:
+      - if:
+          properties:
+            side_effect_level:
+              enum:
+                - low
+                - high
+          required:
+            - side_effect_level
+        then:
+          properties:
+            idempotency_key_required:
+              const: true
+  interface:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+      - protocol
+      - auth
+      - privileged
+    properties:
+      name:
+        type: string
+      protocol:
+        type: string
+        enum:
+          - MCP
+          - A2A
+          - HTTP
+          - CLI
+          - INTERNAL
+      endpoint:
+        type: string
+        format: uri-reference
+      auth:
+        type: string
+        enum:
+          - none
+          - api_key
+          - oauth2
+          - mTLS
+          - signed_jwt
+      privileged:
+        type: boolean
+      permissions:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          type: string
+          pattern: "^[a-z][a-z0-9_.:-]*$"
+      rate_limit:
+        type: object
+        additionalProperties: false
+        properties:
+          requests_per_minute:
+            type: integer
+            minimum: 1
+      schema_ref:
+        type: string
+        format: uri-reference
+    allOf:
+      - if:
+          properties:
+            protocol:
+              const: INTERNAL
+          required:
+            - protocol
+        then:
+          not:
+            required:
+              - endpoint
+        else:
+          required:
+            - endpoint
+      - if:
+          properties:
+            privileged:
+              const: true
+          required:
+            - privileged
+        then:
+          required:
+            - permissions
+  trust:
+    type: object
+    additionalProperties: false
+    required:
+      - minimum_trust_score
+      - allowed_trust_sources
+      - policy
+      - budget_guardrails
+      - credential_policy
+    properties:
+      minimum_trust_score:
+        type: number
+        minimum: 0
+        maximum: 1
+      allowed_trust_sources:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          type: string
+          enum:
+            - first_party
+            - partner
+            - marketplace
+            - verified_third_party
+      policy:
+        type: object
+        additionalProperties: false
+        required:
+          - injection_protection
+          - pii_handling
+          - data_retention_days
+          - high_risk_approval_required
+        properties:
+          injection_protection:
+            type: string
+            enum:
+              - strict
+              - moderate
+              - off
+          pii_handling:
+            type: string
+            enum:
+              - deny
+              - mask
+              - allow_with_approval
+          data_retention_days:
+            type: integer
+            minimum: 0
+          high_risk_approval_required:
+            type: boolean
+          human_approval_actions:
+            type: array
+            uniqueItems: true
+            items:
+              type: string
+      budget_guardrails:
+        type: object
+        additionalProperties: false
+        required:
+          - soft_alert_pct
+          - reauthorization_pct
+          - hard_stop_pct
+        properties:
+          soft_alert_pct:
+            type: integer
+            const: 80
+          reauthorization_pct:
+            type: integer
+            const: 100
+          hard_stop_pct:
+            type: integer
+            const: 120
+      credential_policy:
+        type: object
+        additionalProperties: false
+        required:
+          - short_lived_credentials
+          - max_ttl_minutes
+        properties:
+          short_lived_credentials:
+            type: boolean
+            const: true
+          max_ttl_minutes:
+            type: integer
+            minimum: 1
+            maximum: 1440
+  composition:
+    type: object
+    additionalProperties: false
+    required:
+      - type
+      - deterministic
+    properties:
+      type:
+        type: string
+        enum:
+          - single
+          - pipeline
+          - graph
+      deterministic:
+        type: boolean
+      steps:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - capability_ref
+            - on_failure
+          properties:
+            id:
+              type: string
+            capability_ref:
+              type: string
+            on_failure:
+              type: string
+              enum:
+                - abort
+                - continue
+                - retry
+    allOf:
+      - if:
+          properties:
+            type:
+              enum:
+                - pipeline
+                - graph
+          required:
+            - type
+        then:
+          required:
+            - steps
+          properties:
+            steps:
+              minItems: 2
+  runtime:
+    type: object
+    additionalProperties: false
+    required:
+      - execution_mode
+      - sandbox
+      - max_retries
+      - timeout_seconds
+      - idempotency_required
+      - replay_safe
+      - observability
+    properties:
+      execution_mode:
+        type: string
+        enum:
+          - deterministic_workflow
+          - autonomous_loop
+      sandbox:
+        type: string
+        enum:
+          - container
+          - vm
+          - firecracker
+      max_retries:
+        type: integer
+        minimum: 0
+      timeout_seconds:
+        type: integer
+        minimum: 1
+      idempotency_required:
+        type: boolean
+        const: true
+      replay_safe:
+        type: boolean
+        const: true
+      observability:
+        type: object
+        additionalProperties: false
+        required:
+          - log_privileged_actions
+          - emit_cost_metrics
+          - emit_latency_metrics
+        properties:
+          log_privileged_actions:
+            type: boolean
+            const: true
+          emit_cost_metrics:
+            type: boolean
+            const: true
+          emit_latency_metrics:
+            type: boolean
+            const: true
+  provenance:
+    type: object
+    additionalProperties: false
+    required:
+      - created_at
+      - source
+    properties:
+      created_at:
+        type: string
+        format: date-time
+      updated_at:
+        type: string
+        format: date-time
+      source:
+        type: string
+        enum:
+          - first_party
+          - partner
+          - marketplace
+          - imported
+      source_repo:
+        type: string
+        format: uri
+      commit:
+        type: string
+        pattern: "^[0-9a-f]{7,40}$"
+      maintainer_contact:
+        type: string
+        format: email

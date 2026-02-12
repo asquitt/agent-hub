@@ -1,0 +1,52 @@
+schema_version: "0.1"
+identity:
+  id: bad-budget-agent
+  name: Bad Budget Agent
+  version: 1.0.0
+  description: Invalid budget guardrail percentages should fail validation.
+  owner: platform
+  type: service
+capabilities:
+  - id: capability
+    name: Capability
+    category: reasoning
+    description: A capability that exists only for invalid fixture testing.
+    input_schema:
+      type: object
+    output_schema:
+      type: object
+    protocols: [MCP]
+    idempotency_key_required: false
+    side_effect_level: none
+interfaces:
+  - name: mcp
+    protocol: MCP
+    endpoint: https://example.com/mcp
+    auth: signed_jwt
+    privileged: false
+trust:
+  minimum_trust_score: 0.8
+  allowed_trust_sources: [first_party]
+  policy:
+    injection_protection: strict
+    pii_handling: deny
+    data_retention_days: 1
+    high_risk_approval_required: true
+  budget_guardrails:
+    soft_alert_pct: 75
+    reauthorization_pct: 100
+    hard_stop_pct: 130
+  credential_policy:
+    short_lived_credentials: true
+    max_ttl_minutes: 30
+runtime:
+  execution_mode: deterministic_workflow
+  sandbox: container
+  max_retries: 1
+  timeout_seconds: 10
+  idempotency_required: true
+  replay_safe: true
+  observability:
+    log_privileged_actions: true
+    emit_cost_metrics: true
+    emit_latency_metrics: true
