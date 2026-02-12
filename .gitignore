@@ -22,6 +22,7 @@ docs/agenthub-master-plan*.docx
 # Sensitive/local runtime telemetry
 data/delegations/records.json
 data/delegations/*.db
+data/devhub/
 data/billing/
 data/evals/results.json
 data/trust/scores.json

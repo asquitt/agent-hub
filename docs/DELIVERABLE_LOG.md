@@ -59,3 +59,4 @@
 | S40 | Provenance signing | DONE | 2026-02-13 01:25 UTC | Platform | Yes | docs/evidence/S40.md |
 | S41 | Trust graph v3 | DONE | 2026-02-13 01:55 UTC | Platform | Yes | docs/evidence/S41.md |
 | S42 | Operator UX v2 | DONE | 2026-02-13 02:25 UTC | Platform | Yes | docs/evidence/S42.md |
+| S43 | DevHub collaboration v2 | DONE | 2026-02-13 02:55 UTC | Platform | Yes | docs/evidence/S43.md |

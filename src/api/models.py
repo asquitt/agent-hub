@@ -258,6 +258,21 @@ class FederatedExecutionRequest(BaseModel):
     max_budget_usd: float = Field(gt=0)
 
 
+class DevHubReviewCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str = Field(min_length=3)
+    version: str = Field(min_length=1)
+    approvals_required: int = Field(default=2, ge=1, le=10)
+
+
+class DevHubReviewDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approve", "reject"]
+    note: str | None = Field(default=None, max_length=500)
+
+
 class MarketplaceListingCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

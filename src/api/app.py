@@ -24,6 +24,8 @@ from src.api.models import (
     CompatibilityRequest,
     ContractMatchRequest,
     DelegationRequest,
+    DevHubReviewCreateRequest,
+    DevHubReviewDecisionRequest,
     DiscoverySearchRequest,
     FederatedExecutionRequest,
     KnowledgeContributeRequest,
@@ -55,6 +57,7 @@ from src.billing import (
 from src.cost_governance.service import list_metering_events, record_metering_event
 from src.delegation.service import create_delegation, delegation_contract, get_delegation_status
 from src.delegation import storage as delegation_storage
+from src.devhub import service as devhub_service
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
 from src.federation import execute_federated, list_federation_audit
@@ -782,6 +785,83 @@ def operator_refresh(
 ) -> dict[str, str]:
     role = _require_operator_role(owner, x_operator_role, {"admin"})
     return {"status": "refreshed", "role": role}
+
+
+@app.post("/v1/devhub/reviews")
+def post_devhub_review(
+    request: DevHubReviewCreateRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        _ = STORE.get_version(request.agent_id, request.version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="agent version not found") from exc
+    return devhub_service.create_release_review(
+        agent_id=request.agent_id,
+        version=request.version,
+        requested_by=owner,
+        approvals_required=request.approvals_required,
+    )
+
+
+@app.get("/v1/devhub/reviews")
+def list_devhub_reviews(
+    agent_id: str | None = Query(default=None),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    return {"data": devhub_service.list_release_reviews(agent_id=agent_id)}
+
+
+@app.get("/v1/devhub/reviews/{review_id}")
+def get_devhub_review(review_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        return devhub_service.get_release_review(review_id=review_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="review not found") from exc
+
+
+@app.post("/v1/devhub/reviews/{review_id}/decision")
+def post_devhub_review_decision(
+    review_id: str,
+    request: DevHubReviewDecisionRequest,
+    owner: str = Depends(require_api_key),
+    x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
+) -> dict[str, Any]:
+    _ = _require_operator_role(owner, x_operator_role, {"admin"})
+    try:
+        return devhub_service.decide_release_review(
+            review_id=review_id,
+            actor=owner,
+            decision=request.decision,
+            note=request.note,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="review not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/v1/devhub/reviews/{review_id}/promote")
+def post_devhub_review_promote(
+    review_id: str,
+    owner: str = Depends(require_api_key),
+    x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
+) -> dict[str, Any]:
+    _ = _require_operator_role(owner, x_operator_role, {"admin"})
+    try:
+        return devhub_service.promote_release_review(review_id=review_id, promoted_by=owner)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="review not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/v1/devhub/promotions")
+def get_devhub_promotions(
+    agent_id: str | None = Query(default=None),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    return {"data": devhub_service.list_promotions(agent_id=agent_id)}
 
 
 @app.post("/v1/capabilities/lease")
