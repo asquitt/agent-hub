@@ -63,3 +63,4 @@
 | S44 | Marketplace finance v2 | DONE | 2026-02-12 22:17 UTC | Platform | Yes | docs/evidence/S44.md |
 | S45 | Procurement controls | DONE | 2026-02-12 22:29 UTC | Platform | Yes | docs/evidence/S45.md |
 | S46 | Federation enterprise pack | DONE | 2026-02-12 22:34 UTC | Platform | Yes | docs/evidence/S46.md |
+| S47 | Compliance controls | DONE | 2026-02-12 22:40 UTC | Platform | Yes | docs/evidence/S47.md |

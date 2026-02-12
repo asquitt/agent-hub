@@ -33,6 +33,7 @@ data/federation/
 data/pilots/
 data/registry/
 data/procurement/
+data/compliance/
 
 # Secrets
 .env

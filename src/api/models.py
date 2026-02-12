@@ -350,3 +350,10 @@ class ProcurementExceptionCreateRequest(BaseModel):
     override_hard_stop_limit_usd: float | None = Field(default=None, gt=0)
     allow_seller_id: str | None = Field(default=None, min_length=3)
     expires_at: str | None = Field(default=None, min_length=8)
+
+
+class ComplianceEvidenceExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    framework: Literal["SOC2", "ISO27001"]
+    control_ids: list[str] = Field(default_factory=list, max_length=128)
