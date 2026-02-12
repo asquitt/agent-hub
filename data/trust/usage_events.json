@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "agent_id": "@demo:support-orchestrator",
+    "success": true,
+    "cost_usd": 8.5,
+    "latency_ms": 0.009,
+    "occurred_at": "2026-02-12T16:54:23.289604+00:00"
+  }
+]

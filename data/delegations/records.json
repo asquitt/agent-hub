@@ -1,0 +1,101 @@
+[
+  {
+    "delegation_id": "1651aca9-011e-4930-813a-1149cf9e309a",
+    "requester_agent_id": "@demo:invoice-summarizer",
+    "delegate_agent_id": "@demo:support-orchestrator",
+    "task_spec": "Resolve incident and return remediation",
+    "estimated_cost_usd": 10.0,
+    "actual_cost_usd": 8.5,
+    "max_budget_usd": 20.0,
+    "status": "completed",
+    "lifecycle": [
+      {
+        "stage": "discovery",
+        "timestamp": "2026-02-12T16:54:23.288540+00:00",
+        "details": {
+          "requester": "@demo:invoice-summarizer",
+          "delegate": "@demo:support-orchestrator"
+        }
+      },
+      {
+        "stage": "negotiation",
+        "timestamp": "2026-02-12T16:54:23.288779+00:00",
+        "details": {
+          "estimated_cost_usd": 10.0,
+          "max_budget_usd": 20.0
+        }
+      },
+      {
+        "stage": "execution",
+        "timestamp": "2026-02-12T16:54:23.289327+00:00",
+        "details": {
+          "sandbox_path": "/var/folders/rp/k1zph3jx68sc5wq2bt0ttbyh0000gn/T/agenthub-delegation-sandbox-iwllg1k_",
+          "network": "disabled",
+          "status": "started"
+        }
+      },
+      {
+        "stage": "delivery",
+        "timestamp": "2026-02-12T16:54:23.289431+00:00",
+        "details": {
+          "output_schema_valid": true,
+          "latency_ms": 0.009
+        }
+      },
+      {
+        "stage": "settlement",
+        "timestamp": "2026-02-12T16:54:23.289599+00:00",
+        "details": {
+          "settlement_status": "completed",
+          "estimated_cost_usd": 10.0,
+          "actual_cost_usd": 8.5,
+          "escrow_refund_usd": 1.5,
+          "budget_controls": {
+            "soft_alert": true,
+            "reauthorization_required": false,
+            "hard_stop": false,
+            "ratio": 0.85
+          }
+        }
+      },
+      {
+        "stage": "feedback",
+        "timestamp": "2026-02-12T16:54:23.289602+00:00",
+        "details": {
+          "success": true,
+          "quality_score": 1.0
+        }
+      }
+    ],
+    "audit_trail": [
+      {
+        "timestamp": "2026-02-12T16:54:23.289332+00:00",
+        "delegation_id": "1651aca9-011e-4930-813a-1149cf9e309a",
+        "type": "llm_call",
+        "details": {
+          "event": "llm_call",
+          "tokens": 350,
+          "cost_usd": 3.4
+        }
+      },
+      {
+        "timestamp": "2026-02-12T16:54:23.289334+00:00",
+        "delegation_id": "1651aca9-011e-4930-813a-1149cf9e309a",
+        "type": "tool_call",
+        "details": {
+          "event": "tool_call",
+          "tool": "delegate_tool",
+          "cost_usd": 5.1
+        }
+      }
+    ],
+    "budget_controls": {
+      "soft_alert": true,
+      "reauthorization_required": false,
+      "hard_stop": false,
+      "ratio": 0.85
+    },
+    "created_at": "2026-02-12T16:54:23.289968+00:00",
+    "updated_at": "2026-02-12T16:54:23.289970+00:00"
+  }
+]

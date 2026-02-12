@@ -14,6 +14,7 @@ from src.api.models import (
     AgentUpdateRequest,
     CompatibilityRequest,
     ContractMatchRequest,
+    DelegationRequest,
     DiscoverySearchRequest,
     MatchRequest,
     RecommendRequest,
@@ -21,6 +22,7 @@ from src.api.models import (
     TrustUsageEventRequest,
 )
 from src.api.store import STORE
+from src.delegation.service import create_delegation, get_delegation_status
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
 from src.trust.scoring import compute_trust_score, record_usage_event
@@ -291,6 +293,37 @@ def discovery_agent_manifest(agent_id: str, version: str | None = None) -> dict[
 def discovery_agent_card() -> dict[str, Any]:
     card_path = ROOT / ".well-known" / "agent-card.json"
     return json.loads(card_path.read_text(encoding="utf-8"))
+
+
+@app.post("/v1/delegations")
+def post_delegation(request: DelegationRequest, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        row = create_delegation(
+            requester_agent_id=request.requester_agent_id,
+            delegate_agent_id=request.delegate_agent_id,
+            task_spec=request.task_spec,
+            estimated_cost_usd=request.estimated_cost_usd,
+            max_budget_usd=request.max_budget_usd,
+            simulated_actual_cost_usd=request.simulated_actual_cost_usd,
+            auto_reauthorize=request.auto_reauthorize,
+            metering_events=request.metering_events,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "delegation_id": row["delegation_id"],
+        "status": row["status"],
+        "budget_controls": row["budget_controls"],
+        "lifecycle": row["lifecycle"],
+    }
+
+
+@app.get("/v1/delegations/{delegation_id}/status")
+def get_delegation_status_endpoint(delegation_id: str) -> dict[str, Any]:
+    row = get_delegation_status(delegation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="delegation not found")
+    return row
 
 
 @app.get("/v1/agents/{agent_id}/trust")

@@ -1,0 +1,10 @@
+[
+  {
+    "agent_id": "@demo:invoice-summarizer",
+    "balance_usd": 991.5
+  },
+  {
+    "agent_id": "@demo:support-orchestrator",
+    "balance_usd": 1000.0
+  }
+]

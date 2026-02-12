@@ -111,3 +111,16 @@ class CompatibilityRequest(BaseModel):
 
     my_schema: dict[str, Any]
     agent_id: str
+
+
+class DelegationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requester_agent_id: str
+    delegate_agent_id: str
+    task_spec: str = Field(min_length=3)
+    estimated_cost_usd: float = Field(gt=0)
+    max_budget_usd: float = Field(gt=0)
+    simulated_actual_cost_usd: float | None = Field(default=None, ge=0)
+    auto_reauthorize: bool = True
+    metering_events: list[dict[str, Any]] | None = None
