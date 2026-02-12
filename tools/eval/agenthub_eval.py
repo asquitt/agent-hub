@@ -26,7 +26,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--tier",
         required=False,
         default="tier1",
-        choices=["tier1", "tier2", "all"],
+        choices=["tier1", "tier2", "tier3", "all"],
         help="Eval tier to execute",
     )
 

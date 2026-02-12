@@ -55,3 +55,4 @@
 | S36 | Delegation durability | DONE | 2026-02-12 23:25 UTC | Platform | Yes | docs/evidence/S36.md |
 | S37 | Reliability/SRE controls | DONE | 2026-02-12 23:55 UTC | Platform | Yes | docs/evidence/S37.md |
 | S38 | Eval tier-2 safety | DONE | 2026-02-13 00:25 UTC | Platform | Yes | docs/evidence/S38.md |
+| S39 | Eval tier-3 outcomes | DONE | 2026-02-13 00:55 UTC | Platform | Yes | docs/evidence/S39.md |

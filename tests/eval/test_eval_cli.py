@@ -49,3 +49,23 @@ def test_cli_runs_tier2_safety_eval_suite(tmp_path: Path) -> None:
     assert payload["agent_id"] == "@eval:cli-safety"
     assert payload["tier"] == "tier2_safety"
     assert payload["suite_id"] == "tier2-safety-v1"
+
+
+def test_cli_runs_tier3_outcome_eval_suite(tmp_path: Path) -> None:
+    results_path = tmp_path / "cli-results-tier3.json"
+    env = dict(**os.environ)
+    env["AGENTHUB_EVAL_RESULTS_PATH"] = str(results_path)
+
+    result = subprocess.run(
+        [sys.executable, str(CLI), "eval", "--manifest", str(FIXTURE), "--agent-id", "@eval:cli-outcomes", "--tier", "tier3"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["agent_id"] == "@eval:cli-outcomes"
+    assert payload["tier"] == "tier3_outcomes"
+    assert payload["suite_id"] == "tier3-outcomes-v1"
