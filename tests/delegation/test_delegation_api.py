@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -56,6 +58,9 @@ def test_full_delegation_lifecycle_and_audit_trail() -> None:
         assert status_payload["budget_controls"]["soft_alert"] is True
         assert status_payload["audit_trail"]
         assert status_payload["policy_decision"]["decision"] == "allow"
+        assert payload["queue_state"]["status"] == "completed"
+        assert payload["queue_state"]["attempt_count"] == 1
+        assert status_payload["queue_state"]["status"] == "completed"
 
 
 def test_budget_hard_ceiling_rejects_request() -> None:
@@ -151,6 +156,66 @@ def test_delegation_idempotent_replay_returns_same_response() -> None:
         assert first.status_code == 200
         assert second.status_code == 200
         assert first.json() == second.json()
+
+
+def test_delegation_idempotency_replay_survives_runtime_reconfigure() -> None:
+    payload = {
+        "requester_agent_id": "@demo:invoice-summarizer",
+        "delegate_agent_id": "@demo:support-orchestrator",
+        "task_spec": "Durable replay after runtime restart",
+        "estimated_cost_usd": 10,
+        "max_budget_usd": 20,
+        "simulated_actual_cost_usd": 8,
+    }
+    headers = {"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-durable-replay-1"}
+    with TestClient(app) as c:
+        first = c.post("/v1/delegations", json=payload, headers=headers)
+        assert first.status_code == 200
+
+    DELEGATION_IDEMPOTENCY_CACHE.clear()
+    delegation_db_path = os.environ["AGENTHUB_DELEGATION_DB_PATH"]
+    delegation_storage.reconfigure(db_path=delegation_db_path)
+
+    with TestClient(app) as c:
+        second = c.post("/v1/delegations", json=payload, headers=headers)
+        assert second.status_code == 200
+        assert first.json() == second.json()
+
+
+def test_delegation_idempotency_storm_returns_single_durable_response() -> None:
+    payload = {
+        "requester_agent_id": "@demo:invoice-summarizer",
+        "delegate_agent_id": "@demo:support-orchestrator",
+        "task_spec": "Storm replay suppression",
+        "estimated_cost_usd": 10,
+        "max_budget_usd": 20,
+        "simulated_actual_cost_usd": 8,
+    }
+    headers = {"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-storm-1"}
+
+    def _post_once() -> tuple[int, dict[str, object]]:
+        with TestClient(app) as c:
+            response = c.post("/v1/delegations", json=payload, headers=headers)
+            return response.status_code, response.json()
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        results = list(executor.map(lambda _idx: _post_once(), range(24)))
+
+    status_codes = {status for status, _payload in results}
+    assert status_codes == {200}
+
+    responses = [body for _status, body in results]
+    delegation_ids = {str(body["delegation_id"]) for body in responses}
+    assert len(delegation_ids) == 1
+    first_response = responses[0]
+    assert all(body == first_response for body in responses)
+
+    records = delegation_storage.load_records()
+    assert len(records) == 1
+    queue_state = delegation_storage.get_queue_state(str(first_response["delegation_id"]))
+    assert queue_state is not None
+    assert queue_state["attempt_count"] == 1
+    assert queue_state["status"] == "completed"
 
 
 def test_delegation_idempotency_key_reuse_with_different_payload_rejected() -> None:

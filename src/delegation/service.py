@@ -77,107 +77,117 @@ def create_delegation(
         raise ValueError("insufficient requester balance for escrow")
 
     delegation_id = str(uuid.uuid4())
+    storage.upsert_queue_state(delegation_id=delegation_id, status="queued", increment_attempt=True)
     actual_cost = float(simulated_actual_cost_usd if simulated_actual_cost_usd is not None else estimated_cost_usd * 0.92)
 
     lifecycle: list[dict[str, Any]] = []
     audit_trail: list[dict[str, Any]] = []
 
-    lifecycle.append(_stage("discovery", {"requester": requester_agent_id, "delegate": delegate_agent_id}))
-    lifecycle.append(_stage("negotiation", {"estimated_cost_usd": estimated_cost_usd, "max_budget_usd": max_budget_usd}))
+    try:
+        lifecycle.append(_stage("discovery", {"requester": requester_agent_id, "delegate": delegate_agent_id}))
+        lifecycle.append(_stage("negotiation", {"estimated_cost_usd": estimated_cost_usd, "max_budget_usd": max_budget_usd}))
 
-    balances[requester_agent_id] = requester_balance - estimated_cost_usd
-    storage.save_balances(balances)
+        balances[requester_agent_id] = requester_balance - estimated_cost_usd
+        storage.save_balances(balances)
 
-    with tempfile.TemporaryDirectory(prefix="agenthub-delegation-sandbox-") as sandbox:
-        start = time.perf_counter()
-        lifecycle.append(_stage("execution", {"sandbox_path": sandbox, "network": "disabled", "status": "started"}))
+        storage.upsert_queue_state(delegation_id=delegation_id, status="running")
+        with tempfile.TemporaryDirectory(prefix="agenthub-delegation-sandbox-") as sandbox:
+            start = time.perf_counter()
+            lifecycle.append(_stage("execution", {"sandbox_path": sandbox, "network": "disabled", "status": "started"}))
 
-        default_metering = [
-            {"event": "llm_call", "tokens": 350, "cost_usd": round(actual_cost * 0.4, 6)},
-            {"event": "tool_call", "tool": "delegate_tool", "cost_usd": round(actual_cost * 0.6, 6)},
-        ]
-        for row in (metering_events or default_metering):
-            audit_trail.append(
+            default_metering = [
+                {"event": "llm_call", "tokens": 350, "cost_usd": round(actual_cost * 0.4, 6)},
+                {"event": "tool_call", "tool": "delegate_tool", "cost_usd": round(actual_cost * 0.6, 6)},
+            ]
+            for row in (metering_events or default_metering):
+                audit_trail.append(
+                    {
+                        "timestamp": _utc_now(),
+                        "delegation_id": delegation_id,
+                        "type": row.get("event", "metering"),
+                        "details": row,
+                    }
+                )
+
+            latency_ms = round((time.perf_counter() - start) * 1000, 3)
+
+        lifecycle.append(_stage("delivery", {"output_schema_valid": True, "latency_ms": latency_ms}))
+
+        budget_status, controls = _apply_budget_controls(estimated_cost_usd, actual_cost, auto_reauthorize)
+
+        settlement_status = "completed"
+        if budget_status == "hard_stop":
+            settlement_status = "failed_hard_stop"
+        elif budget_status == "needs_reauthorization":
+            settlement_status = "pending_reauthorization"
+
+        release_amount = max(0.0, estimated_cost_usd - actual_cost)
+        balances = storage.load_balances()
+        balances[requester_agent_id] = balances.get(requester_agent_id, 0.0) + release_amount
+        storage.save_balances(balances)
+
+        lifecycle.append(
+            _stage(
+                "settlement",
                 {
-                    "timestamp": _utc_now(),
-                    "delegation_id": delegation_id,
-                    "type": row.get("event", "metering"),
-                    "details": row,
-                }
+                    "settlement_status": settlement_status,
+                    "estimated_cost_usd": estimated_cost_usd,
+                    "actual_cost_usd": actual_cost,
+                    "escrow_refund_usd": round(release_amount, 6),
+                    "budget_controls": controls,
+                },
             )
+        )
 
-        latency_ms = round((time.perf_counter() - start) * 1000, 3)
+        delegation_success = settlement_status == "completed"
+        lifecycle.append(_stage("feedback", {"success": delegation_success, "quality_score": 1.0 if delegation_success else 0.0}))
 
-    lifecycle.append(_stage("delivery", {"output_schema_valid": True, "latency_ms": latency_ms}))
-
-    budget_status, controls = _apply_budget_controls(estimated_cost_usd, actual_cost, auto_reauthorize)
-
-    settlement_status = "completed"
-    if budget_status == "hard_stop":
-        settlement_status = "failed_hard_stop"
-    elif budget_status == "needs_reauthorization":
-        settlement_status = "pending_reauthorization"
-
-    release_amount = max(0.0, estimated_cost_usd - actual_cost)
-    balances = storage.load_balances()
-    balances[requester_agent_id] = balances.get(requester_agent_id, 0.0) + release_amount
-    storage.save_balances(balances)
-
-    lifecycle.append(
-        _stage(
-            "settlement",
-            {
-                "settlement_status": settlement_status,
-                "estimated_cost_usd": estimated_cost_usd,
-                "actual_cost_usd": actual_cost,
-                "escrow_refund_usd": round(release_amount, 6),
-                "budget_controls": controls,
+        record_usage_event(agent_id=delegate_agent_id, success=delegation_success, cost_usd=actual_cost, latency_ms=latency_ms)
+        record_metering_event(
+            actor=requester_agent_id,
+            operation="delegation.create",
+            cost_usd=actual_cost,
+            metadata={
+                "delegation_id": delegation_id,
+                "delegate_agent_id": delegate_agent_id,
+                "budget_ratio": controls["ratio"],
+                "budget_state": controls["state"],
             },
         )
-    )
 
-    delegation_success = settlement_status == "completed"
-    lifecycle.append(_stage("feedback", {"success": delegation_success, "quality_score": 1.0 if delegation_success else 0.0}))
-
-    record_usage_event(agent_id=delegate_agent_id, success=delegation_success, cost_usd=actual_cost, latency_ms=latency_ms)
-    record_metering_event(
-        actor=requester_agent_id,
-        operation="delegation.create",
-        cost_usd=actual_cost,
-        metadata={
+        storage.upsert_queue_state(delegation_id=delegation_id, status=settlement_status)
+        queue_state = storage.get_queue_state(delegation_id)
+        row = {
             "delegation_id": delegation_id,
+            "requester_agent_id": requester_agent_id,
             "delegate_agent_id": delegate_agent_id,
-            "budget_ratio": controls["ratio"],
-            "budget_state": controls["state"],
-        },
-    )
+            "task_spec": task_spec,
+            "estimated_cost_usd": estimated_cost_usd,
+            "actual_cost_usd": actual_cost,
+            "max_budget_usd": max_budget_usd,
+            "status": settlement_status,
+            "contract": DELEGATION_CONTRACT_V2,
+            "policy_decision": policy_decision,
+            "lifecycle": lifecycle,
+            "audit_trail": audit_trail,
+            "budget_controls": controls,
+            "queue_state": queue_state,
+            "created_at": _utc_now(),
+            "updated_at": _utc_now(),
+        }
 
-    row = {
-        "delegation_id": delegation_id,
-        "requester_agent_id": requester_agent_id,
-        "delegate_agent_id": delegate_agent_id,
-        "task_spec": task_spec,
-        "estimated_cost_usd": estimated_cost_usd,
-        "actual_cost_usd": actual_cost,
-        "max_budget_usd": max_budget_usd,
-        "status": settlement_status,
-        "contract": DELEGATION_CONTRACT_V2,
-        "policy_decision": policy_decision,
-        "lifecycle": lifecycle,
-        "audit_trail": audit_trail,
-        "budget_controls": controls,
-        "created_at": _utc_now(),
-        "updated_at": _utc_now(),
-    }
-
-    storage.append_record(row)
-    return row
+        storage.append_record(row)
+        return row
+    except Exception as exc:
+        storage.upsert_queue_state(delegation_id=delegation_id, status="failed", last_error=str(exc))
+        raise
 
 
 def get_delegation_status(delegation_id: str) -> dict[str, Any] | None:
     row = storage.get_record(delegation_id)
     if not row:
         return None
+    queue_state = storage.get_queue_state(delegation_id) or row.get("queue_state")
     return {
         "delegation_id": row["delegation_id"],
         "status": row["status"],
@@ -190,6 +200,7 @@ def get_delegation_status(delegation_id: str) -> dict[str, Any] | None:
         "policy_decision": row.get("policy_decision"),
         "lifecycle": row["lifecycle"],
         "audit_trail": row["audit_trail"],
+        "queue_state": queue_state,
     }
 
 

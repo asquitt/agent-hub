@@ -41,3 +41,13 @@ Each delegation records metering/audit entries with timestamp, event type, and c
   - Stage timeout settings
   - Retry matrix by failure class
   - Circuit-breaker thresholds (`80/100/120`)
+
+## S36 Delegation Durability Additions
+- Durable idempotency:
+  - Delegation idempotency keys are persisted in SQLite (`delegation_idempotency`) instead of process memory.
+  - Replays now survive runtime reconfigure/restart and remain scoped by owner+tenant.
+  - In-flight duplicate storms wait for persisted completion response and return deterministic output.
+- Durable queue state:
+  - Delegation orchestration state is persisted in `delegation_queue_state`.
+  - Queue status now transitions `queued -> running -> settlement_status`.
+  - Attempt counters are preserved for replay/restore and incident debugging workflows.

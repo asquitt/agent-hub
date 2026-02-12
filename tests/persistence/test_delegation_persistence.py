@@ -65,6 +65,11 @@ def test_delegation_storage_migrates_legacy_json_on_first_boot(tmp_path: Path, m
         ).fetchone()
         assert row is not None
         assert int(row[0]) == 1
+        row_v2 = conn.execute(
+            "SELECT COUNT(*) FROM _schema_migrations WHERE scope = 'delegation' AND migration_name = '0002_delegation_durability.sql'"
+        ).fetchone()
+        assert row_v2 is not None
+        assert int(row_v2[0]) == 1
 
 
 def test_delegation_storage_persists_and_restores_from_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,3 +124,42 @@ def test_delegation_storage_persists_and_restores_from_snapshot(tmp_path: Path, 
 
     assert balances["@demo:invoice-summarizer"] == 1000.0
     assert record_ids == {"dlg-runtime-1"}
+
+
+def test_delegation_idempotency_and_queue_state_persist_through_snapshot_restore(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "delegation.db"
+    snapshot_path = tmp_path / "delegation-snapshot.db"
+    drain_path = tmp_path / "delegation-drain.db"
+    empty_records = tmp_path / "empty-records.json"
+    empty_balances = tmp_path / "empty-balances.json"
+
+    monkeypatch.setenv("AGENTHUB_DELEGATION_DB_PATH", str(db_path))
+    monkeypatch.setenv("AGENTHUB_DELEGATION_RECORDS_PATH", str(empty_records))
+    monkeypatch.setenv("AGENTHUB_DELEGATION_BALANCES_PATH", str(empty_balances))
+
+    storage.reset_for_tests(db_path=db_path)
+    reservation = storage.reserve_idempotency(owner="owner-dev:tenant-default", idempotency_key="restore-key", request_hash="abc123")
+    assert reservation["state"] == "reserved"
+    durable_response = {"delegation_id": "dlg-durable-1", "status": "completed"}
+    storage.finalize_idempotency(owner="owner-dev:tenant-default", idempotency_key="restore-key", response=durable_response)
+    storage.upsert_queue_state(delegation_id="dlg-durable-1", status="queued", increment_attempt=True)
+    storage.upsert_queue_state(delegation_id="dlg-durable-1", status="completed")
+
+    _backup_database(db_path, snapshot_path)
+
+    storage.clear_idempotency(owner="owner-dev:tenant-default", idempotency_key="restore-key")
+    storage.upsert_queue_state(delegation_id="dlg-durable-1", status="failed", increment_attempt=True, last_error="mutation")
+
+    storage.reconfigure(db_path=drain_path)
+    _restore_database(snapshot_path, db_path)
+    storage.reconfigure(db_path=db_path)
+
+    restored_response = storage.get_idempotency_response(owner="owner-dev:tenant-default", idempotency_key="restore-key")
+    restored_queue = storage.get_queue_state("dlg-durable-1")
+    assert restored_response == durable_response
+    assert restored_queue is not None
+    assert restored_queue["status"] == "completed"
+    assert restored_queue["attempt_count"] == 1

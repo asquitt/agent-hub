@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +50,7 @@ from src.billing import (
 )
 from src.cost_governance.service import list_metering_events, record_metering_event
 from src.delegation.service import create_delegation, delegation_contract, get_delegation_status
-from src.delegation.storage import load_records
+from src.delegation import storage as delegation_storage
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
 from src.federation import execute_federated, list_federation_audit
@@ -75,6 +76,8 @@ OPERATOR_ROLE_BY_OWNER = {
     "owner-partner": "viewer",
 }
 DELEGATION_IDEMPOTENCY_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+DELEGATION_PENDING_WAIT_SECONDS = 4.0
+DELEGATION_PENDING_POLL_SECONDS = 0.02
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -93,6 +96,20 @@ def _extract_required_fields(schema: dict[str, Any]) -> list[str]:
 def _request_hash(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _delegation_idempotency_owner(owner: str, tenant_id: str) -> str:
+    return f"{owner}:{tenant_id}"
+
+
+def _wait_for_delegation_idempotency_response(owner: str, key: str) -> dict[str, Any] | None:
+    deadline = time.monotonic() + DELEGATION_PENDING_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        replay = delegation_storage.get_idempotency_response(owner=owner, idempotency_key=key)
+        if replay is not None:
+            return replay
+        time.sleep(DELEGATION_PENDING_POLL_SECONDS)
+    return None
 
 
 def _serialize_agent(agent) -> dict[str, Any]:
@@ -557,7 +574,7 @@ def operator_dashboard(
 
     delegations = [
         row
-        for row in load_records()
+        for row in delegation_storage.load_records()
         if row.get("requester_agent_id") == agent_id or row.get("delegate_agent_id") == agent_id
     ]
     delegations.sort(key=lambda row: row.get("updated_at", ""), reverse=True)
@@ -905,48 +922,73 @@ def post_delegation(
     key = _require_idempotency_key(idempotency_key)
     request_payload = request.model_dump(mode="json")
     request_digest = _request_hash(request_payload)
-    cache_key = (owner, key)
-    existing = DELEGATION_IDEMPOTENCY_CACHE.get(cache_key)
-    if existing:
-        if existing["request_hash"] != request_digest:
-            raise HTTPException(status_code=409, detail="idempotency key replay with different request payload")
-        return copy.deepcopy(existing["response"])
     tenant_id = _resolve_tenant_id(x_tenant_id)
+    idempotency_owner = _delegation_idempotency_owner(owner=owner, tenant_id=tenant_id)
+    reservation = delegation_storage.reserve_idempotency(
+        owner=idempotency_owner,
+        idempotency_key=key,
+        request_hash=request_digest,
+    )
+    reservation_state = str(reservation.get("state"))
+    if reservation_state == "mismatch":
+        raise HTTPException(status_code=409, detail="idempotency key replay with different request payload")
+    if reservation_state == "response":
+        return copy.deepcopy(reservation["response"])
+    if reservation_state == "pending":
+        replay = _wait_for_delegation_idempotency_response(owner=idempotency_owner, key=key)
+        if replay is not None:
+            return replay
+        reservation = delegation_storage.reserve_idempotency(
+            owner=idempotency_owner,
+            idempotency_key=key,
+            request_hash=request_digest,
+        )
+        reservation_state = str(reservation.get("state"))
+        if reservation_state == "mismatch":
+            raise HTTPException(status_code=409, detail="idempotency key replay with different request payload")
+        if reservation_state == "response":
+            return copy.deepcopy(reservation["response"])
+        if reservation_state == "pending":
+            raise HTTPException(status_code=409, detail="idempotency key request already in progress")
+
+    owns_reservation = reservation_state == "reserved"
+    if not owns_reservation:
+        raise HTTPException(status_code=500, detail="unable to reserve idempotency slot")
 
     delegate_trust_score, delegate_permissions = _delegate_policy_signals(request.delegate_agent_id)
-    policy_decision = evaluate_delegation_policy(
-        actor="runtime.delegation",
-        requester_agent_id=request.requester_agent_id,
-        delegate_agent_id=request.delegate_agent_id,
-        estimated_cost_usd=request.estimated_cost_usd,
-        max_budget_usd=request.max_budget_usd,
-        auto_reauthorize=request.auto_reauthorize,
-        min_delegate_trust_score=request.min_delegate_trust_score,
-        delegate_trust_score=delegate_trust_score,
-        required_permissions=request.required_permissions,
-        delegate_permissions=delegate_permissions,
-        abac_context={
-            "principal": {
-                "owner": owner,
-                "tenant_id": tenant_id,
-                "allowed_actions": ["create_delegation"],
-                "mfa_present": True,
-            },
-            "resource": {"tenant_id": tenant_id},
-            "environment": {"requires_mfa": False},
-        },
-    )
-    if not policy_decision["allowed"]:
-        status = 400 if all(code.startswith("budget.") for code in policy_decision["violated_constraints"]) else 403
-        raise HTTPException(
-            status_code=status,
-            detail={
-                "message": "policy denied delegation",
-                "policy_decision": policy_decision,
+    try:
+        policy_decision = evaluate_delegation_policy(
+            actor="runtime.delegation",
+            requester_agent_id=request.requester_agent_id,
+            delegate_agent_id=request.delegate_agent_id,
+            estimated_cost_usd=request.estimated_cost_usd,
+            max_budget_usd=request.max_budget_usd,
+            auto_reauthorize=request.auto_reauthorize,
+            min_delegate_trust_score=request.min_delegate_trust_score,
+            delegate_trust_score=delegate_trust_score,
+            required_permissions=request.required_permissions,
+            delegate_permissions=delegate_permissions,
+            abac_context={
+                "principal": {
+                    "owner": owner,
+                    "tenant_id": tenant_id,
+                    "allowed_actions": ["create_delegation"],
+                    "mfa_present": True,
+                },
+                "resource": {"tenant_id": tenant_id},
+                "environment": {"requires_mfa": False},
             },
         )
+        if not policy_decision["allowed"]:
+            status = 400 if all(code.startswith("budget.") for code in policy_decision["violated_constraints"]) else 403
+            raise HTTPException(
+                status_code=status,
+                detail={
+                    "message": "policy denied delegation",
+                    "policy_decision": policy_decision,
+                },
+            )
 
-    try:
         row = create_delegation(
             requester_agent_id=request.requester_agent_id,
             delegate_agent_id=request.delegate_agent_id,
@@ -958,17 +1000,27 @@ def post_delegation(
             policy_decision=policy_decision,
             metering_events=request.metering_events,
         )
+        response = {
+            "contract": delegation_contract(),
+            "delegation_id": row["delegation_id"],
+            "status": row["status"],
+            "budget_controls": row["budget_controls"],
+            "policy_decision": policy_decision,
+            "lifecycle": row["lifecycle"],
+            "queue_state": row.get("queue_state"),
+        }
     except ValueError as exc:
+        delegation_storage.clear_idempotency(owner=idempotency_owner, idempotency_key=key)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    response = {
-        "contract": delegation_contract(),
-        "delegation_id": row["delegation_id"],
-        "status": row["status"],
-        "budget_controls": row["budget_controls"],
-        "policy_decision": policy_decision,
-        "lifecycle": row["lifecycle"],
-    }
-    DELEGATION_IDEMPOTENCY_CACHE[cache_key] = {
+    except HTTPException:
+        delegation_storage.clear_idempotency(owner=idempotency_owner, idempotency_key=key)
+        raise
+    except Exception:
+        delegation_storage.clear_idempotency(owner=idempotency_owner, idempotency_key=key)
+        raise
+
+    delegation_storage.finalize_idempotency(owner=idempotency_owner, idempotency_key=key, response=response)
+    DELEGATION_IDEMPOTENCY_CACHE[(owner, key)] = {
         "request_hash": request_digest,
         "response": copy.deepcopy(response),
     }
