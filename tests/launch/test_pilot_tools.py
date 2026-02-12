@@ -56,4 +56,10 @@ def test_export_pilot_metrics_and_compare_scripts(tmp_path: Path) -> None:
     assert a_payload["pilot_id"] == "pilot-a"
     assert b_payload["pilot_id"] == "pilot-b"
     assert "metrics" in a_payload and "reliability" in a_payload["metrics"]
+    assert "connectors" in a_payload["metrics"]
+    assert a_payload["metrics"]["connectors"]["configured_count"] >= 4
+    assert a_payload["metrics"]["connectors"]["coverage_ratio"] >= 0.75
+    assert "roi" in a_payload["metrics"]
+    assert a_payload["metrics"]["roi"]["net_roi_usd"] > 0
     assert "deltas" in comparison
+    assert "net_roi_usd" in comparison["deltas"]

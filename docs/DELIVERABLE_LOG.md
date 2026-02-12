@@ -64,3 +64,4 @@
 | S45 | Procurement controls | DONE | 2026-02-12 22:29 UTC | Platform | Yes | docs/evidence/S45.md |
 | S46 | Federation enterprise pack | DONE | 2026-02-12 22:34 UTC | Platform | Yes | docs/evidence/S46.md |
 | S47 | Compliance controls | DONE | 2026-02-12 22:40 UTC | Platform | Yes | docs/evidence/S47.md |
+| S48 | Pilot expansion A | DONE | 2026-02-12 22:46 UTC | Platform | Yes | docs/evidence/S48.md |

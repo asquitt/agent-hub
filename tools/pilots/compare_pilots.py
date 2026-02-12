@@ -10,6 +10,17 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _metric(payload: dict, *path: str, default=0.0):
+    current = payload
+    for part in path:
+        if not isinstance(current, dict):
+            return default
+        current = current.get(part)
+        if current is None:
+            return default
+    return current
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare pilot KPI exports.")
     parser.add_argument("--pilot-a", type=Path, required=True)
@@ -28,13 +39,35 @@ def main() -> None:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "deltas": {
             "delegation_success_rate": round(
-                b_metrics["reliability"]["delegation_success_rate"] - a_metrics["reliability"]["delegation_success_rate"], 6
+                float(_metric(b_metrics, "reliability", "delegation_success_rate"))
+                - float(_metric(a_metrics, "reliability", "delegation_success_rate")),
+                6,
             ),
             "avg_relative_cost_variance": round(
-                b_metrics["cost"]["avg_relative_cost_variance"] - a_metrics["cost"]["avg_relative_cost_variance"], 6
+                float(_metric(b_metrics, "cost", "avg_relative_cost_variance"))
+                - float(_metric(a_metrics, "cost", "avg_relative_cost_variance")),
+                6,
             ),
-            "avg_trust_score": round(b_metrics["trust"]["avg_trust_score"] - a_metrics["trust"]["avg_trust_score"], 6),
-            "unresolved_incidents": b_metrics["trust"]["unresolved_incidents"] - a_metrics["trust"]["unresolved_incidents"],
+            "avg_trust_score": round(
+                float(_metric(b_metrics, "trust", "avg_trust_score")) - float(_metric(a_metrics, "trust", "avg_trust_score")),
+                6,
+            ),
+            "unresolved_incidents": int(_metric(b_metrics, "trust", "unresolved_incidents", default=0))
+            - int(_metric(a_metrics, "trust", "unresolved_incidents", default=0)),
+            "connector_coverage_ratio": round(
+                float(_metric(b_metrics, "connectors", "coverage_ratio")) - float(_metric(a_metrics, "connectors", "coverage_ratio")),
+                6,
+            ),
+            "planned_weekly_tasks": int(_metric(b_metrics, "workloads", "planned_weekly_tasks", default=0))
+            - int(_metric(a_metrics, "workloads", "planned_weekly_tasks", default=0)),
+            "net_roi_usd": round(
+                float(_metric(b_metrics, "roi", "net_roi_usd")) - float(_metric(a_metrics, "roi", "net_roi_usd")),
+                6,
+            ),
+            "roi_ratio": round(
+                float(_metric(b_metrics, "roi", "roi_ratio")) - float(_metric(a_metrics, "roi", "roi_ratio")),
+                6,
+            ),
         },
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
