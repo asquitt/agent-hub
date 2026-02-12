@@ -13,6 +13,10 @@ from src.api.manifest_validation import validate_manifest_object
 from src.api.models import (
     AgentRegistrationRequest,
     AgentUpdateRequest,
+    BillingInvoiceGenerateRequest,
+    BillingRefundRequest,
+    BillingSubscriptionRequest,
+    BillingUsageRequest,
     CompatibilityRequest,
     ContractMatchRequest,
     DelegationRequest,
@@ -27,13 +31,21 @@ from src.api.models import (
     TrustUsageEventRequest,
 )
 from src.api.store import STORE
+from src.billing import (
+    create_subscription,
+    generate_invoice,
+    get_invoice,
+    reconcile_invoice,
+    record_usage_event as billing_record_usage_event,
+    refund_invoice,
+)
 from src.delegation.service import create_delegation, get_delegation_status
 from src.delegation.storage import load_records
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
 from src.knowledge import contribute_entry, query_entries, validate_entry
 from src.lease import create_lease, get_lease, promote_lease
-from src.trust.scoring import compute_trust_score, record_usage_event
+from src.trust.scoring import compute_trust_score, record_usage_event as trust_record_usage_event
 from src.versioning import compute_behavioral_diff
 from tools.capability_search.mock_engine import (
     list_agent_capabilities as mock_list_agent_capabilities,
@@ -503,6 +515,79 @@ def post_knowledge_validation(
         raise HTTPException(status_code=404, detail="entry not found") from exc
 
 
+@app.post("/v1/billing/subscriptions")
+def post_billing_subscription(
+    request: BillingSubscriptionRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    return create_subscription(
+        account_id=request.account_id,
+        plan_id=request.plan_id,
+        owner=owner,
+        monthly_fee_usd=request.monthly_fee_usd,
+        included_units=request.included_units,
+    )
+
+
+@app.post("/v1/billing/usage")
+def post_billing_usage(
+    request: BillingUsageRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    return billing_record_usage_event(
+        account_id=request.account_id,
+        meter=request.meter,
+        quantity=request.quantity,
+        unit_price_usd=request.unit_price_usd,
+        owner=owner,
+    )
+
+
+@app.post("/v1/billing/invoices/generate")
+def post_billing_generate_invoice(
+    request: BillingInvoiceGenerateRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    return generate_invoice(account_id=request.account_id, owner=owner)
+
+
+@app.get("/v1/billing/invoices/{invoice_id}")
+def get_billing_invoice(invoice_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        return get_invoice(invoice_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="invoice not found") from exc
+
+
+@app.post("/v1/billing/invoices/{invoice_id}/reconcile")
+def post_billing_reconcile(invoice_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        return reconcile_invoice(invoice_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="invoice not found") from exc
+
+
+@app.post("/v1/billing/invoices/{invoice_id}/refund")
+def post_billing_refund(
+    invoice_id: str,
+    request: BillingRefundRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    if owner != "owner-platform":
+        raise HTTPException(status_code=403, detail="billing admin role required")
+    try:
+        return refund_invoice(
+            invoice_id=invoice_id,
+            amount_usd=request.amount_usd,
+            reason=request.reason,
+            actor=owner,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="invoice not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/v1/delegations")
 def post_delegation(request: DelegationRequest, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
     try:
@@ -554,7 +639,7 @@ def post_usage_event(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="agent not found") from exc
 
-    record_usage_event(
+    trust_record_usage_event(
         agent_id=agent.agent_id,
         success=request.success,
         cost_usd=request.cost_usd,

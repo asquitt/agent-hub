@@ -158,3 +158,34 @@ class KnowledgeValidationRequest(BaseModel):
 
     verdict: bool
     rationale: str = Field(min_length=4)
+
+
+class BillingSubscriptionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: str = Field(min_length=3)
+    plan_id: str = Field(min_length=2)
+    monthly_fee_usd: float = Field(ge=0)
+    included_units: int = Field(default=0, ge=0)
+
+
+class BillingUsageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: str = Field(min_length=3)
+    meter: str = Field(min_length=2)
+    quantity: float = Field(gt=0)
+    unit_price_usd: float = Field(ge=0)
+
+
+class BillingInvoiceGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: str = Field(min_length=3)
+
+
+class BillingRefundRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount_usd: float = Field(gt=0)
+    reason: str = Field(min_length=3)
