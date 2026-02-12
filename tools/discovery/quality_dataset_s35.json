@@ -1,0 +1,45 @@
+[
+  {
+    "query": "extract invoice totals",
+    "constraints": {
+      "max_cost_usd": 0.02,
+      "min_trust_score": 0.8
+    },
+    "relevance": {
+      "summarize-invoice": 3,
+      "normalize-receipt": 1
+    }
+  },
+  {
+    "query": "classify support ticket severity",
+    "constraints": {
+      "min_trust_score": 0.8
+    },
+    "relevance": {
+      "classify-ticket": 3,
+      "apply-remediation": 1
+    }
+  },
+  {
+    "query": "execute approved outbound payments",
+    "constraints": {
+      "required_permissions": [
+        "payments.execute"
+      ],
+      "min_trust_score": 0.9
+    },
+    "relevance": {
+      "execute-payment": 3
+    }
+  },
+  {
+    "query": "complete customer onboarding with billing setup",
+    "constraints": {
+      "min_trust_score": 0.8
+    },
+    "relevance": {
+      "provision-billing": 3,
+      "validate-identity": 1
+    }
+  }
+]

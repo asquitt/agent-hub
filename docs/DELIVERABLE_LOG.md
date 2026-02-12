@@ -51,4 +51,5 @@
 | S32 | Identity v2 | DONE | 2026-02-12 21:25 UTC | Platform | Yes | docs/evidence/S32.md |
 | S33 | Policy plane v3 | DONE | 2026-02-12 21:55 UTC | Platform | Yes | docs/evidence/S33.md |
 | S34 | Discovery live indexing | DONE | 2026-02-12 22:25 UTC | Platform | Yes | docs/evidence/S34.md |
+| S35 | Search quality v3 | DONE | 2026-02-12 22:55 UTC | Platform | Yes | docs/evidence/S35.md |
 | S30 | Metering and billing ledger | DONE | 2026-02-12 21:05 UTC | Platform | Yes | docs/evidence/S30.md |
