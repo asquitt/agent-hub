@@ -36,6 +36,8 @@ from src.api.models import (
     MatchRequest,
     MarketplaceListingCreateRequest,
     MarketplacePurchaseRequest,
+    MarketplaceDisputeCreateRequest,
+    MarketplaceDisputeResolveRequest,
     MarketplaceSettlementRequest,
     RecommendRequest,
     SearchRequest,
@@ -64,6 +66,7 @@ from src.federation import execute_federated, list_federation_audit
 from src.knowledge import contribute_entry, query_entries, validate_entry
 from src.lease import create_lease, get_lease, promote_lease, rollback_install
 from src.marketplace import create_listing, get_contract, list_listings, purchase_listing, settle_contract
+from src.marketplace import create_dispute, create_payout, list_disputes, list_payouts, resolve_dispute
 from src.policy import evaluate_delegation_policy, evaluate_install_promotion_policy
 from src.provenance.service import (
     artifact_hash,
@@ -1160,6 +1163,76 @@ def post_marketplace_settlement(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/v1/marketplace/contracts/{contract_id}/disputes")
+def post_marketplace_dispute(
+    contract_id: str,
+    request: MarketplaceDisputeCreateRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        row = create_dispute(
+            contract_id=contract_id,
+            actor=owner,
+            reason=request.reason,
+            requested_amount_usd=request.requested_amount_usd,
+        )
+        record_metering_event(actor=owner, operation="marketplace.dispute.create", cost_usd=0.0, metadata={"contract_id": contract_id})
+        return row
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="contract not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/v1/marketplace/contracts/{contract_id}/disputes")
+def get_marketplace_disputes(contract_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    return {"data": list_disputes(contract_id=contract_id)}
+
+
+@app.post("/v1/marketplace/disputes/{dispute_id}/resolve")
+def post_marketplace_dispute_resolve(
+    dispute_id: str,
+    request: MarketplaceDisputeResolveRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        row = resolve_dispute(
+            dispute_id=dispute_id,
+            actor=owner,
+            resolution=request.resolution,
+            approved_amount_usd=request.approved_amount_usd,
+        )
+        record_metering_event(actor=owner, operation="marketplace.dispute.resolve", cost_usd=0.0, metadata={"dispute_id": dispute_id})
+        return row
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="dispute not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/v1/marketplace/contracts/{contract_id}/payout")
+def post_marketplace_payout(contract_id: str, owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        row = create_payout(contract_id=contract_id, actor=owner)
+        record_metering_event(actor=owner, operation="marketplace.payout", cost_usd=0.0, metadata={"contract_id": contract_id})
+        return row
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="contract not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/v1/marketplace/contracts/{contract_id}/payouts")
+def get_marketplace_payouts(contract_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    return {"data": list_payouts(contract_id=contract_id)}
 
 
 @app.post("/v1/delegations")

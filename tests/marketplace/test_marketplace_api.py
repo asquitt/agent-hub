@@ -14,6 +14,8 @@ def isolate_marketplace_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     billing_db = tmp_path / "billing.db"
     monkeypatch.setenv("AGENTHUB_MARKETPLACE_LISTINGS_PATH", str(tmp_path / "listings.json"))
     monkeypatch.setenv("AGENTHUB_MARKETPLACE_CONTRACTS_PATH", str(tmp_path / "contracts.json"))
+    monkeypatch.setenv("AGENTHUB_MARKETPLACE_DISPUTES_PATH", str(tmp_path / "disputes.json"))
+    monkeypatch.setenv("AGENTHUB_MARKETPLACE_PAYOUTS_PATH", str(tmp_path / "payouts.json"))
     monkeypatch.setenv("AGENTHUB_COST_EVENTS_PATH", str(tmp_path / "cost-events.json"))
     monkeypatch.setenv("AGENTHUB_COST_DB_PATH", str(billing_db))
     monkeypatch.setenv("AGENTHUB_BILLING_DB_PATH", str(billing_db))

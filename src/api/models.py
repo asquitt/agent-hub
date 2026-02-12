@@ -295,3 +295,17 @@ class MarketplaceSettlementRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     units_used: int = Field(gt=0)
+
+
+class MarketplaceDisputeCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=3)
+    requested_amount_usd: float = Field(gt=0)
+
+
+class MarketplaceDisputeResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resolution: Literal["rejected", "approved_partial", "approved_full"]
+    approved_amount_usd: float | None = Field(default=None, ge=0)

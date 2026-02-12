@@ -11,6 +11,13 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _find_contract(contracts: list[dict[str, Any]], contract_id: str) -> dict[str, Any]:
+    row = next((item for item in contracts if item.get("contract_id") == contract_id), None)
+    if row is None:
+        raise KeyError("contract not found")
+    return row
+
+
 def list_listings() -> list[dict[str, Any]]:
     rows = storage.load("listings")
     rows.sort(key=lambda row: row.get("created_at", ""), reverse=True)
@@ -100,10 +107,7 @@ def purchase_listing(
 
 def get_contract(contract_id: str) -> dict[str, Any]:
     contracts = storage.load("contracts")
-    row = next((item for item in contracts if item.get("contract_id") == contract_id), None)
-    if row is None:
-        raise KeyError("contract not found")
-    return row
+    return _find_contract(contracts, contract_id)
 
 
 def settle_contract(*, contract_id: str, actor: str, units_used: int) -> dict[str, Any]:
@@ -129,4 +133,134 @@ def settle_contract(*, contract_id: str, actor: str, units_used: int) -> dict[st
     row["updated_at"] = _utc_now()
 
     storage.save("contracts", contracts)
+    return row
+
+
+def list_disputes(contract_id: str | None = None) -> list[dict[str, Any]]:
+    rows = storage.load("disputes")
+    if contract_id is not None:
+        rows = [row for row in rows if row.get("contract_id") == contract_id]
+    rows.sort(key=lambda row: row.get("created_at", ""), reverse=True)
+    return rows
+
+
+def create_dispute(*, contract_id: str, actor: str, reason: str, requested_amount_usd: float) -> dict[str, Any]:
+    if requested_amount_usd <= 0:
+        raise ValueError("requested_amount_usd must be > 0")
+    if len(reason.strip()) < 3:
+        raise ValueError("reason must be at least 3 characters")
+
+    contracts = storage.load("contracts")
+    contract = _find_contract(contracts, contract_id)
+    if actor not in {contract.get("buyer"), contract.get("seller")}:
+        raise PermissionError("actor not permitted to file dispute")
+    if contract.get("status") not in {"active", "settled"}:
+        raise ValueError("contract not eligible for dispute")
+
+    disputes = storage.load("disputes")
+    row = {
+        "dispute_id": str(uuid.uuid4()),
+        "contract_id": contract_id,
+        "filed_by": actor,
+        "reason": reason.strip(),
+        "requested_amount_usd": round(float(requested_amount_usd), 6),
+        "status": "open",
+        "resolution": None,
+        "approved_amount_usd": 0.0,
+        "created_at": _utc_now(),
+        "updated_at": _utc_now(),
+    }
+    disputes.append(row)
+    storage.save("disputes", disputes)
+    return row
+
+
+def resolve_dispute(
+    *,
+    dispute_id: str,
+    actor: str,
+    resolution: str,
+    approved_amount_usd: float | None = None,
+) -> dict[str, Any]:
+    if actor != "owner-platform":
+        raise PermissionError("only platform owner can resolve disputes")
+    normalized = resolution.strip().lower()
+    if normalized not in {"rejected", "approved_partial", "approved_full"}:
+        raise ValueError("resolution must be rejected, approved_partial, or approved_full")
+
+    disputes = storage.load("disputes")
+    row = next((item for item in disputes if item.get("dispute_id") == dispute_id), None)
+    if row is None:
+        raise KeyError("dispute not found")
+    if row.get("status") != "open":
+        raise ValueError("dispute already resolved")
+
+    contracts = storage.load("contracts")
+    contract = _find_contract(contracts, str(row["contract_id"]))
+    max_disputable = float(contract.get("amount_settled_usd", 0.0))
+    requested = float(row.get("requested_amount_usd", 0.0))
+
+    approved = 0.0
+    status = "resolved_rejected"
+    if normalized == "approved_full":
+        approved = min(requested, max_disputable)
+        status = "resolved_approved_full"
+    elif normalized == "approved_partial":
+        if approved_amount_usd is None or approved_amount_usd <= 0:
+            raise ValueError("approved_amount_usd must be > 0 for approved_partial")
+        approved = min(float(approved_amount_usd), requested, max_disputable)
+        status = "resolved_approved_partial"
+
+    row["resolution"] = normalized
+    row["approved_amount_usd"] = round(approved, 6)
+    row["resolved_by"] = actor
+    row["status"] = status
+    row["updated_at"] = _utc_now()
+    row["resolved_at"] = _utc_now()
+    storage.save("disputes", disputes)
+    return row
+
+
+def list_payouts(contract_id: str | None = None) -> list[dict[str, Any]]:
+    rows = storage.load("payouts")
+    if contract_id is not None:
+        rows = [row for row in rows if row.get("contract_id") == contract_id]
+    rows.sort(key=lambda row: row.get("created_at", ""), reverse=True)
+    return rows
+
+
+def create_payout(*, contract_id: str, actor: str) -> dict[str, Any]:
+    if actor not in {"owner-platform", "owner-dev"}:
+        raise PermissionError("actor not permitted to execute payout")
+
+    contracts = storage.load("contracts")
+    contract = _find_contract(contracts, contract_id)
+    if contract.get("status") != "settled":
+        raise ValueError("contract must be settled before payout")
+
+    disputes = list_disputes(contract_id=contract_id)
+    if any(row.get("status") == "open" for row in disputes):
+        raise ValueError("open disputes must be resolved before payout")
+
+    payouts = storage.load("payouts")
+    existing = next((row for row in payouts if row.get("contract_id") == contract_id), None)
+    if existing is not None:
+        return existing
+
+    dispute_adjustment = sum(float(row.get("approved_amount_usd", 0.0)) for row in disputes if str(row.get("status", "")).startswith("resolved_approved"))
+    gross = float(contract.get("amount_settled_usd", 0.0))
+    net = max(0.0, gross - dispute_adjustment)
+    row = {
+        "payout_id": str(uuid.uuid4()),
+        "contract_id": contract_id,
+        "seller": contract.get("seller"),
+        "executed_by": actor,
+        "gross_amount_usd": round(gross, 6),
+        "dispute_adjustment_usd": round(dispute_adjustment, 6),
+        "net_payout_usd": round(net, 6),
+        "status": "paid",
+        "created_at": _utc_now(),
+    }
+    payouts.append(row)
+    storage.save("payouts", payouts)
     return row
