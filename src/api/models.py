@@ -124,3 +124,19 @@ class DelegationRequest(BaseModel):
     simulated_actual_cost_usd: float | None = Field(default=None, ge=0)
     auto_reauthorize: bool = True
     metering_events: list[dict[str, Any]] | None = None
+
+
+class LeaseCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requester_agent_id: str
+    capability_ref: str = Field(min_length=3)
+    ttl_seconds: int = Field(default=3600, gt=0, le=86400)
+
+
+class LeasePromoteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    signature: str = Field(min_length=8)
+    attestation_hash: str = Field(min_length=12)
+    policy_approved: bool = False

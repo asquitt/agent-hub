@@ -17,6 +17,8 @@ from src.api.models import (
     ContractMatchRequest,
     DelegationRequest,
     DiscoverySearchRequest,
+    LeaseCreateRequest,
+    LeasePromoteRequest,
     MatchRequest,
     RecommendRequest,
     SearchRequest,
@@ -27,6 +29,7 @@ from src.delegation.service import create_delegation, get_delegation_status
 from src.delegation.storage import load_records
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
+from src.lease import create_lease, get_lease, promote_lease
 from src.trust.scoring import compute_trust_score, record_usage_event
 from src.versioning import compute_behavioral_diff
 from tools.capability_search.mock_engine import (
@@ -409,6 +412,52 @@ def operator_refresh(
 ) -> dict[str, str]:
     role = _require_operator_role(owner, x_operator_role, {"admin"})
     return {"status": "refreshed", "role": role}
+
+
+@app.post("/v1/capabilities/lease")
+def post_capability_lease(request: LeaseCreateRequest, owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        lease = create_lease(
+            requester_agent_id=request.requester_agent_id,
+            capability_ref=request.capability_ref,
+            owner=owner,
+            ttl_seconds=request.ttl_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return lease
+
+
+@app.get("/v1/capabilities/leases/{lease_id}")
+def get_capability_lease(lease_id: str, owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        return get_lease(lease_id=lease_id, owner=owner)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="lease not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@app.post("/v1/capabilities/leases/{lease_id}/promote")
+def post_capability_promote(
+    lease_id: str,
+    request: LeasePromoteRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        return promote_lease(
+            lease_id=lease_id,
+            owner=owner,
+            signature=request.signature,
+            attestation_hash=request.attestation_hash,
+            policy_approved=request.policy_approved,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="lease not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/v1/delegations")
