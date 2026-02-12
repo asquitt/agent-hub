@@ -37,6 +37,10 @@ from src.api.models import (
     MarketplaceSettlementRequest,
     RecommendRequest,
     SearchRequest,
+    ProvenanceArtifactSignRequest,
+    ProvenanceArtifactVerifyRequest,
+    ProvenanceManifestSignRequest,
+    ProvenanceManifestVerifyRequest,
     TrustUsageEventRequest,
 )
 from src.api.store import STORE
@@ -58,6 +62,14 @@ from src.knowledge import contribute_entry, query_entries, validate_entry
 from src.lease import create_lease, get_lease, promote_lease, rollback_install
 from src.marketplace import create_listing, get_contract, list_listings, purchase_listing, settle_contract
 from src.policy import evaluate_delegation_policy, evaluate_install_promotion_policy
+from src.provenance.service import (
+    artifact_hash,
+    manifest_hash,
+    sign_artifact,
+    sign_manifest,
+    verify_artifact_signature,
+    verify_manifest_signature,
+)
 from src.reliability.service import DEFAULT_WINDOW_SIZE, build_slo_dashboard
 from src.trust.scoring import compute_trust_score, record_usage_event as trust_record_usage_event
 from src.versioning import compute_behavioral_diff
@@ -194,6 +206,50 @@ def issue_auth_token(
     owner: str = Depends(require_api_key_owner),
 ) -> dict[str, Any]:
     return issue_scoped_token(owner=owner, scopes=request.scopes, ttl_seconds=request.ttl_seconds)
+
+
+@app.post("/v1/provenance/manifests/sign")
+def post_manifest_provenance_sign(
+    request: ProvenanceManifestSignRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    if request.signer != owner:
+        raise HTTPException(status_code=403, detail="signer must match authenticated owner")
+    envelope = sign_manifest(manifest=request.manifest, signer=request.signer, artifact_hashes=request.artifact_hashes)
+    return {"manifest_hash": manifest_hash(request.manifest), "envelope": envelope}
+
+
+@app.post("/v1/provenance/manifests/verify")
+def post_manifest_provenance_verify(
+    request: ProvenanceManifestVerifyRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    verification = verify_manifest_signature(manifest=request.manifest, envelope=request.envelope)
+    return {"verification": verification}
+
+
+@app.post("/v1/provenance/artifacts/sign")
+def post_artifact_provenance_sign(
+    request: ProvenanceArtifactSignRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    if request.signer != owner:
+        raise HTTPException(status_code=403, detail="signer must match authenticated owner")
+    envelope = sign_artifact(artifact_id=request.artifact_id, artifact_payload=request.artifact_payload, signer=request.signer)
+    return {"artifact_hash": artifact_hash(request.artifact_payload), "envelope": envelope}
+
+
+@app.post("/v1/provenance/artifacts/verify")
+def post_artifact_provenance_verify(
+    request: ProvenanceArtifactVerifyRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    verification = verify_artifact_signature(
+        artifact_id=request.artifact_id,
+        artifact_payload=request.artifact_payload,
+        envelope=request.envelope,
+    )
+    return {"verification": verification}
 
 
 @app.get("/operator", response_class=HTMLResponse)

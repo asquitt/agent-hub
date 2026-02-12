@@ -215,6 +215,37 @@ class AuthTokenIssueRequest(BaseModel):
     ttl_seconds: int = Field(default=1800, ge=1, le=86400)
 
 
+class ProvenanceManifestSignRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    manifest: dict[str, Any]
+    signer: str = Field(min_length=2, max_length=128)
+    artifact_hashes: list[str] = Field(default_factory=list, max_length=128)
+
+
+class ProvenanceManifestVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    manifest: dict[str, Any]
+    envelope: dict[str, Any]
+
+
+class ProvenanceArtifactSignRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: str = Field(min_length=3, max_length=256)
+    artifact_payload: dict[str, Any]
+    signer: str = Field(min_length=2, max_length=128)
+
+
+class ProvenanceArtifactVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: str = Field(min_length=3, max_length=256)
+    artifact_payload: dict[str, Any]
+    envelope: dict[str, Any]
+
+
 class FederatedExecutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
