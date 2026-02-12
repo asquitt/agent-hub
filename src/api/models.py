@@ -123,6 +123,8 @@ class DelegationRequest(BaseModel):
     max_budget_usd: float = Field(gt=0)
     simulated_actual_cost_usd: float | None = Field(default=None, ge=0)
     auto_reauthorize: bool = True
+    min_delegate_trust_score: float | None = Field(default=None, ge=0, le=1)
+    required_permissions: list[str] = []
     metering_events: list[dict[str, Any]] | None = None
 
 

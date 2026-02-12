@@ -13,3 +13,21 @@ dist/
 AGENTS.md
 skills/
 .codex/
+
+# Sensitive planning artifacts (keep local only)
+docs/AGENTHUB_COMPREHENSIVE_CONTINUATION_PLAN_*.md
+docs/session-packets/
+docs/agenthub-master-plan*.docx
+
+# Sensitive/local runtime telemetry
+data/delegations/records.json
+data/evals/results.json
+data/trust/scores.json
+data/trust/usage_events.json
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12

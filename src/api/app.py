@@ -45,10 +45,12 @@ from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
 from src.knowledge import contribute_entry, query_entries, validate_entry
 from src.lease import create_lease, get_lease, promote_lease
+from src.policy import evaluate_delegation_policy, evaluate_install_promotion_policy
 from src.trust.scoring import compute_trust_score, record_usage_event as trust_record_usage_event
 from src.versioning import compute_behavioral_diff
 from tools.capability_search.mock_engine import (
     list_agent_capabilities as mock_list_agent_capabilities,
+    load_mock_capabilities,
     match_capabilities as mock_match_capabilities,
     recommend_capabilities as mock_recommend_capabilities,
     search_capabilities as mock_search_capabilities,
@@ -122,6 +124,16 @@ def _require_operator_role(owner: str, requested_role: str | None, allowed_roles
     if role not in allowed_roles:
         raise HTTPException(status_code=403, detail="operator role not permitted")
     return role
+
+
+def _delegate_policy_signals(delegate_agent_id: str) -> tuple[float | None, list[str]]:
+    short_id = delegate_agent_id.split(":")[-1]
+    rows = [row for row in load_mock_capabilities() if row.get("agent_id") == short_id]
+    if not rows:
+        return None, []
+    trust = max(float(row.get("trust_score", 0.0)) for row in rows)
+    permissions = sorted({perm for row in rows for perm in row.get("permissions", [])})
+    return trust, permissions
 
 
 @app.get("/healthz")
@@ -459,14 +471,33 @@ def post_capability_promote(
     request: LeasePromoteRequest,
     owner: str = Depends(require_api_key),
 ) -> dict[str, Any]:
+    policy_decision = evaluate_install_promotion_policy(
+        actor="runtime.install",
+        owner=owner,
+        lease_id=lease_id,
+        policy_approved=request.policy_approved,
+        attestation_hash=request.attestation_hash,
+        signature=request.signature,
+    )
+    if not policy_decision["allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": "policy denied install promotion",
+                "policy_decision": policy_decision,
+            },
+        )
+
     try:
-        return promote_lease(
+        promoted = promote_lease(
             lease_id=lease_id,
             owner=owner,
             signature=request.signature,
             attestation_hash=request.attestation_hash,
             policy_approved=request.policy_approved,
         )
+        promoted["policy_decision"] = policy_decision
+        return promoted
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="lease not found") from exc
     except PermissionError as exc:
@@ -590,6 +621,29 @@ def post_billing_refund(
 
 @app.post("/v1/delegations")
 def post_delegation(request: DelegationRequest, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    delegate_trust_score, delegate_permissions = _delegate_policy_signals(request.delegate_agent_id)
+    policy_decision = evaluate_delegation_policy(
+        actor="runtime.delegation",
+        requester_agent_id=request.requester_agent_id,
+        delegate_agent_id=request.delegate_agent_id,
+        estimated_cost_usd=request.estimated_cost_usd,
+        max_budget_usd=request.max_budget_usd,
+        auto_reauthorize=request.auto_reauthorize,
+        min_delegate_trust_score=request.min_delegate_trust_score,
+        delegate_trust_score=delegate_trust_score,
+        required_permissions=request.required_permissions,
+        delegate_permissions=delegate_permissions,
+    )
+    if not policy_decision["allowed"]:
+        status = 400 if all(code.startswith("budget.") for code in policy_decision["violated_constraints"]) else 403
+        raise HTTPException(
+            status_code=status,
+            detail={
+                "message": "policy denied delegation",
+                "policy_decision": policy_decision,
+            },
+        )
+
     try:
         row = create_delegation(
             requester_agent_id=request.requester_agent_id,
@@ -599,6 +653,7 @@ def post_delegation(request: DelegationRequest, _owner: str = Depends(require_ap
             max_budget_usd=request.max_budget_usd,
             simulated_actual_cost_usd=request.simulated_actual_cost_usd,
             auto_reauthorize=request.auto_reauthorize,
+            policy_decision=policy_decision,
             metering_events=request.metering_events,
         )
     except ValueError as exc:
@@ -607,6 +662,7 @@ def post_delegation(request: DelegationRequest, _owner: str = Depends(require_ap
         "delegation_id": row["delegation_id"],
         "status": row["status"],
         "budget_controls": row["budget_controls"],
+        "policy_decision": policy_decision,
         "lifecycle": row["lifecycle"],
     }
 

@@ -6,6 +6,11 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from src.policy import (
+    evaluate_compatibility_policy,
+    evaluate_contract_match_policy,
+    evaluate_discovery_policy,
+)
 from tools.capability_search.mock_engine import (
     list_agent_capabilities,
     match_capabilities,
@@ -45,6 +50,21 @@ class DiscoveryService:
 
     def semantic_discovery(self, query: str, constraints: dict[str, Any] | None = None) -> dict[str, Any]:
         constraints = constraints or {}
+        policy_decision = evaluate_discovery_policy(
+            action="semantic_search",
+            actor="runtime.discovery",
+            query=query,
+            constraints=constraints,
+        )
+        if not policy_decision["allowed"]:
+            return {
+                "data": [],
+                "ttl_hint_seconds": self.ttl_seconds,
+                "constraints": constraints,
+                "cache": "miss",
+                "policy_decision": policy_decision,
+            }
+
         max_cost = constraints.get("max_cost_usd")
         filters = dict(constraints)
 
@@ -70,9 +90,24 @@ class DiscoveryService:
             "ttl_hint_seconds": self.ttl_seconds,
             "constraints": constraints,
             "cache": "miss",
+            "policy_decision": policy_decision,
         }
 
     def contract_match(self, input_required: list[str], output_required: list[str], max_cost_usd: float | None = None) -> dict[str, Any]:
+        policy_decision = evaluate_contract_match_policy(
+            actor="runtime.discovery",
+            input_required=input_required,
+            output_required=output_required,
+            constraints={"max_cost_usd": max_cost_usd},
+        )
+        if not policy_decision["allowed"]:
+            return {
+                "data": [],
+                "ttl_hint_seconds": self.ttl_seconds,
+                "cache": "miss",
+                "policy_decision": policy_decision,
+            }
+
         payload = {
             "mode": "contract",
             "input_required": sorted(input_required),
@@ -91,11 +126,31 @@ class DiscoveryService:
             pagination={"mode": "offset", "offset": 0, "limit": 50},
         )
 
-        out = {"data": result["data"], "ttl_hint_seconds": self.ttl_seconds, "cache": "miss"}
+        out = {
+            "data": result["data"],
+            "ttl_hint_seconds": self.ttl_seconds,
+            "cache": "miss",
+            "policy_decision": policy_decision,
+        }
         self._put_cache(payload, out)
         return out
 
     def compatibility_report(self, my_schema: dict[str, Any], agent_id: str) -> dict[str, Any]:
+        policy_decision = evaluate_compatibility_policy(
+            actor="runtime.discovery",
+            my_schema=my_schema,
+            agent_id=agent_id,
+        )
+        if not policy_decision["allowed"]:
+            return {
+                "agent_id": agent_id,
+                "request_required": [],
+                "capability_reports": [],
+                "ttl_hint_seconds": self.ttl_seconds,
+                "cache": "miss",
+                "policy_decision": policy_decision,
+            }
+
         payload = {"mode": "compat", "schema": my_schema, "agent_id": agent_id}
         cached = self._get_cached(payload)
         if cached:
@@ -121,6 +176,7 @@ class DiscoveryService:
             "capability_reports": reports,
             "ttl_hint_seconds": self.ttl_seconds,
             "cache": "miss",
+            "policy_decision": policy_decision,
         }
         self._put_cache(payload, out)
         return out

@@ -33,7 +33,7 @@
 ## Continuation Tracker (Post-S16)
 | Segment | Deliverable(s) | Status | Last Updated | Owner | Plan Doc Updated? | Evidence File |
 |---|---|---|---|---|---|---|
-| S17 | Runtime Policy Engine v2 | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S17.md |
+| S17 | Runtime Policy Engine v2 | DONE | 2026-02-12 18:21 UTC | Platform | Yes | docs/evidence/S17.md |
 | S18 | Capability Search v2 | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S18.md |
 | S19 | Delegation Contracts v2 | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S19.md |
 | S20 | Cost Governance v2 | NOT_STARTED | 2026-02-12 | Platform | No | docs/evidence/S20.md |

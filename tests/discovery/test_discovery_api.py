@@ -21,9 +21,11 @@ def test_discovery_search_cost_constraint_optimization() -> None:
     )
     assert response.status_code == 200
     data = response.json()["data"]
+    policy = response.json()["policy_decision"]
     assert data
     assert all(item["estimated_cost_usd"] <= 0.02 for item in data)
     assert "cost_optimized_score" in data[0]
+    assert policy["decision"] == "allow"
 
 
 def test_contract_match_and_compatibility_cached_sla() -> None:
@@ -43,6 +45,7 @@ def test_contract_match_and_compatibility_cached_sla() -> None:
         contract_lat.append((time.perf_counter() - t) * 1000)
         assert r1.status_code == 200
         assert r1.json()["data"]
+        assert r1.json()["policy_decision"]["decision"] == "allow"
 
         t = time.perf_counter()
         r2 = client.post(
@@ -55,6 +58,7 @@ def test_contract_match_and_compatibility_cached_sla() -> None:
         compat_lat.append((time.perf_counter() - t) * 1000)
         assert r2.status_code == 200
         assert r2.json()["capability_reports"]
+        assert r2.json()["policy_decision"]["decision"] == "allow"
 
     p95_contract = statistics.quantiles(contract_lat, n=100)[94]
     p95_compat = statistics.quantiles(compat_lat, n=100)[94]
@@ -73,6 +77,7 @@ def test_semantic_discovery_sla() -> None:
         )
         latencies.append((time.perf_counter() - t) * 1000)
         assert response.status_code == 200
+        assert response.json()["policy_decision"]["decision"] == "allow"
 
     p95 = statistics.quantiles(latencies, n=100)[94]
     assert p95 < 300, f"semantic discovery p95 too high: {p95:.3f}ms"
@@ -89,3 +94,17 @@ def test_mcp_tools_and_a2a_agent_card() -> None:
     payload = card.json()
     assert payload["id"] == "agenthub-discovery-service"
     assert payload["meta"]["service_tier"] == "agent-native"
+
+
+def test_discovery_policy_denies_malformed_constraints() -> None:
+    response = client.post(
+        "/v1/discovery/search",
+        json={
+            "query": "invoice",
+            "constraints": {"allowed_protocols": ["SOAP"], "required_permissions": ["payments.*"]},
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"] == []
+    assert payload["policy_decision"]["decision"] == "deny"

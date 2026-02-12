@@ -42,6 +42,7 @@ def test_lease_create_and_promote_success() -> None:
     promoted = promote_response.json()
     assert promoted["status"] == "promoted"
     assert promoted["promotion"]["installed_ref"].startswith("@demo:invoice-summarizer::")
+    assert promoted["policy_decision"]["decision"] == "allow"
 
 
 def test_lease_permission_boundary_blocks_other_owner_promote() -> None:
@@ -105,3 +106,31 @@ def test_lease_ttl_expiry_blocks_promotion() -> None:
         assert "expired" in expired.json()["detail"]
     finally:
         service._now_epoch = original_now
+
+
+def test_lease_promotion_requires_policy_approval() -> None:
+    client = TestClient(app)
+    lease_response = client.post(
+        "/v1/capabilities/lease",
+        json={
+            "requester_agent_id": "@demo:invoice-summarizer",
+            "capability_ref": "@seed:data-normalizer/normalize-records",
+            "ttl_seconds": 600,
+        },
+        headers={"X-API-Key": "dev-owner-key"},
+    )
+    lease = lease_response.json()
+
+    denied = client.post(
+        f"/v1/capabilities/leases/{lease['lease_id']}/promote",
+        json={
+            "attestation_hash": lease["attestation_hash"],
+            "signature": f"sig:{lease['attestation_hash']}:owner-dev",
+            "policy_approved": False,
+        },
+        headers={"X-API-Key": "dev-owner-key"},
+    )
+    assert denied.status_code == 403
+    detail = denied.json()["detail"]
+    assert detail["policy_decision"]["decision"] == "deny"
+    assert "approval.policy_required" in detail["policy_decision"]["violated_constraints"]

@@ -50,6 +50,7 @@ def test_full_delegation_lifecycle_and_audit_trail() -> None:
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "completed"
+        assert payload["policy_decision"]["decision"] == "allow"
         stages = [s["stage"] for s in payload["lifecycle"]]
         assert stages == ["discovery", "negotiation", "execution", "delivery", "settlement", "feedback"]
 
@@ -59,6 +60,7 @@ def test_full_delegation_lifecycle_and_audit_trail() -> None:
         status_payload = status.json()
         assert status_payload["budget_controls"]["soft_alert"] is True
         assert status_payload["audit_trail"]
+        assert status_payload["policy_decision"]["decision"] == "allow"
 
 
 def test_budget_hard_ceiling_rejects_request() -> None:
@@ -75,7 +77,9 @@ def test_budget_hard_ceiling_rejects_request() -> None:
             headers={"X-API-Key": "dev-owner-key"},
         )
         assert response.status_code == 400
-        assert "hard ceiling" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["policy_decision"]["decision"] == "deny"
+        assert "budget.hard_stop_120" in detail["policy_decision"]["violated_constraints"]
 
 
 def test_circuit_breakers_100_and_120_thresholds() -> None:
@@ -112,3 +116,25 @@ def test_circuit_breakers_100_and_120_thresholds() -> None:
         assert at_120.status_code == 200
         assert at_120.json()["status"] == "failed_hard_stop"
         assert at_120.json()["budget_controls"]["hard_stop"] is True
+
+
+def test_policy_boundary_enforces_trust_and_permissions() -> None:
+    with TestClient(app) as c:
+        blocked = c.post(
+            "/v1/delegations",
+            json={
+                "requester_agent_id": "@demo:invoice-summarizer",
+                "delegate_agent_id": "@demo:support-orchestrator",
+                "task_spec": "Run payment",
+                "estimated_cost_usd": 5,
+                "max_budget_usd": 20,
+                "min_delegate_trust_score": 0.9,
+                "required_permissions": ["payments.execute"],
+            },
+            headers={"X-API-Key": "dev-owner-key"},
+        )
+        assert blocked.status_code == 403
+        detail = blocked.json()["detail"]
+        assert detail["policy_decision"]["decision"] == "deny"
+        assert "trust.floor_not_met" in detail["policy_decision"]["violated_constraints"]
+        assert "permissions.missing_required" in detail["policy_decision"]["violated_constraints"]

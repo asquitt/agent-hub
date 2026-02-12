@@ -42,6 +42,7 @@ def create_delegation(
     max_budget_usd: float,
     simulated_actual_cost_usd: float | None = None,
     auto_reauthorize: bool = True,
+    policy_decision: dict[str, Any] | None = None,
     metering_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if estimated_cost_usd > max_budget_usd:
@@ -126,6 +127,7 @@ def create_delegation(
         "actual_cost_usd": actual_cost,
         "max_budget_usd": max_budget_usd,
         "status": settlement_status,
+        "policy_decision": policy_decision,
         "lifecycle": lifecycle,
         "audit_trail": audit_trail,
         "budget_controls": controls,
@@ -149,6 +151,7 @@ def get_delegation_status(delegation_id: str) -> dict[str, Any] | None:
         "estimated_cost_usd": row["estimated_cost_usd"],
         "actual_cost_usd": row["actual_cost_usd"],
         "budget_controls": row["budget_controls"],
+        "policy_decision": row.get("policy_decision"),
         "lifecycle": row["lifecycle"],
         "audit_trail": row["audit_trail"],
     }
