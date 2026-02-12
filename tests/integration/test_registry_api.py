@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from src.api.app import app
 from src.api.store import STORE
-from src.eval import storage
 from src.eval.runner import run_tier1_eval
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +23,12 @@ def reset_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     STORE.agents.clear()
     STORE.idempotency_cache.clear()
     monkeypatch.setenv("AGENTHUB_EVAL_RESULTS_PATH", str(tmp_path / "results.json"))
+    monkeypatch.setenv("AGENTHUB_TRUST_USAGE_EVENTS_PATH", str(tmp_path / "usage_events.json"))
+    monkeypatch.setenv("AGENTHUB_TRUST_REVIEWS_PATH", str(tmp_path / "reviews.json"))
+    monkeypatch.setenv("AGENTHUB_TRUST_SECURITY_AUDITS_PATH", str(tmp_path / "security_audits.json"))
+    monkeypatch.setenv("AGENTHUB_TRUST_INCIDENTS_PATH", str(tmp_path / "incidents.json"))
+    monkeypatch.setenv("AGENTHUB_TRUST_PUBLISHER_PROFILES_PATH", str(tmp_path / "publisher_profiles.json"))
+    monkeypatch.setenv("AGENTHUB_TRUST_SCORES_PATH", str(tmp_path / "scores.json"))
 
 
 @pytest.fixture()
@@ -283,3 +288,27 @@ def test_eval_results_visible_on_agent_detail(client: TestClient) -> None:
     eval_summary = response.json()["eval_summary"]
     assert "accuracy" in eval_summary
     assert "latency_ms" in eval_summary
+
+
+def test_trust_endpoint_recalculates_on_usage_and_eval(client: TestClient) -> None:
+    agent_id = register_default_agent(client, version="1.0.0")
+
+    initial = client.get(f"/v1/agents/{agent_id}/trust")
+    assert initial.status_code == 200
+    initial_score = initial.json()["score"]
+
+    usage = client.post(
+        f"/v1/agents/{agent_id}/trust/usage",
+        json={"success": True, "cost_usd": 0.02, "latency_ms": 120},
+        headers={"X-API-Key": "dev-owner-key"},
+    )
+    assert usage.status_code == 200
+    after_usage_score = usage.json()["score"]
+    assert after_usage_score >= initial_score
+
+    manifest = load_yaml(VALID_MANIFEST_PATH)
+    run_tier1_eval(manifest=manifest, agent_id=agent_id, version="1.0.0")
+
+    after_eval = client.get(f"/v1/agents/{agent_id}/trust")
+    assert after_eval.status_code == 200
+    assert after_eval.json()["breakdown"]["eval_pass_rate"] >= 0.9

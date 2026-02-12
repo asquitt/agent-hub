@@ -13,9 +13,11 @@ from src.api.models import (
     MatchRequest,
     RecommendRequest,
     SearchRequest,
+    TrustUsageEventRequest,
 )
 from src.api.store import STORE
 from src.eval.storage import latest_result
+from src.trust.scoring import compute_trust_score, record_usage_event
 from tools.capability_search.mock_engine import (
     list_agent_capabilities as mock_list_agent_capabilities,
     match_capabilities as mock_match_capabilities,
@@ -43,6 +45,7 @@ def _serialize_agent(agent) -> dict[str, Any]:
     latest = agent.versions[-1]
     eval_row = latest_result(agent_id=agent.agent_id, version=latest.version)
     eval_summary = eval_row["metrics"] if eval_row else {"status": "pending"}
+    trust = compute_trust_score(agent_id=agent.agent_id, owner=agent.owner)
     return {
         "id": agent.agent_id,
         "namespace": agent.namespace,
@@ -51,6 +54,11 @@ def _serialize_agent(agent) -> dict[str, Any]:
         "latest_version": latest.version,
         "manifest": latest.manifest,
         "eval_summary": eval_summary,
+        "trust": {
+            "score": trust["score"],
+            "tier": trust["tier"],
+            "badge": trust["badge"],
+        },
         "versions": [v.version for v in agent.versions],
     }
 
@@ -227,6 +235,35 @@ def recommend_capabilities(request: RecommendRequest) -> dict[str, Any]:
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/v1/agents/{agent_id}/trust")
+def get_agent_trust(agent_id: str) -> dict[str, Any]:
+    try:
+        agent = STORE.get_agent(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="agent not found") from exc
+    return compute_trust_score(agent_id=agent.agent_id, owner=agent.owner)
+
+
+@app.post("/v1/agents/{agent_id}/trust/usage")
+def post_usage_event(
+    agent_id: str,
+    request: TrustUsageEventRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        agent = STORE.get_agent(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="agent not found") from exc
+
+    record_usage_event(
+        agent_id=agent.agent_id,
+        success=request.success,
+        cost_usd=request.cost_usd,
+        latency_ms=request.latency_ms,
+    )
+    return compute_trust_score(agent_id=agent.agent_id, owner=agent.owner)
 
 
 @app.get("/v1/agents/{agent_id}")

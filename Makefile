@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: dev test lint migrate eval compose-up compose-down
+.PHONY: dev test lint migrate eval trust compose-up compose-down
 
 dev:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -18,6 +18,9 @@ migrate:
 
 eval:
 	$(PYTHON) tools/eval/agenthub_eval.py eval --manifest specs/manifest/examples/simple-tool-agent.yaml --agent-id @local:manifest-eval
+
+trust:
+	$(PYTHON) tools/trust/recompute_trust.py --agent-id @demo:invoice-summarizer --owner owner-dev
 
 compose-up:
 	docker compose up --build -d

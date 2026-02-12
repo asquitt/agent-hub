@@ -1,0 +1,44 @@
+# Trust Scoring Core (D11)
+
+## Overview
+Trust scoring combines eval, usage, reputation, community, security, freshness, and incident penalties into a dynamic 0-100 score.
+
+## Weights
+- Eval pass rate: 30%
+- Usage success rate: 20%
+- Publisher reputation: 15%
+- Community validation: 10%
+- Security audit: 10%
+- Freshness: 10%
+- Incident penalty: -20%
+
+## Tier Mapping
+- Unverified: 0-39 (Gray)
+- Community: 40-59 (Bronze)
+- Verified: 60-79 (Silver)
+- Trusted: 80-89 (Gold)
+- Certified: 90-100 (Platinum)
+
+## Anti-Gaming Controls
+- Sybil resistance:
+  - New accounts get a 30-day trust accumulation delay multiplier.
+- Publisher reputation gating:
+  - Requires minimum 3 agents and independent usage before full publisher signal applies.
+- Eval manipulation detection:
+  - Canary failures clamp security signal and set `canary_failure_detected` flag.
+- Review fraud resistance:
+  - Only verified-usage reviews are included in community signal.
+
+## API Contract
+- `GET /v1/agents/{id}/trust` returns:
+  - score, tier, badge, breakdown, anti-gaming flags, and weights
+
+## Recalculation Triggers
+- New eval results (reflected in eval signal)
+- Usage events (success-rate updates)
+- Security audits / incidents / reviews updates
+
+## Operator CLI
+```bash
+python3 tools/trust/recompute_trust.py --agent-id @demo:invoice-summarizer --owner owner-dev
+```

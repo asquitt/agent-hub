@@ -81,3 +81,11 @@ class AgentVersionResponse(BaseModel):
     version: str
     manifest: dict[str, Any]
     eval_summary: dict[str, Any]
+
+
+class TrustUsageEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    success: bool
+    cost_usd: float = Field(ge=0)
+    latency_ms: float = Field(ge=0)
