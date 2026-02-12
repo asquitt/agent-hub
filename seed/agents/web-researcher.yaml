@@ -1,0 +1,64 @@
+schema_version: "0.1"
+identity:
+  id: web-researcher
+  name: AgentHub Web Researcher
+  version: 0.1.0
+  description: Performs structured web research and returns citation-ready summaries.
+  owner: agenthub
+  type: tool
+capabilities:
+  - id: research-web
+    name: Research Web
+    category: retrieval
+    description: Retrieves relevant web information and source metadata for a query.
+    input_schema:
+      type: object
+      properties:
+        query:
+          type: string
+      required: [query]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        findings:
+          type: array
+          items:
+            type: string
+      required: [findings]
+      additionalProperties: false
+    protocols: [MCP, HTTP]
+    idempotency_key_required: false
+    side_effect_level: none
+interfaces:
+  - name: mcp
+    protocol: MCP
+    endpoint: https://example.local/mcp/web-researcher
+    auth: signed_jwt
+    privileged: false
+trust:
+  minimum_trust_score: 0.7
+  allowed_trust_sources: [first_party]
+  policy:
+    injection_protection: strict
+    pii_handling: deny
+    data_retention_days: 14
+    high_risk_approval_required: true
+  budget_guardrails:
+    soft_alert_pct: 80
+    reauthorization_pct: 100
+    hard_stop_pct: 120
+  credential_policy:
+    short_lived_credentials: true
+    max_ttl_minutes: 60
+runtime:
+  execution_mode: deterministic_workflow
+  sandbox: container
+  max_retries: 2
+  timeout_seconds: 30
+  idempotency_required: true
+  replay_safe: true
+  observability:
+    log_privileged_actions: true
+    emit_cost_metrics: true
+    emit_latency_metrics: true

@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: dev test lint migrate eval trust discovery-load compose-up compose-down
+.PHONY: dev test lint migrate eval trust discovery-load cli-test compose-up compose-down
 
 dev:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -9,7 +9,7 @@ test:
 	pytest -q
 
 lint:
-	$(PYTHON) -m py_compile src/api/*.py tools/manifest/*.py tools/capability_search/*.py
+	$(PYTHON) -m py_compile agenthub/*.py src/api/*.py src/delegation/*.py src/discovery/*.py src/eval/*.py src/trust/*.py tools/manifest/*.py tools/capability_search/*.py tools/eval/*.py tools/trust/*.py
 
 migrate:
 	@echo "Apply migrations with your Postgres DSN"
@@ -24,6 +24,9 @@ trust:
 
 discovery-load:
 	pytest tests/discovery/test_load_sla.py -q
+
+cli-test:
+	pytest tests/cli/test_agenthub_cli.py -q
 
 compose-up:
 	docker compose up --build -d

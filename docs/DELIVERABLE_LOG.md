@@ -21,7 +21,7 @@
 | S06 | D11 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S06.md |
 | S07 | D12 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S07.md |
 | S08 | D13 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S08.md |
-| S09 | D08+D17(min) | NOT_STARTED | - | - | No | docs/evidence/S09.md |
+| S09 | D08+D17(min) | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S09.md |
 | S10 | Gate Review | NOT_STARTED | - | - | No | docs/evidence/S10.md |
 | S11 | D07(min) | NOT_STARTED | - | - | No | docs/evidence/S11.md |
 | S12 | D06+D10 | NOT_STARTED | - | - | No | docs/evidence/S12.md |

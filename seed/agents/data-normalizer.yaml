@@ -1,0 +1,66 @@
+schema_version: "0.1"
+identity:
+  id: data-normalizer
+  name: AgentHub Data Normalizer
+  version: 0.1.0
+  description: Normalizes semi-structured records into strict contract-compliant schemas.
+  owner: agenthub
+  type: tool
+capabilities:
+  - id: normalize-records
+    name: Normalize Records
+    category: transformation
+    description: Transforms heterogeneous record payloads into normalized JSON output.
+    input_schema:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            type: object
+      required: [records]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        normalized:
+          type: array
+          items:
+            type: object
+      required: [normalized]
+      additionalProperties: false
+    protocols: [MCP, A2A]
+    idempotency_key_required: false
+    side_effect_level: none
+interfaces:
+  - name: mcp
+    protocol: MCP
+    endpoint: https://example.local/mcp/data-normalizer
+    auth: signed_jwt
+    privileged: false
+trust:
+  minimum_trust_score: 0.72
+  allowed_trust_sources: [first_party]
+  policy:
+    injection_protection: strict
+    pii_handling: mask
+    data_retention_days: 14
+    high_risk_approval_required: true
+  budget_guardrails:
+    soft_alert_pct: 80
+    reauthorization_pct: 100
+    hard_stop_pct: 120
+  credential_policy:
+    short_lived_credentials: true
+    max_ttl_minutes: 60
+runtime:
+  execution_mode: deterministic_workflow
+  sandbox: container
+  max_retries: 2
+  timeout_seconds: 30
+  idempotency_required: true
+  replay_safe: true
+  observability:
+    log_privileged_actions: true
+    emit_cost_metrics: true
+    emit_latency_metrics: true
