@@ -1,0 +1,32 @@
+services:
+  api:
+    build: .
+    container_name: agenthub-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agenthub-postgres
+    environment:
+      POSTGRES_DB: agenthub
+      POSTGRES_USER: agenthub
+      POSTGRES_PASSWORD: agenthub
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: agenthub-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
