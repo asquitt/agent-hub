@@ -11,6 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from src.economics import aggregate_pilot_economics
 from src.gate import evaluate_gate
 
 DEFAULT_PILOT_A = ROOT / "data" / "pilots" / "pilot_a_weekly.json"
@@ -23,24 +24,75 @@ def _load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _metric(metrics: dict[str, Any], *path: str, default: Any = 0.0) -> Any:
+    current: Any = metrics
+    for key in path:
+        if not isinstance(current, dict):
+            return default
+        current = current.get(key)
+        if current is None:
+            return default
+    return current
+
+
 def derive_metrics(pilot_a: dict[str, Any], pilot_b: dict[str, Any]) -> dict[str, Any]:
     a = pilot_a["metrics"]
     b = pilot_b["metrics"]
 
+    economics = aggregate_pilot_economics([a, b])
+
     reliability_success_rate = mean(
         [
-            float(a["reliability"]["delegation_success_rate"]),
-            float(b["reliability"]["delegation_success_rate"]),
+            float(
+                _metric(
+                    a,
+                    "reliability",
+                    "complexity_adjusted_success_rate",
+                    default=_metric(a, "reliability", "delegation_success_rate", default=0.0),
+                )
+            ),
+            float(
+                _metric(
+                    b,
+                    "reliability",
+                    "complexity_adjusted_success_rate",
+                    default=_metric(b, "reliability", "delegation_success_rate", default=0.0),
+                )
+            ),
         ]
     )
-    pilot_workloads = int(a["reliability"]["total_delegations"]) + int(b["reliability"]["total_delegations"])
-    avg_cost_variance = mean([float(a["cost"]["avg_relative_cost_variance"]), float(b["cost"]["avg_relative_cost_variance"])])
-    avg_trust = mean([float(a["trust"]["avg_trust_score"]), float(b["trust"]["avg_trust_score"])])
-    settled_contracts = int(a["marketplace"]["settled_contracts"]) + int(b["marketplace"]["settled_contracts"])
-    total_contracts = int(a["marketplace"]["total_contracts"]) + int(b["marketplace"]["total_contracts"])
+    pilot_workloads = int(
+        _metric(a, "workloads", "planned_weekly_tasks", default=_metric(a, "reliability", "total_delegations", default=0))
+    ) + int(_metric(b, "workloads", "planned_weekly_tasks", default=_metric(b, "reliability", "total_delegations", default=0)))
+    avg_cost_variance = mean(
+        [
+            float(_metric(a, "cost", "avg_relative_cost_variance", default=0.0)),
+            float(_metric(b, "cost", "avg_relative_cost_variance", default=0.0)),
+        ]
+    )
+    avg_roi_ratio = mean(
+        [
+            float(
+                _metric(
+                    a,
+                    "roi",
+                    "roi_ratio",
+                    default=max(0.0, (float(_metric(a, "trust", "avg_trust_score", default=0.0)) / 100.0) - avg_cost_variance),
+                )
+            ),
+            float(
+                _metric(
+                    b,
+                    "roi",
+                    "roi_ratio",
+                    default=max(0.0, (float(_metric(b, "trust", "avg_trust_score", default=0.0)) / 100.0) - avg_cost_variance),
+                )
+            ),
+        ]
+    )
 
-    partner_roi_ratio = round(1.0 + max(0.0, (avg_trust / 100.0) - avg_cost_variance), 6)
-    contribution_margin_ratio = round((settled_contracts / total_contracts) if total_contracts > 0 else 0.0, 6)
+    partner_roi_ratio = round(1.0 + max(0.0, avg_roi_ratio), 6)
+    contribution_margin_ratio = round(float(economics["contribution_margin_ratio"]), 6)
 
     return {
         "reliability_success_rate": round(reliability_success_rate, 6),
@@ -48,7 +100,9 @@ def derive_metrics(pilot_a: dict[str, Any], pilot_b: dict[str, Any]) -> dict[str
         "partner_roi_ratio": partner_roi_ratio,
         "partner_roi_sample_size": 2,
         "contribution_margin_ratio": contribution_margin_ratio,
-        "multi_agent_tasks": pilot_workloads,
+        "multi_agent_tasks": int(economics["multi_agent_tasks"]),
+        "avg_relative_cost_variance": round(avg_cost_variance, 6),
+        "p95_cost_variance": float(economics["p95_cost_variance"]),
     }
 
 
