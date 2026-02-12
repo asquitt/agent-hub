@@ -140,3 +140,21 @@ class LeasePromoteRequest(BaseModel):
     signature: str = Field(min_length=8)
     attestation_hash: str = Field(min_length=12)
     policy_approved: bool = False
+
+
+class KnowledgeContributeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=4)
+    content: str = Field(min_length=20)
+    tags: list[str] = Field(default_factory=list, max_length=12)
+    source_uri: str = Field(min_length=8)
+    contributor: str = Field(min_length=2)
+    base_confidence: float = Field(default=0.65, ge=0, le=1)
+
+
+class KnowledgeValidationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: bool
+    rationale: str = Field(min_length=4)

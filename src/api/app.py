@@ -17,6 +17,8 @@ from src.api.models import (
     ContractMatchRequest,
     DelegationRequest,
     DiscoverySearchRequest,
+    KnowledgeContributeRequest,
+    KnowledgeValidationRequest,
     LeaseCreateRequest,
     LeasePromoteRequest,
     MatchRequest,
@@ -29,6 +31,7 @@ from src.delegation.service import create_delegation, get_delegation_status
 from src.delegation.storage import load_records
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
+from src.knowledge import contribute_entry, query_entries, validate_entry
 from src.lease import create_lease, get_lease, promote_lease
 from src.trust.scoring import compute_trust_score, record_usage_event
 from src.versioning import compute_behavioral_diff
@@ -458,6 +461,46 @@ def post_capability_promote(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/v1/knowledge/contribute")
+def post_knowledge_contribution(
+    request: KnowledgeContributeRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        return contribute_entry(
+            owner=owner,
+            title=request.title,
+            content=request.content,
+            tags=request.tags,
+            source_uri=request.source_uri,
+            contributor=request.contributor,
+            base_confidence=request.base_confidence,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/v1/knowledge/query")
+def get_knowledge_query(
+    q: str = Query(min_length=2),
+    limit: int = Query(default=10, ge=1, le=50),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    return {"query": q, "data": query_entries(query=q, limit=limit)}
+
+
+@app.post("/v1/knowledge/validate/{entry_id}")
+def post_knowledge_validation(
+    entry_id: str,
+    request: KnowledgeValidationRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        return validate_entry(entry_id=entry_id, validator=owner, verdict=request.verdict, rationale=request.rationale)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="entry not found") from exc
 
 
 @app.post("/v1/delegations")

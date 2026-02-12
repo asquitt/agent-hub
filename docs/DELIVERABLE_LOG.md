@@ -26,6 +26,6 @@
 | S11 | D07(min) | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S11.md |
 | S12 | D06+D10 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S12.md |
 | S13 | D14 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S13.md |
-| S14 | D15 | NOT_STARTED | - | - | No | docs/evidence/S14.md |
+| S14 | D15 | DONE | 2026-02-12 | Platform | Yes | docs/evidence/S14.md |
 | S15 | D16 | NOT_STARTED | - | - | No | docs/evidence/S15.md |
 | S16 | D18 | NOT_STARTED | - | - | No | docs/evidence/S16.md |

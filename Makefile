@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: dev test lint migrate eval trust gate discovery-load cli-test operator-test versioning-test lease-test compose-up compose-down
+.PHONY: dev test lint migrate eval trust gate discovery-load cli-test operator-test versioning-test lease-test knowledge-test compose-up compose-down
 
 dev:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -9,7 +9,7 @@ test:
 	pytest -q
 
 lint:
-	$(PYTHON) -m py_compile agenthub/*.py src/api/*.py src/delegation/*.py src/discovery/*.py src/eval/*.py src/gate/*.py src/lease/*.py src/trust/*.py src/versioning/*.py tools/manifest/*.py tools/capability_search/*.py tools/eval/*.py tools/gate/*.py tools/trust/*.py
+	$(PYTHON) -m py_compile agenthub/*.py src/api/*.py src/delegation/*.py src/discovery/*.py src/eval/*.py src/gate/*.py src/knowledge/*.py src/lease/*.py src/trust/*.py src/versioning/*.py tools/manifest/*.py tools/capability_search/*.py tools/eval/*.py tools/gate/*.py tools/trust/*.py
 
 migrate:
 	@echo "Apply migrations with your Postgres DSN"
@@ -39,6 +39,9 @@ versioning-test:
 
 lease-test:
 	pytest tests/lease/test_lease_api.py -q
+
+knowledge-test:
+	pytest tests/knowledge/test_knowledge_api.py -q
 
 compose-up:
 	docker compose up --build -d
