@@ -2,16 +2,27 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import string
 from typing import Any
 
-POLICY_VERSION = "runtime-policy-v2"
+POLICY_VERSION = "runtime-policy-v3"
 SUPPORTED_PROTOCOLS = {"MCP", "A2A", "HTTP", "INTERNAL"}
 
 
 def _stable_hash(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _policy_signing_secret() -> bytes:
+    secret = os.getenv("AGENTHUB_POLICY_SIGNING_SECRET", "agenthub-policy-signing-secret")
+    return secret.encode("utf-8")
+
+
+def _sign_policy_payload(payload: dict[str, Any]) -> str:
+    normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(_policy_signing_secret() + normalized).hexdigest()
 
 
 def _reason(
@@ -35,6 +46,66 @@ def _reason(
     if observed is not None:
         row["observed"] = observed
     return row
+
+
+def _abac_violations(
+    *,
+    action: str,
+    abac_context: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not abac_context:
+        return []
+
+    reasons: list[dict[str, Any]] = []
+    principal = abac_context.get("principal", {}) if isinstance(abac_context, dict) else {}
+    resource = abac_context.get("resource", {}) if isinstance(abac_context, dict) else {}
+    environment = abac_context.get("environment", {}) if isinstance(abac_context, dict) else {}
+    principal = principal if isinstance(principal, dict) else {}
+    resource = resource if isinstance(resource, dict) else {}
+    environment = environment if isinstance(environment, dict) else {}
+
+    principal_tenant = principal.get("tenant_id")
+    resource_tenant = resource.get("tenant_id")
+    if principal_tenant and resource_tenant and str(principal_tenant) != str(resource_tenant):
+        reasons.append(
+            _reason(
+                "abac.tenant_mismatch",
+                "principal and resource tenant boundaries do not match",
+                "violation",
+                field="abac_context.tenant_id",
+                expected=resource_tenant,
+                observed=principal_tenant,
+            )
+        )
+
+    allowed_actions = principal.get("allowed_actions")
+    if isinstance(allowed_actions, list) and allowed_actions:
+        allowed = {str(item) for item in allowed_actions}
+        if action not in allowed and "*" not in allowed:
+            reasons.append(
+                _reason(
+                    "abac.action_not_allowed",
+                    "principal is not authorized for requested action",
+                    "violation",
+                    field="abac_context.principal.allowed_actions",
+                    expected=sorted(allowed),
+                    observed=action,
+                )
+            )
+
+    if bool(environment.get("requires_mfa")) and not bool(principal.get("mfa_present")):
+        reasons.append(
+            _reason(
+                "abac.mfa_required",
+                "principal must satisfy MFA requirement for this action",
+                "violation",
+                field="abac_context.environment.requires_mfa",
+                expected=True,
+                observed=bool(principal.get("mfa_present")),
+            )
+        )
+
+    return reasons
 
 
 def _build_decision(
@@ -67,8 +138,29 @@ def _build_decision(
         "violated_constraints": violated_constraints,
         "policy_version": POLICY_VERSION,
     }
+    input_hash = _stable_hash(payload)
+    decision_id = _stable_hash({"policy_version": POLICY_VERSION, "input_hash": input_hash})[:24]
+    explainability = {
+        "violation_codes": [row["code"] for row in ordered_reasons if row.get("type") == "violation"],
+        "warning_codes": [row["code"] for row in ordered_reasons if row.get("type") == "warning"],
+        "allow_codes": [row["code"] for row in ordered_reasons if row.get("type") == "allow"],
+        "evaluated_fields": sorted(evaluated_constraints.keys()),
+    }
+    signature_payload = {
+        "policy_version": POLICY_VERSION,
+        "decision_id": decision_id,
+        "context": context,
+        "action": action,
+        "actor": actor,
+        "subject": subject,
+        "decision": "allow" if allowed else "deny",
+        "violated_constraints": violated_constraints,
+        "input_hash": input_hash,
+    }
+    decision_signature = _sign_policy_payload(signature_payload)
     return {
         "policy_version": POLICY_VERSION,
+        "decision_id": decision_id,
         "context": context,
         "action": action,
         "actor": actor,
@@ -78,8 +170,43 @@ def _build_decision(
         "reasons": ordered_reasons,
         "violated_constraints": violated_constraints,
         "evaluated_constraints": evaluated_constraints,
-        "input_hash": _stable_hash(payload),
+        "input_hash": input_hash,
+        "explainability": explainability,
+        "signature_algorithm": "sha256(secret+payload)",
+        "decision_signature": decision_signature,
     }
+
+
+def verify_decision_signature(decision: dict[str, Any]) -> bool:
+    if not isinstance(decision, dict):
+        return False
+    required = {
+        "policy_version",
+        "decision_id",
+        "context",
+        "action",
+        "actor",
+        "subject",
+        "decision",
+        "violated_constraints",
+        "input_hash",
+        "decision_signature",
+    }
+    if not required.issubset(decision.keys()):
+        return False
+    payload = {
+        "policy_version": decision["policy_version"],
+        "decision_id": decision["decision_id"],
+        "context": decision["context"],
+        "action": decision["action"],
+        "actor": decision["actor"],
+        "subject": decision["subject"],
+        "decision": decision["decision"],
+        "violated_constraints": decision["violated_constraints"],
+        "input_hash": decision["input_hash"],
+    }
+    expected = _sign_policy_payload(payload)
+    return str(decision.get("decision_signature", "")) == expected
 
 
 def evaluate_discovery_policy(
@@ -88,6 +215,7 @@ def evaluate_discovery_policy(
     actor: str,
     query: str,
     constraints: dict[str, Any] | None,
+    abac_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     constraints = constraints or {}
     reasons: list[dict[str, Any]] = []
@@ -183,6 +311,8 @@ def evaluate_discovery_policy(
                     )
                 )
 
+    reasons.extend(_abac_violations(action=action, abac_context=abac_context))
+
     if not reasons:
         reasons.append(_reason("policy.allow", "discovery policy checks passed", "allow"))
 
@@ -202,6 +332,7 @@ def evaluate_contract_match_policy(
     input_required: list[str],
     output_required: list[str],
     constraints: dict[str, Any] | None,
+    abac_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     constraints = constraints or {}
     reasons: list[dict[str, Any]] = []
@@ -238,6 +369,8 @@ def evaluate_contract_match_policy(
                     )
                 )
 
+    reasons.extend(_abac_violations(action="contract_match", abac_context=abac_context))
+
     if not reasons:
         reasons.append(_reason("policy.allow", "contract-match policy checks passed", "allow"))
 
@@ -256,6 +389,7 @@ def evaluate_compatibility_policy(
     actor: str,
     my_schema: dict[str, Any],
     agent_id: str,
+    abac_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
     required = my_schema.get("required", [])
@@ -293,6 +427,8 @@ def evaluate_compatibility_policy(
             )
         )
 
+    reasons.extend(_abac_violations(action="compatibility", abac_context=abac_context))
+
     if not reasons:
         reasons.append(_reason("policy.allow", "compatibility policy checks passed", "allow"))
 
@@ -318,6 +454,7 @@ def evaluate_delegation_policy(
     delegate_trust_score: float | None,
     required_permissions: list[str],
     delegate_permissions: list[str],
+    abac_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
 
@@ -425,6 +562,8 @@ def evaluate_delegation_policy(
             )
         )
 
+    reasons.extend(_abac_violations(action="create_delegation", abac_context=abac_context))
+
     if not reasons:
         reasons.append(_reason("policy.allow", "delegation policy checks passed", "allow"))
 
@@ -442,6 +581,7 @@ def evaluate_delegation_policy(
             "delegate_trust_score": delegate_trust_score,
             "required_permissions": sorted(required),
             "delegate_permissions": sorted(delegate_allowed),
+            "abac_context_present": bool(abac_context),
         },
         reasons=reasons,
     )
@@ -455,6 +595,7 @@ def evaluate_install_promotion_policy(
     policy_approved: bool,
     attestation_hash: str,
     signature: str,
+    abac_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
 
@@ -500,6 +641,8 @@ def evaluate_install_promotion_policy(
                 field="signature",
             )
         )
+
+    reasons.extend(_abac_violations(action="promote_lease", abac_context=abac_context))
 
     if not reasons:
         reasons.append(_reason("policy.allow", "install promotion policy checks passed", "allow"))

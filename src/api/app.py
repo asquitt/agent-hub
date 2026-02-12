@@ -626,7 +626,9 @@ def post_capability_promote(
     lease_id: str,
     request: LeasePromoteRequest,
     owner: str = Depends(require_api_key),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     policy_decision = evaluate_install_promotion_policy(
         actor="runtime.install",
         owner=owner,
@@ -634,6 +636,16 @@ def post_capability_promote(
         policy_approved=request.policy_approved,
         attestation_hash=request.attestation_hash,
         signature=request.signature,
+        abac_context={
+            "principal": {
+                "owner": owner,
+                "tenant_id": tenant_id,
+                "allowed_actions": ["promote_lease"],
+                "mfa_present": True,
+            },
+            "resource": {"tenant_id": tenant_id},
+            "environment": {"requires_mfa": False},
+        },
     )
     if not policy_decision["allowed"]:
         record_metering_event(
@@ -888,6 +900,7 @@ def post_delegation(
     request: DelegationRequest,
     owner: str = Depends(require_api_key),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
     key = _require_idempotency_key(idempotency_key)
     request_payload = request.model_dump(mode="json")
@@ -898,6 +911,7 @@ def post_delegation(
         if existing["request_hash"] != request_digest:
             raise HTTPException(status_code=409, detail="idempotency key replay with different request payload")
         return copy.deepcopy(existing["response"])
+    tenant_id = _resolve_tenant_id(x_tenant_id)
 
     delegate_trust_score, delegate_permissions = _delegate_policy_signals(request.delegate_agent_id)
     policy_decision = evaluate_delegation_policy(
@@ -911,6 +925,16 @@ def post_delegation(
         delegate_trust_score=delegate_trust_score,
         required_permissions=request.required_permissions,
         delegate_permissions=delegate_permissions,
+        abac_context={
+            "principal": {
+                "owner": owner,
+                "tenant_id": tenant_id,
+                "allowed_actions": ["create_delegation"],
+                "mfa_present": True,
+            },
+            "resource": {"tenant_id": tenant_id},
+            "environment": {"requires_mfa": False},
+        },
     )
     if not policy_decision["allowed"]:
         status = 400 if all(code.startswith("budget.") for code in policy_decision["violated_constraints"]) else 403

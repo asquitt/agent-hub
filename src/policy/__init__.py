@@ -5,6 +5,7 @@ from src.policy.runtime import (
     evaluate_delegation_policy,
     evaluate_discovery_policy,
     evaluate_install_promotion_policy,
+    verify_decision_signature,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "evaluate_compatibility_policy",
     "evaluate_delegation_policy",
     "evaluate_install_promotion_policy",
+    "verify_decision_signature",
 ]
