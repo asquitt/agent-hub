@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgentHub Operator Console</title>
+    <style>
+      :root {
+        --bg-1: #08131f;
+        --bg-2: #13293d;
+        --panel: rgba(255, 255, 255, 0.92);
+        --ink: #102a43;
+        --ink-soft: #486581;
+        --accent: #f86f03;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at 20% 20%, #19456b 0%, var(--bg-1) 45%, var(--bg-2) 100%);
+      }
+
+      .shell {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .hero {
+        color: #fff;
+        margin-bottom: 18px;
+      }
+
+      .hero h1 {
+        margin: 0 0 4px;
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+        font-size: 2rem;
+        letter-spacing: 0.02em;
+      }
+
+      .hero p {
+        margin: 0;
+        color: #d9e2ec;
+      }
+
+      .controls {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        background: var(--panel);
+        border-radius: 16px;
+        padding: 14px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        margin-bottom: 16px;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        color: var(--ink-soft);
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+
+      input,
+      select,
+      button {
+        border-radius: 10px;
+        border: 1px solid #bcccdc;
+        padding: 10px 12px;
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+        border: 0;
+        color: #fff;
+        background: linear-gradient(120deg, #ef5b0c, var(--accent));
+        font-weight: 600;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 12px;
+      }
+
+      .card {
+        background: var(--panel);
+        border-radius: 14px;
+        padding: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+      }
+
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 1rem;
+      }
+
+      pre {
+        margin: 0;
+        max-height: 260px;
+        overflow: auto;
+        padding: 10px;
+        border-radius: 10px;
+        background: #f0f4f8;
+        font-size: 0.78rem;
+      }
+
+      .status {
+        color: #f0f4f8;
+        min-height: 20px;
+        margin-top: 10px;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <h1>Operator Console</h1>
+        <p>Minimum workflow view for search, detail, eval, trust, and delegation telemetry.</p>
+      </section>
+
+      <section class="controls">
+        <label>
+          API Key
+          <input id="apiKey" value="dev-owner-key" />
+        </label>
+        <label>
+          Operator Role
+          <select id="role">
+            <option value="viewer">viewer</option>
+            <option value="admin">admin</option>
+          </select>
+        </label>
+        <label>
+          Agent ID
+          <input id="agentId" value="@seed:pipeline-planner" />
+        </label>
+        <label>
+          Search Query
+          <input id="query" value="normalize records" />
+        </label>
+        <button id="loadBtn">Load Dashboard</button>
+        <button id="refreshBtn">Admin Refresh</button>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Search</h2>
+          <pre id="searchOut">{}</pre>
+        </article>
+        <article class="card">
+          <h2>Agent Detail</h2>
+          <pre id="agentOut">{}</pre>
+        </article>
+        <article class="card">
+          <h2>Eval</h2>
+          <pre id="evalOut">{}</pre>
+        </article>
+        <article class="card">
+          <h2>Trust</h2>
+          <pre id="trustOut">{}</pre>
+        </article>
+        <article class="card">
+          <h2>Delegations</h2>
+          <pre id="delegOut">[]</pre>
+        </article>
+      </section>
+
+      <p class="status" id="status"></p>
+    </main>
+
+    <script>
+      const apiKey = document.getElementById("apiKey");
+      const role = document.getElementById("role");
+      const agentId = document.getElementById("agentId");
+      const query = document.getElementById("query");
+      const statusOut = document.getElementById("status");
+
+      function render(id, payload) {
+        document.getElementById(id).textContent = JSON.stringify(payload, null, 2);
+      }
+
+      async function loadDashboard() {
+        const params = new URLSearchParams({ agent_id: agentId.value, query: query.value });
+        const response = await fetch(`/v1/operator/dashboard?${params}`, {
+          headers: {
+            "X-API-Key": apiKey.value,
+            "X-Operator-Role": role.value,
+          },
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          statusOut.textContent = `Dashboard load failed: ${JSON.stringify(data)}`;
+          return;
+        }
+        render("searchOut", data.sections.search);
+        render("agentOut", data.sections.agent_detail);
+        render("evalOut", data.sections.eval);
+        render("trustOut", data.sections.trust);
+        render("delegOut", data.sections.delegations);
+        statusOut.textContent = `Loaded dashboard as ${data.role}`;
+      }
+
+      async function refreshOperator() {
+        const response = await fetch("/v1/operator/refresh", {
+          method: "POST",
+          headers: {
+            "X-API-Key": apiKey.value,
+            "X-Operator-Role": role.value,
+          },
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          statusOut.textContent = `Refresh failed: ${JSON.stringify(data)}`;
+          return;
+        }
+        statusOut.textContent = `Refresh status: ${data.status} (${data.role})`;
+      }
+
+      document.getElementById("loadBtn").addEventListener("click", loadDashboard);
+      document.getElementById("refreshBtn").addEventListener("click", refreshOperator);
+    </script>
+  </body>
+</html>

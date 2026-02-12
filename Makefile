@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: dev test lint migrate eval trust gate discovery-load cli-test compose-up compose-down
+.PHONY: dev test lint migrate eval trust gate discovery-load cli-test operator-test compose-up compose-down
 
 dev:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -30,6 +30,9 @@ discovery-load:
 
 cli-test:
 	pytest tests/cli/test_agenthub_cli.py -q
+
+operator-test:
+	pytest tests/operator/test_operator_ui.py -q
 
 compose-up:
 	docker compose up --build -d

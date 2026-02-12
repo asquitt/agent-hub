@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.responses import HTMLResponse
 
 from src.api.auth import require_api_key
 from src.api.manifest_validation import validate_manifest_object
@@ -23,6 +24,7 @@ from src.api.models import (
 )
 from src.api.store import STORE
 from src.delegation.service import create_delegation, get_delegation_status
+from src.delegation.storage import load_records
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
 from src.trust.scoring import compute_trust_score, record_usage_event
@@ -35,6 +37,11 @@ from tools.capability_search.mock_engine import (
 
 app = FastAPI(title="AgentHub Registry Service", version="0.1.0")
 ROOT = Path(__file__).resolve().parents[2]
+OPERATOR_ROLE_BY_OWNER = {
+    "owner-dev": "admin",
+    "owner-platform": "admin",
+    "owner-partner": "viewer",
+}
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -80,9 +87,33 @@ def _cache_idempotent(owner: str, key: str, payload: dict[str, Any]) -> dict[str
     return payload
 
 
+def _resolve_operator_role(owner: str, requested_role: str | None) -> str:
+    assigned = OPERATOR_ROLE_BY_OWNER.get(owner, "viewer")
+    if requested_role is None:
+        return assigned
+    if requested_role not in {"viewer", "admin"}:
+        raise HTTPException(status_code=403, detail="invalid operator role")
+    if requested_role == "admin" and assigned != "admin":
+        raise HTTPException(status_code=403, detail="insufficient operator role")
+    return requested_role
+
+
+def _require_operator_role(owner: str, requested_role: str | None, allowed_roles: set[str]) -> str:
+    role = _resolve_operator_role(owner, requested_role)
+    if role not in allowed_roles:
+        raise HTTPException(status_code=403, detail="operator role not permitted")
+    return role
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/operator", response_class=HTMLResponse)
+def operator_console() -> str:
+    ui_path = ROOT / "src" / "ui" / "operator_dashboard.html"
+    return ui_path.read_text(encoding="utf-8")
 
 
 @app.post("/v1/agents")
@@ -293,6 +324,71 @@ def discovery_agent_manifest(agent_id: str, version: str | None = None) -> dict[
 def discovery_agent_card() -> dict[str, Any]:
     card_path = ROOT / ".well-known" / "agent-card.json"
     return json.loads(card_path.read_text(encoding="utf-8"))
+
+
+@app.get("/v1/operator/dashboard")
+def operator_dashboard(
+    agent_id: str,
+    query: str = Query(default="normalize records"),
+    owner: str = Depends(require_api_key),
+    x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
+) -> dict[str, Any]:
+    role = _require_operator_role(owner, x_operator_role, {"viewer", "admin"})
+
+    try:
+        agent = STORE.get_agent(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="agent not found") from exc
+
+    latest = agent.versions[-1]
+    eval_row = latest_result(agent_id=agent_id, version=latest.version)
+    trust = compute_trust_score(agent_id=agent_id, owner=agent.owner)
+
+    search_payload = mock_search_capabilities(
+        query=query,
+        pagination={"mode": "offset", "offset": 0, "limit": 5},
+    )
+
+    delegations = [
+        row
+        for row in load_records()
+        if row.get("requester_agent_id") == agent_id or row.get("delegate_agent_id") == agent_id
+    ]
+    delegations.sort(key=lambda row: row.get("updated_at", ""), reverse=True)
+
+    return {
+        "role": role,
+        "agent_id": agent_id,
+        "sections": {
+            "search": {
+                "query": query,
+                "results": search_payload.get("data", []),
+            },
+            "agent_detail": {
+                "namespace": agent.namespace,
+                "status": agent.status,
+                "latest_version": latest.version,
+                "capability_count": len(latest.manifest.get("capabilities", [])),
+            },
+            "eval": eval_row
+            or {
+                "status": "pending",
+                "agent_id": agent_id,
+                "version": latest.version,
+            },
+            "trust": trust,
+            "delegations": delegations[:5],
+        },
+    }
+
+
+@app.post("/v1/operator/refresh")
+def operator_refresh(
+    owner: str = Depends(require_api_key),
+    x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
+) -> dict[str, str]:
+    role = _require_operator_role(owner, x_operator_role, {"admin"})
+    return {"status": "refreshed", "role": role}
 
 
 @app.post("/v1/delegations")
