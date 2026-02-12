@@ -45,3 +45,4 @@
 | S26 | Design-Partner Pilot A | DONE | 2026-02-12 18:58 UTC | Platform | Yes | docs/evidence/S26.md |
 | S27 | Design-Partner Pilot B | DONE | 2026-02-12 18:58 UTC | Platform | Yes | docs/evidence/S27.md |
 | S28 | Gate Review v2 + GA Decision | DONE | 2026-02-12 19:00 UTC | Platform | Yes | docs/evidence/S28.md |
+| S29 | Persistence foundation | DONE | 2026-02-12 19:35 UTC | Platform | Yes | docs/evidence/S29.md |

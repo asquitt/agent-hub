@@ -8,14 +8,20 @@ import yaml
 from fastapi.testclient import TestClient
 
 from src.api.app import app
+from src.api.store import STORE
+from src.delegation import storage as delegation_storage
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(autouse=True)
 def isolated_operator_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AGENTHUB_DELEGATION_RECORDS_PATH", str(tmp_path / "delegations.json"))
-    monkeypatch.setenv("AGENTHUB_DELEGATION_BALANCES_PATH", str(tmp_path / "balances.json"))
+    registry_db = tmp_path / "registry.db"
+    delegation_db = tmp_path / "delegation.db"
+    monkeypatch.setenv("AGENTHUB_REGISTRY_DB_PATH", str(registry_db))
+    monkeypatch.setenv("AGENTHUB_DELEGATION_DB_PATH", str(delegation_db))
+    STORE.reset_for_tests(db_path=registry_db)
+    delegation_storage.reset_for_tests(db_path=delegation_db)
     monkeypatch.setenv("AGENTHUB_EVAL_RESULTS_PATH", str(tmp_path / "evals.json"))
 
 

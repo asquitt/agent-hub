@@ -19,9 +19,9 @@ INVALID_MANIFEST_PATH = ROOT / "tests" / "manifest" / "fixtures" / "invalid" / "
 
 @pytest.fixture(autouse=True)
 def reset_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    STORE.namespaces.clear()
-    STORE.agents.clear()
-    STORE.idempotency_cache.clear()
+    registry_db = tmp_path / "registry.db"
+    monkeypatch.setenv("AGENTHUB_REGISTRY_DB_PATH", str(registry_db))
+    STORE.reset_for_tests(db_path=registry_db)
     monkeypatch.setenv("AGENTHUB_EVAL_RESULTS_PATH", str(tmp_path / "results.json"))
     monkeypatch.setenv("AGENTHUB_TRUST_USAGE_EVENTS_PATH", str(tmp_path / "usage_events.json"))
     monkeypatch.setenv("AGENTHUB_TRUST_REVIEWS_PATH", str(tmp_path / "reviews.json"))

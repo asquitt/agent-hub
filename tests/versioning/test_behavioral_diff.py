@@ -16,9 +16,9 @@ MANIFEST = ROOT / "specs" / "manifest" / "examples" / "simple-tool-agent.yaml"
 
 @pytest.fixture(autouse=True)
 def reset_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    STORE.namespaces.clear()
-    STORE.agents.clear()
-    STORE.idempotency_cache.clear()
+    registry_db = tmp_path / "registry.db"
+    monkeypatch.setenv("AGENTHUB_REGISTRY_DB_PATH", str(registry_db))
+    STORE.reset_for_tests(db_path=registry_db)
     monkeypatch.setenv("AGENTHUB_EVAL_RESULTS_PATH", str(tmp_path / "evals.json"))
 
 

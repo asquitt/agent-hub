@@ -15,10 +15,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(autouse=True)
-def reset_store() -> None:
-    STORE.namespaces.clear()
-    STORE.agents.clear()
-    STORE.idempotency_cache.clear()
+def reset_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry_db = tmp_path / "registry.db"
+    monkeypatch.setenv("AGENTHUB_REGISTRY_DB_PATH", str(registry_db))
+    STORE.reset_for_tests(db_path=registry_db)
 
 
 def test_onboarding_funnel_threshold_checks() -> None:
