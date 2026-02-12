@@ -31,6 +31,7 @@ data/trust/interaction_graph.json
 data/cost/events.json
 data/pilots/
 data/registry/
+data/procurement/
 
 # Secrets
 .env

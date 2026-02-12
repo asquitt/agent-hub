@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.marketplace import storage
+from src.procurement import evaluate_purchase_policy
 
 
 def _utc_now() -> str:
@@ -62,6 +63,8 @@ def purchase_listing(
     units: int,
     max_total_usd: float,
     policy_approved: bool,
+    procurement_approval_id: str | None = None,
+    procurement_exception_id: str | None = None,
 ) -> dict[str, Any]:
     if not policy_approved:
         raise PermissionError("policy approval required for purchase")
@@ -83,6 +86,18 @@ def purchase_listing(
         raise PermissionError("purchase exceeds policy purchase limit")
     if total_estimated > max_total_usd:
         raise PermissionError("purchase exceeds caller max_total_usd")
+    try:
+        procurement_decision = evaluate_purchase_policy(
+            actor=buyer,
+            buyer=buyer,
+            listing_id=listing_id,
+            seller=str(listing["owner"]),
+            estimated_total_usd=round(total_estimated, 6),
+            approval_id=procurement_approval_id,
+            exception_id=procurement_exception_id,
+        )
+    except KeyError as exc:
+        raise PermissionError(str(exc)) from exc
 
     contract = {
         "contract_id": str(uuid.uuid4()),
@@ -95,6 +110,7 @@ def purchase_listing(
         "estimated_total_usd": round(total_estimated, 6),
         "units_settled": 0,
         "amount_settled_usd": 0.0,
+        "procurement_decision": procurement_decision,
         "status": "active",
         "created_at": _utc_now(),
         "updated_at": _utc_now(),

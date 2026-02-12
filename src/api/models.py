@@ -289,6 +289,8 @@ class MarketplacePurchaseRequest(BaseModel):
     units: int = Field(gt=0)
     max_total_usd: float = Field(gt=0)
     policy_approved: bool = False
+    procurement_approval_id: str | None = Field(default=None, min_length=8)
+    procurement_exception_id: str | None = Field(default=None, min_length=8)
 
 
 class MarketplaceSettlementRequest(BaseModel):
@@ -309,3 +311,40 @@ class MarketplaceDisputeResolveRequest(BaseModel):
 
     resolution: Literal["rejected", "approved_partial", "approved_full"]
     approved_amount_usd: float | None = Field(default=None, ge=0)
+
+
+class ProcurementPolicyPackUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    buyer: str = Field(min_length=3)
+    auto_approve_limit_usd: float = Field(gt=0)
+    hard_stop_limit_usd: float = Field(gt=0)
+    allowed_sellers: list[str] = Field(default_factory=list, max_length=128)
+
+
+class ProcurementApprovalCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    buyer: str = Field(min_length=3)
+    listing_id: str = Field(min_length=8)
+    units: int = Field(gt=0)
+    estimated_total_usd: float = Field(gt=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ProcurementApprovalDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approve", "reject"]
+    approved_max_total_usd: float | None = Field(default=None, gt=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ProcurementExceptionCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    buyer: str = Field(min_length=3)
+    reason: str = Field(min_length=3, max_length=500)
+    override_hard_stop_limit_usd: float | None = Field(default=None, gt=0)
+    allow_seller_id: str | None = Field(default=None, min_length=3)
+    expires_at: str | None = Field(default=None, min_length=8)

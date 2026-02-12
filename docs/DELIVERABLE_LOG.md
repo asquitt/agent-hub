@@ -61,3 +61,4 @@
 | S42 | Operator UX v2 | DONE | 2026-02-13 02:25 UTC | Platform | Yes | docs/evidence/S42.md |
 | S43 | DevHub collaboration v2 | DONE | 2026-02-13 02:55 UTC | Platform | Yes | docs/evidence/S43.md |
 | S44 | Marketplace finance v2 | DONE | 2026-02-12 22:17 UTC | Platform | Yes | docs/evidence/S44.md |
+| S45 | Procurement controls | DONE | 2026-02-12 22:29 UTC | Platform | Yes | docs/evidence/S45.md |
