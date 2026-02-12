@@ -13,6 +13,11 @@
   - `tools/launch/check_launch_readiness.py`
 - Demo + funnel readiness report:
   - `docs/launch/S16_READINESS.json`
+- GA launch rehearsal checker with incident and rollback drills:
+  - `tools/launch/rehearse_ga_candidate.py`
+- GA launch rehearsal report package:
+  - `docs/launch/S52_LAUNCH_REHEARSAL.json`
+  - `docs/launch/S52_LAUNCH_REHEARSAL.md`
 
 ## Execution Timeline
 1. Week 0: Finalize release notes, run readiness checker, record evidence.
@@ -26,3 +31,6 @@
   - signup_rate >= 0.15
   - activation_rate >= 0.40
   - paid_rate >= 0.20
+- Incident drills must show policy boundary and attestation controls resolving simulated failures.
+- Rollback simulation must pass for promote->rollback->idempotent rollback flow.
+- GA candidate must inherit latest gate decision and block launch when gate review is `NO_GO`.

@@ -68,3 +68,4 @@
 | S49 | Pilot expansion B | DONE | 2026-02-12 22:52 UTC | Platform | Yes | docs/evidence/S49.md |
 | S50 | Economics hardening | DONE | 2026-02-12 23:00 UTC | Platform | Yes | docs/evidence/S50.md |
 | S51 | Gate Review v3 | DONE | 2026-02-12 23:05 UTC | Platform | Yes | docs/evidence/S51.md |
+| S52 | GA launch candidate | DONE | 2026-02-12 23:17 UTC | Platform | Yes | docs/evidence/S52.md |

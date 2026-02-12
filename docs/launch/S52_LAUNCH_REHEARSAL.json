@@ -1,0 +1,163 @@
+{
+  "launch_rehearsal_version": "s52",
+  "generated_at": "2026-02-12T23:16:45.493269+00:00",
+  "checks": [
+    {
+      "id": "demo_reproducibility",
+      "passed": true
+    },
+    {
+      "id": "onboarding_funnel",
+      "passed": true
+    },
+    {
+      "id": "incident_drills",
+      "passed": true
+    },
+    {
+      "id": "rollback_simulation",
+      "passed": true
+    },
+    {
+      "id": "gate_review",
+      "passed": false
+    }
+  ],
+  "demo_reproducibility": {
+    "passed": true,
+    "steps": [
+      {
+        "step": "healthz",
+        "status_code": 200
+      },
+      {
+        "step": "register_agent",
+        "status_code": 200
+      },
+      {
+        "step": "get_agent",
+        "status_code": 200
+      },
+      {
+        "step": "search_capabilities",
+        "status_code": 200
+      },
+      {
+        "step": "operator_dashboard",
+        "status_code": 200
+      }
+    ]
+  },
+  "onboarding_funnel": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "signup_rate",
+        "value": 0.22,
+        "threshold": 0.15,
+        "passed": true
+      },
+      {
+        "name": "activation_rate",
+        "value": 0.5,
+        "threshold": 0.4,
+        "passed": true
+      },
+      {
+        "name": "paid_rate",
+        "value": 0.3636,
+        "threshold": 0.2,
+        "passed": true
+      }
+    ],
+    "metrics": {
+      "visitors": 1200,
+      "signups": 264,
+      "activated": 132,
+      "paid": 48
+    }
+  },
+  "incident_drills": {
+    "passed": true,
+    "drills": [
+      {
+        "incident_id": "S52-INC-APPROVAL-POLICY",
+        "occurred_at": "2026-02-12T23:16:45.485749+00:00",
+        "severity": "sev1",
+        "category": "policy_bypass",
+        "affected_flow": "lease_promote",
+        "resolved": true,
+        "mitigation": "Explicit policy approval enforced before install promotion.",
+        "owner": "platform",
+        "expected_status": 403,
+        "observed_status": 403,
+        "notes": "Missing policy approval is blocked by policy engine."
+      },
+      {
+        "incident_id": "S52-INC-OWNER-BOUNDARY",
+        "occurred_at": "2026-02-12T23:16:45.487416+00:00",
+        "severity": "sev2",
+        "category": "delegation_failure",
+        "affected_flow": "lease_promote",
+        "resolved": true,
+        "mitigation": "Owner boundary enforcement prevents cross-owner promotion.",
+        "owner": "platform",
+        "expected_status": 403,
+        "observed_status": 403,
+        "notes": "Promotion attempts from non-owner identities are denied."
+      },
+      {
+        "incident_id": "S52-INC-ATTESTATION-INTEGRITY",
+        "occurred_at": "2026-02-12T23:16:45.488982+00:00",
+        "severity": "sev2",
+        "category": "delegation_failure",
+        "affected_flow": "lease_promote",
+        "resolved": true,
+        "mitigation": "Attestation hash verification blocks tampered promotion payloads.",
+        "owner": "platform",
+        "expected_status": 403,
+        "observed_status": 403,
+        "notes": "Hash mismatch is rejected before install state is mutated."
+      }
+    ]
+  },
+  "rollback_simulation": {
+    "passed": true,
+    "steps": [
+      {
+        "step": "create_lease",
+        "status_code": 200,
+        "passed": true
+      },
+      {
+        "step": "promote_lease",
+        "status_code": 200,
+        "passed": true
+      },
+      {
+        "step": "rollback_install",
+        "status_code": 200,
+        "passed": true
+      },
+      {
+        "step": "rollback_idempotency",
+        "status_code": 200,
+        "passed": true
+      }
+    ],
+    "install_id": "b090c762-d8a8-43cd-8da3-06d63bf3e200"
+  },
+  "gate_review": {
+    "passed": false,
+    "decision": "NO_GO",
+    "blocking_reasons": [
+      "Reliability target met in pilot workloads"
+    ],
+    "gate_version": "v3",
+    "generated_at": "2026-02-12T23:04:11.531759+00:00"
+  },
+  "ga_candidate_ready": false,
+  "blocking_reasons": [
+    "Gate review blocking reasons: Reliability target met in pilot workloads"
+  ]
+}
