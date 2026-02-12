@@ -2,7 +2,7 @@
 
 AgentHub is a reliability-first interoperability and runtime infrastructure layer for autonomous agents.
 
-It is being delivered in strict, evidence-backed segments defined in `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/AGENTS.md` and `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/docs/session-packets/`.
+It is being delivered in strict, evidence-backed segments and tracked through repository docs.
 
 ## Project Status
 - Active phased build (S01-S16)
@@ -10,14 +10,12 @@ It is being delivered in strict, evidence-backed segments defined in `/Users/dem
 - Remaining segments tracked in `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/docs/DELIVERABLE_LOG.md`
 
 ## Repository Structure
-- `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/AGENTS.md`: mission, constraints, architecture, and workflow rules
 - `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/docs/session-packets/`: per-segment execution packets (S01-S16)
 - `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/docs/evidence/`: verification evidence per segment
 - `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/docs/spec/`: human-readable technical specs and mappings
 - `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/specs/manifest/`: canonical manifest schema and examples
 - `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/tools/manifest/`: validation tooling
 - `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/tests/manifest/`: schema and CLI tests
-- `/Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub/skills/`: reusable local skills and instructions
 
 ## Quick Start
 ```bash
