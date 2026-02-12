@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.app import app
 from src.billing import service
+
+
+@pytest.fixture(autouse=True)
+def isolate_billing_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    billing_db = tmp_path / "billing.db"
+    monkeypatch.setenv("AGENTHUB_BILLING_DB_PATH", str(billing_db))
+    monkeypatch.setenv("AGENTHUB_COST_DB_PATH", str(billing_db))
+    service.reset_for_tests(db_path=billing_db)
 
 
 def _seed_invoice(client: TestClient) -> dict:
@@ -53,10 +64,6 @@ def _seed_invoice(client: TestClient) -> dict:
 
 
 def test_billing_metering_accuracy_and_reconciliation() -> None:
-    service.SUBSCRIPTIONS.clear()
-    service.USAGE_EVENTS.clear()
-    service.INVOICES.clear()
-
     client = TestClient(app)
     invoice = _seed_invoice(client)
 
@@ -72,13 +79,12 @@ def test_billing_metering_accuracy_and_reconciliation() -> None:
     payload = reconcile.json()
     assert payload["matched"] is True
     assert payload["delta_usd"] == 0
+    assert payload["double_entry_balanced"] is True
+    assert payload["replay_due_usd"] == invoice["due_usd"]
+    assert payload["chain_valid"] is True
 
 
 def test_billing_refund_admin_flow() -> None:
-    service.SUBSCRIPTIONS.clear()
-    service.USAGE_EVENTS.clear()
-    service.INVOICES.clear()
-
     client = TestClient(app)
     invoice = _seed_invoice(client)
 
@@ -105,3 +111,24 @@ def test_billing_refund_admin_flow() -> None:
         headers={"X-API-Key": "platform-owner-key"},
     )
     assert over_refund.status_code == 400
+
+
+def test_billing_double_entry_and_replay_parity() -> None:
+    client = TestClient(app)
+    invoice = _seed_invoice(client)
+    invoice_id = str(invoice["invoice_id"])
+
+    ledger = service.list_ledger_entries(invoice_id=invoice_id)
+    assert ledger, "invoice issuance must emit ledger entries"
+
+    double_entry = service.verify_double_entry(source_id=invoice_id)
+    assert double_entry["valid"] is True
+    assert double_entry["transaction_count"] >= 1
+
+    first_replay = service.replay_invoice_accounts(invoice_id)
+    second_replay = service.replay_invoice_accounts(invoice_id)
+    assert first_replay == second_replay
+    assert first_replay["accounts_receivable"] == invoice["due_usd"]
+
+    chain = service.verify_ledger_chain()
+    assert chain["valid"] is True

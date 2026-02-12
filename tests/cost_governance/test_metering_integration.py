@@ -6,14 +6,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.app import DELEGATION_IDEMPOTENCY_CACHE, app
+from src.cost_governance import storage as cost_storage
 from src.delegation import storage as delegation_storage
 
 
 @pytest.fixture(autouse=True)
 def isolate_cost_and_delegation_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     delegation_db = tmp_path / "delegation.db"
+    billing_db = tmp_path / "billing.db"
     monkeypatch.setenv("AGENTHUB_COST_EVENTS_PATH", str(tmp_path / "cost-events.json"))
+    monkeypatch.setenv("AGENTHUB_COST_DB_PATH", str(billing_db))
+    monkeypatch.setenv("AGENTHUB_BILLING_DB_PATH", str(billing_db))
     monkeypatch.setenv("AGENTHUB_DELEGATION_DB_PATH", str(delegation_db))
+    cost_storage.reset_for_tests(db_path=billing_db)
     delegation_storage.reset_for_tests(db_path=delegation_db)
     delegation_storage.save_balances(
         {

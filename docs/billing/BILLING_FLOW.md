@@ -18,3 +18,12 @@
 - Metering accuracy (usage * unit price + subscription fee).
 - Invoice reconciliation correctness.
 - Refund permission boundary and over-refund protection.
+
+## S30 Ledger Foundation Update
+- Billing and metering state moved to migration-backed SQLite persistence.
+- Added append-only ledger entries with immutable update/delete guards at the DB trigger level.
+- Reconciliation now validates:
+  - stored subtotal arithmetic,
+  - replay parity from persisted usage events,
+  - double-entry balancing,
+  - ledger hash-chain continuity.
