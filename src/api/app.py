@@ -66,7 +66,7 @@ from src.delegation import storage as delegation_storage
 from src.devhub import service as devhub_service
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
-from src.federation import execute_federated, list_federation_audit
+from src.federation import execute_federated, export_attestation_bundle, list_domain_profiles, list_federation_audit
 from src.knowledge import contribute_entry, query_entries, validate_entry
 from src.lease import create_lease, get_lease, promote_lease, rollback_install
 from src.marketplace import create_listing, get_contract, list_listings, purchase_listing, settle_contract
@@ -1577,6 +1577,8 @@ def post_federated_execute(request: FederatedExecutionRequest, owner: str = Depe
             policy_context=request.policy_context,
             estimated_cost_usd=request.estimated_cost_usd,
             max_budget_usd=request.max_budget_usd,
+            requested_residency_region=request.requested_residency_region,
+            connection_mode=request.connection_mode,
         )
         record_metering_event(
             actor=owner,
@@ -1591,9 +1593,25 @@ def post_federated_execute(request: FederatedExecutionRequest, owner: str = Depe
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/v1/federation/domains")
+def get_federation_domains(_owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    return {"data": list_domain_profiles()}
+
+
 @app.get("/v1/federation/audit")
 def get_federation_audit(limit: int = Query(default=50, ge=1, le=500), _owner: str = Depends(require_api_key)) -> dict[str, Any]:
     return {"data": list_federation_audit(limit=limit)}
+
+
+@app.get("/v1/federation/attestations/export")
+def get_federation_attestation_export(
+    domain_id: str | None = Query(default=None, min_length=3),
+    limit: int = Query(default=250, ge=1, le=1000),
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    if owner not in {"owner-dev", "owner-platform"}:
+        raise HTTPException(status_code=403, detail="federation compliance export requires admin role")
+    return export_attestation_bundle(actor=owner, domain_id=domain_id, limit=limit)
 
 
 @app.get("/v1/delegations/{delegation_id}/status")

@@ -256,6 +256,8 @@ class FederatedExecutionRequest(BaseModel):
     policy_context: dict[str, Any]
     estimated_cost_usd: float = Field(gt=0)
     max_budget_usd: float = Field(gt=0)
+    requested_residency_region: str | None = Field(default=None, min_length=2)
+    connection_mode: Literal["private_connect", "public_internet"] = "public_internet"
 
 
 class DevHubReviewCreateRequest(BaseModel):

@@ -29,6 +29,7 @@ data/trust/scores.json
 data/trust/usage_events.json
 data/trust/interaction_graph.json
 data/cost/events.json
+data/federation/
 data/pilots/
 data/registry/
 data/procurement/
