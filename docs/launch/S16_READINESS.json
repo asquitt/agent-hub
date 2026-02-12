@@ -1,0 +1,57 @@
+{
+  "demo_reproducibility": {
+    "passed": true,
+    "steps": [
+      {
+        "step": "healthz",
+        "status_code": 200
+      },
+      {
+        "step": "register_agent",
+        "status_code": 200
+      },
+      {
+        "step": "get_agent",
+        "status_code": 200
+      },
+      {
+        "step": "search_capabilities",
+        "status_code": 200
+      },
+      {
+        "step": "operator_dashboard",
+        "status_code": 200
+      }
+    ]
+  },
+  "onboarding_funnel": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "signup_rate",
+        "value": 0.22,
+        "threshold": 0.15,
+        "passed": true
+      },
+      {
+        "name": "activation_rate",
+        "value": 0.5,
+        "threshold": 0.4,
+        "passed": true
+      },
+      {
+        "name": "paid_rate",
+        "value": 0.3636,
+        "threshold": 0.2,
+        "passed": true
+      }
+    ],
+    "metrics": {
+      "visitors": 1200,
+      "signups": 264,
+      "activated": 132,
+      "paid": 48
+    }
+  },
+  "launch_ready": true
+}

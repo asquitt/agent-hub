@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: dev test lint migrate eval trust gate discovery-load cli-test operator-test versioning-test lease-test knowledge-test billing-test compose-up compose-down
+.PHONY: dev test lint migrate eval trust gate launch-check discovery-load cli-test operator-test versioning-test lease-test knowledge-test billing-test launch-test compose-up compose-down
 
 dev:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -9,7 +9,7 @@ test:
 	pytest -q
 
 lint:
-	$(PYTHON) -m py_compile agenthub/*.py src/api/*.py src/billing/*.py src/delegation/*.py src/discovery/*.py src/eval/*.py src/gate/*.py src/knowledge/*.py src/lease/*.py src/trust/*.py src/versioning/*.py tools/manifest/*.py tools/capability_search/*.py tools/eval/*.py tools/gate/*.py tools/trust/*.py
+	$(PYTHON) -m py_compile agenthub/*.py src/api/*.py src/billing/*.py src/delegation/*.py src/discovery/*.py src/eval/*.py src/gate/*.py src/knowledge/*.py src/launch/*.py src/lease/*.py src/trust/*.py src/versioning/*.py tools/manifest/*.py tools/capability_search/*.py tools/eval/*.py tools/gate/*.py tools/launch/*.py tools/trust/*.py
 
 migrate:
 	@echo "Apply migrations with your Postgres DSN"
@@ -24,6 +24,9 @@ trust:
 
 gate:
 	$(PYTHON) tools/gate/review_gate.py --metrics data/gate/pilot_metrics.json --out docs/gate/S10_GATE_REVIEW.json
+
+launch-check:
+	$(PYTHON) tools/launch/check_launch_readiness.py --metrics data/launch/onboarding_metrics.json --manifest specs/manifest/examples/simple-tool-agent.yaml --out docs/launch/S16_READINESS.json
 
 discovery-load:
 	pytest tests/discovery/test_load_sla.py -q
@@ -45,6 +48,9 @@ knowledge-test:
 
 billing-test:
 	pytest tests/billing/test_billing_api.py -q
+
+launch-test:
+	pytest tests/launch/test_launch_readiness.py -q
 
 compose-up:
 	docker compose up --build -d
