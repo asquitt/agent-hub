@@ -58,6 +58,7 @@ from src.knowledge import contribute_entry, query_entries, validate_entry
 from src.lease import create_lease, get_lease, promote_lease, rollback_install
 from src.marketplace import create_listing, get_contract, list_listings, purchase_listing, settle_contract
 from src.policy import evaluate_delegation_policy, evaluate_install_promotion_policy
+from src.reliability.service import DEFAULT_WINDOW_SIZE, build_slo_dashboard
 from src.trust.scoring import compute_trust_score, record_usage_event as trust_record_usage_event
 from src.versioning import compute_behavioral_diff
 from tools.capability_search.mock_engine import (
@@ -955,6 +956,19 @@ def post_delegation(
     if not owns_reservation:
         raise HTTPException(status_code=500, detail="unable to reserve idempotency slot")
 
+    sre_dashboard = build_slo_dashboard(window_size=DEFAULT_WINDOW_SIZE)
+    circuit_breaker = sre_dashboard["circuit_breaker"]
+    if circuit_breaker["state"] == "open":
+        delegation_storage.clear_idempotency(owner=idempotency_owner, idempotency_key=key)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "delegation circuit breaker is open",
+                "circuit_breaker": circuit_breaker,
+                "alerts": sre_dashboard["alerts"],
+            },
+        )
+
     delegate_trust_score, delegate_permissions = _delegate_policy_signals(request.delegate_agent_id)
     try:
         policy_decision = evaluate_delegation_policy(
@@ -1008,6 +1022,10 @@ def post_delegation(
             "policy_decision": policy_decision,
             "lifecycle": row["lifecycle"],
             "queue_state": row.get("queue_state"),
+            "sre_governance": {
+                "circuit_breaker": circuit_breaker,
+                "alerts": sre_dashboard["alerts"],
+            },
         }
     except ValueError as exc:
         delegation_storage.clear_idempotency(owner=idempotency_owner, idempotency_key=key)
@@ -1035,6 +1053,14 @@ def get_delegation_contract_endpoint(_owner: str = Depends(require_api_key)) -> 
 @app.get("/v1/cost/metering")
 def get_cost_metering_endpoint(limit: int = Query(default=50, ge=1, le=500), _owner: str = Depends(require_api_key)) -> dict[str, Any]:
     return {"data": list_metering_events(limit=limit)}
+
+
+@app.get("/v1/reliability/slo-dashboard")
+def get_reliability_slo_dashboard(
+    window_size: int = Query(default=50, ge=1, le=1000),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    return build_slo_dashboard(window_size=window_size)
 
 
 @app.post("/v1/federation/execute")

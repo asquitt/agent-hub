@@ -53,3 +53,4 @@
 | S34 | Discovery live indexing | DONE | 2026-02-12 22:25 UTC | Platform | Yes | docs/evidence/S34.md |
 | S35 | Search quality v3 | DONE | 2026-02-12 22:55 UTC | Platform | Yes | docs/evidence/S35.md |
 | S36 | Delegation durability | DONE | 2026-02-12 23:25 UTC | Platform | Yes | docs/evidence/S36.md |
+| S37 | Reliability/SRE controls | DONE | 2026-02-12 23:55 UTC | Platform | Yes | docs/evidence/S37.md |
