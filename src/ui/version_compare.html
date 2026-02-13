@@ -4,97 +4,167 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AgentHub Version Compare</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
     <style>
+      :root {
+        --ink: #142335;
+        --ink-soft: #36506b;
+        --line: rgba(20, 35, 53, 0.2);
+        --panel: rgba(255, 255, 255, 0.9);
+        --brand: #de5e2f;
+        --brand-2: #0b7794;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
-        padding: 24px;
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-        background: linear-gradient(135deg, #f2f6ff, #e3eefc);
-        color: #102a43;
+        min-height: 100vh;
+        padding: 22px;
+        color: var(--ink);
+        font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 8% 10%, rgba(222, 94, 47, 0.15) 0%, transparent 33%),
+          radial-gradient(circle at 90% 0%, rgba(11, 119, 148, 0.18) 0%, transparent 35%),
+          linear-gradient(165deg, #ede2d2 0%, #f8f2e9 44%, #e9f1f5 100%);
       }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.22;
+        background-image:
+          linear-gradient(rgba(20, 35, 53, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(20, 35, 53, 0.03) 1px, transparent 1px);
+        background-size: 30px 30px;
+      }
+
+      .shell {
+        max-width: 980px;
+        margin: 0 auto;
+        position: relative;
+        z-index: 1;
+      }
+
       h1 {
-        margin: 0 0 12px;
-        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+        margin: 0;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-size: clamp(2rem, 5vw, 2.5rem);
       }
+
+      .lead {
+        margin: 8px 0 12px;
+        color: var(--ink-soft);
+      }
+
       .panel {
-        background: #fff;
-        border-radius: 12px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
         padding: 14px;
-        box-shadow: 0 8px 18px rgba(16, 42, 67, 0.12);
+        box-shadow: 0 12px 22px rgba(17, 31, 45, 0.11);
         margin-bottom: 12px;
       }
+
       .grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 10px;
         margin-bottom: 10px;
       }
+
       input,
       button {
         width: 100%;
-        border: 1px solid #bcccdc;
-        border-radius: 8px;
+        border: 1px solid rgba(53, 83, 110, 0.34);
+        border-radius: 10px;
         padding: 10px;
         font: inherit;
       }
+
+      input:focus {
+        outline: 2px solid rgba(11, 119, 148, 0.26);
+        outline-offset: 1px;
+      }
+
       button {
         border: 0;
         color: #fff;
-        background: #0b7285;
-        font-weight: 600;
+        background: linear-gradient(140deg, #b94b1f 0%, var(--brand) 52%, #f18e50 100%);
+        font-weight: 800;
         cursor: pointer;
       }
+
       .secondary {
-        background: #1b4965;
+        background: linear-gradient(140deg, #0a5a70 0%, var(--brand-2) 52%, #17a6c7 100%);
       }
+
       .actions {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 10px;
       }
+
       .status {
         min-height: 20px;
         margin: 4px 0 10px;
         font-size: 0.9rem;
       }
+
       .status.ok {
         color: #166534;
       }
+
       .status.warn {
         color: #92400e;
       }
+
       pre {
         margin: 0;
         max-height: 420px;
         overflow: auto;
-        background: #f0f4f8;
-        border-radius: 8px;
+        border-radius: 10px;
+        border: 1px solid rgba(20, 62, 88, 0.35);
+        background: #0b1f31;
+        color: #caecff;
         padding: 10px;
+        font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
       }
     </style>
   </head>
   <body>
-    <h1>Version Compare</h1>
-    <p>Compare behavioral diff and eval deltas between two versions.</p>
+    <main class="shell">
+      <h1>Version Compare</h1>
+      <p class="lead">Compare behavioral diff and eval deltas between two versions.</p>
 
-    <section class="panel">
-      <div class="grid">
-        <input id="apiKey" value="dev-owner-key" placeholder="API key" />
-        <input id="agentId" placeholder="@namespace:agent-id" />
-        <input id="baseVersion" placeholder="e.g. 1.0.0" />
-        <input id="targetVersion" placeholder="e.g. 1.1.0" />
-      </div>
-      <div class="actions">
-        <button class="secondary" id="loadPairBtn">Load Latest Pair</button>
-        <button id="compareBtn">Compare Versions</button>
-      </div>
-    </section>
+      <section class="panel">
+        <div class="grid">
+          <input id="apiKey" value="dev-owner-key" placeholder="API key" />
+          <input id="agentId" placeholder="@namespace:agent-id" />
+          <input id="baseVersion" placeholder="e.g. 1.0.0" />
+          <input id="targetVersion" placeholder="e.g. 1.1.0" />
+        </div>
+        <div class="actions">
+          <button class="secondary" id="loadPairBtn">Load Latest Pair</button>
+          <button id="compareBtn">Compare Versions</button>
+        </div>
+      </section>
 
-    <p class="status" id="status"></p>
+      <p class="status" id="status"></p>
 
-    <section class="panel">
-      <pre id="output">{}</pre>
-    </section>
+      <section class="panel">
+        <pre id="output">{}</pre>
+      </section>
+    </main>
 
     <script>
       const statusOut = document.getElementById("status");

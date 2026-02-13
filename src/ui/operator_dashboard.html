@@ -4,19 +4,26 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AgentHub Operator Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
     <style>
       :root {
-        --bg-night: #06111d;
-        --bg-deep: #0b2537;
-        --bg-highlight: #1f5f86;
-        --panel: rgba(249, 251, 253, 0.94);
-        --panel-dark: rgba(11, 28, 41, 0.72);
-        --ink: #102a43;
-        --ink-soft: #334e68;
-        --accent: #ff7b00;
-        --accent-alt: #0ea5e9;
-        --ok: #15803d;
-        --warn: #b45309;
+        --bg: #f3ede3;
+        --ink: #142233;
+        --ink-soft: #38526d;
+        --line: rgba(20, 34, 51, 0.2);
+        --panel: rgba(255, 255, 255, 0.88);
+        --panel-strong: rgba(255, 255, 255, 0.96);
+        --rail: rgba(11, 30, 47, 0.9);
+        --brand: #df5f2d;
+        --brand-2: #0a7893;
+        --ok: #166534;
+        --warn: #9a3412;
+        --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
       }
 
       * {
@@ -26,7 +33,7 @@
       @keyframes rise {
         from {
           opacity: 0;
-          transform: translateY(8px);
+          transform: translateY(12px);
         }
         to {
           opacity: 1;
@@ -37,51 +44,107 @@
       body {
         margin: 0;
         min-height: 100vh;
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
         color: var(--ink);
+        font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at 18% 20%, rgba(31, 95, 134, 0.72) 0%, transparent 40%),
-          radial-gradient(circle at 82% 0%, rgba(255, 123, 0, 0.24) 0%, transparent 31%),
-          linear-gradient(160deg, var(--bg-night) 0%, var(--bg-deep) 54%, var(--bg-highlight) 100%);
+          radial-gradient(circle at 12% 10%, rgba(223, 95, 45, 0.16) 0%, transparent 32%),
+          radial-gradient(circle at 88% 0%, rgba(10, 120, 147, 0.19) 0%, transparent 34%),
+          linear-gradient(170deg, #ebe0cf 0%, #f8f2ea 45%, #e8f2f6 100%);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.25;
+        background-image:
+          linear-gradient(rgba(20, 34, 51, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(20, 34, 51, 0.03) 1px, transparent 1px);
+        background-size: 30px 30px;
       }
 
       .shell {
         max-width: 1260px;
         margin: 0 auto;
-        padding: 20px;
+        padding: 22px;
+        position: relative;
+        z-index: 1;
       }
 
-      .hero {
-        color: #f8fafc;
-        margin-bottom: 16px;
-        animation: rise 0.32s ease-out;
-        display: grid;
-        gap: 10px;
-        grid-template-columns: 1.1fr 0.9fr;
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        background: rgba(255, 255, 255, 0.77);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 10px 12px;
+        box-shadow: 0 10px 20px rgba(19, 36, 54, 0.1);
+        animation: rise 0.35s ease-out both;
       }
 
-      .hero-copy {
-        background: var(--panel);
-        border-radius: 16px;
-        padding: 14px;
-        box-shadow: 0 12px 28px rgba(2, 12, 23, 0.22);
+      .brand {
+        color: var(--ink);
+        text-decoration: none;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-weight: 800;
+        font-size: 1.04rem;
+        letter-spacing: 0.03em;
       }
 
-      .eyebrow {
-        margin: 0 0 6px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        font-size: 0.72rem;
-        color: var(--ink-soft);
+      .topbar-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .topbar-links a {
+        text-decoration: none;
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.88);
+        padding: 6px 11px;
+        font-size: 0.78rem;
         font-weight: 700;
       }
 
+      .hero {
+        margin-top: 14px;
+        display: grid;
+        gap: 12px;
+        grid-template-columns: 1.1fr 0.9fr;
+      }
+
+      .hero-copy,
+      .hero-quick {
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        animation: rise 0.42s ease-out both;
+      }
+
+      .hero-copy {
+        background: var(--panel-strong);
+        box-shadow: 0 18px 34px rgba(17, 31, 47, 0.14);
+        padding: 20px;
+      }
+
+      .eyebrow {
+        margin: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--ink-soft);
+      }
+
       .hero-copy h1 {
-        margin: 0 0 4px;
-        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
-        font-size: 2.1rem;
-        letter-spacing: 0.02em;
-        color: var(--ink);
+        margin: 8px 0 8px;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-size: clamp(1.95rem, 3.7vw, 2.6rem);
+        line-height: 1.06;
       }
 
       .hero-copy p {
@@ -90,16 +153,17 @@
       }
 
       .hero-quick {
-        background: var(--panel-dark);
-        border: 1px solid rgba(226, 232, 240, 0.16);
-        border-radius: 16px;
-        padding: 14px;
-        color: #e2e8f0;
+        background: linear-gradient(165deg, rgba(10, 30, 49, 0.94) 0%, rgba(6, 92, 116, 0.9) 100%);
+        box-shadow: 0 18px 34px rgba(9, 24, 38, 0.25);
+        color: #e7f5ff;
+        padding: 19px;
+        animation-delay: 0.08s;
       }
 
       .hero-quick h2 {
         margin: 0 0 8px;
-        font-size: 0.98rem;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-size: 1rem;
       }
 
       .hero-quick ul {
@@ -107,20 +171,44 @@
         padding-left: 18px;
         display: grid;
         gap: 6px;
+        color: #d0e9f7;
         font-size: 0.88rem;
+      }
+
+      .control-shell {
+        margin-top: 12px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        padding: 16px;
+        box-shadow: 0 16px 30px rgba(16, 29, 44, 0.12);
+        animation: rise 0.48s ease-out both;
+      }
+
+      .control-shell h2 {
+        margin: 0 0 5px;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-size: 1.03rem;
+      }
+
+      .control-shell p {
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 0.86rem;
       }
 
       .controls,
       .replay-controls {
+        margin-top: 10px;
         display: grid;
         gap: 10px;
         grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-        background: var(--panel);
-        border-radius: 16px;
-        padding: 14px;
-        box-shadow: 0 12px 28px rgba(2, 12, 23, 0.28);
-        margin-bottom: 12px;
-        animation: rise 0.38s ease-out;
+      }
+
+      .replay-controls {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px dashed rgba(56, 90, 117, 0.32);
       }
 
       label {
@@ -128,63 +216,122 @@
         flex-direction: column;
         gap: 6px;
         color: var(--ink-soft);
-        font-size: 0.76rem;
+        font-size: 0.73rem;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
-        letter-spacing: 0.03em;
+        font-weight: 700;
       }
 
       input,
       select,
       button {
         border-radius: 10px;
-        border: 1px solid #bcccdc;
-        padding: 10px 12px;
+        border: 1px solid rgba(53, 83, 110, 0.34);
+        background: #fff;
+        color: var(--ink);
+        padding: 10px 11px;
         font: inherit;
-        background: #ffffff;
+      }
+
+      input:focus,
+      select:focus {
+        outline: 2px solid rgba(10, 120, 147, 0.28);
+        outline-offset: 1px;
       }
 
       button {
-        cursor: pointer;
         border: 0;
         color: #fff;
-        font-weight: 600;
+        cursor: pointer;
+        font-weight: 800;
       }
 
       .primary-btn {
-        background: linear-gradient(120deg, #ef5b0c, var(--accent));
+        background: linear-gradient(140deg, #b84a1e 0%, var(--brand) 52%, #f28d4f 100%);
+        box-shadow: 0 9px 16px rgba(199, 83, 35, 0.26);
       }
 
       .secondary-btn {
-        background: linear-gradient(120deg, #0b7285, var(--accent-alt));
+        background: linear-gradient(140deg, #0a5a71 0%, var(--brand-2) 52%, #17a5c6 100%);
+        box-shadow: 0 9px 16px rgba(9, 97, 119, 0.24);
+      }
+
+      button:disabled {
+        opacity: 0.58;
+        cursor: not-allowed;
+      }
+
+      .hint {
+        margin: 10px 0 0;
+        color: var(--ink-soft);
+        font-size: 0.83rem;
+      }
+
+      .status-wrap {
+        margin-top: 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(13, 34, 54, 0.2);
+        background: var(--rail);
+        padding: 8px 12px;
+      }
+
+      .status {
+        min-height: 20px;
+        margin: 0;
+        font-size: 0.9rem;
+        color: #d8edf8;
+      }
+
+      .status.ok {
+        color: #a7f3d0;
+      }
+
+      .status.warn {
+        color: #fdba74;
       }
 
       .grid {
+        margin-top: 12px;
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 12px;
+        gap: 11px;
       }
 
       .card {
-        background: var(--panel);
         border-radius: 14px;
+        border: 1px solid var(--line);
+        background: var(--panel);
         padding: 12px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-        animation: rise 0.44s ease-out;
+        box-shadow: 0 12px 22px rgba(17, 31, 47, 0.12);
+        animation: rise 0.5s ease-out both;
+      }
+
+      .card:nth-child(odd) {
+        animation-delay: 0.04s;
+      }
+
+      .card:nth-child(even) {
+        animation-delay: 0.08s;
       }
 
       .card h2 {
         margin: 0 0 8px;
-        font-size: 1rem;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-size: 0.98rem;
       }
 
       pre {
         margin: 0;
-        max-height: 300px;
+        max-height: 310px;
         overflow: auto;
-        padding: 10px;
         border-radius: 10px;
-        background: #f0f4f8;
-        font-size: 0.76rem;
+        border: 1px solid rgba(20, 62, 88, 0.35);
+        background: #0b1f31;
+        color: #caecff;
+        padding: 10px;
+        font-size: 0.75rem;
+        line-height: 1.45;
+        font-family: var(--mono);
       }
 
       .diag-summary {
@@ -196,12 +343,12 @@
 
       .diag-summary .pill {
         display: inline-block;
-        padding: 4px 8px;
         border-radius: 999px;
+        padding: 4px 8px;
         font-size: 0.72rem;
-        font-weight: 600;
-        background: #d9e2ec;
-        color: #102a43;
+        font-weight: 700;
+        background: #d8e5ee;
+        color: #10293f;
       }
 
       .diag-summary .pill.ok {
@@ -214,49 +361,50 @@
         color: #9a3412;
       }
 
-      .status {
-        color: #f0f4f8;
-        min-height: 20px;
-        margin: 10px 0 6px;
-        font-size: 0.9rem;
+      @media (max-width: 900px) {
+        .hero {
+          grid-template-columns: 1fr;
+        }
       }
 
-      .status.ok {
-        color: #bbf7d0;
-      }
-
-      .status.warn {
-        color: #fed7aa;
-      }
-
-      .hint {
-        margin: 0 0 12px;
-        color: #d9e2ec;
-        font-size: 0.82rem;
-      }
-
-      button:disabled {
-        opacity: 0.58;
-        cursor: not-allowed;
-      }
-
-      @media (max-width: 760px) {
+      @media (max-width: 700px) {
         .shell {
           padding: 14px;
         }
 
-        .hero {
-          grid-template-columns: 1fr;
+        .hero-copy,
+        .hero-quick,
+        .control-shell {
+          padding: 13px;
         }
 
-        .hero-copy h1 {
-          font-size: 1.7rem;
+        .topbar {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
         }
       }
     </style>
   </head>
   <body>
     <main class="shell">
+      <nav class="topbar">
+        <a class="brand" href="/">AgentHub</a>
+        <div class="topbar-links">
+          <a href="/">Home</a>
+          <a href="/docs">API Docs</a>
+          <a href="/customer">Customer</a>
+        </div>
+      </nav>
+
       <section class="hero">
         <article class="hero-copy">
           <p class="eyebrow">Operator Surface</p>
@@ -273,48 +421,55 @@
         </article>
       </section>
 
-      <section class="controls">
-        <label>
-          API Key
-          <input id="apiKey" value="dev-owner-key" />
-        </label>
-        <label>
-          Operator Role
-          <select id="role">
-            <option value="viewer">viewer</option>
-            <option value="admin">admin</option>
-          </select>
-        </label>
-        <label>
-          Agent ID
-          <input id="agentId" placeholder="@namespace:agent-id" />
-        </label>
-        <label>
-          Search Query
-          <input id="query" value="normalize records" />
-        </label>
-        <button class="primary-btn" id="loadBtn">Load Dashboard</button>
-        <button class="secondary-btn" id="refreshBtn">Admin Refresh</button>
-      </section>
-      <p class="hint">Register an agent with `POST /v1/agents`, then paste its agent id to load dashboard data.</p>
+      <section class="control-shell">
+        <h2>Control plane</h2>
+        <p>Use explicit role and scoped API keys to load observability data and privileged actions.</p>
 
-      <section class="replay-controls">
-        <label>
-          Delegation Replay ID
-          <input id="replayDelegationId" placeholder="delegation id from timeline" />
-        </label>
-        <label>
-          Startup Diagnostics
-          <select id="diagMode">
-            <option value="all">all checks</option>
-            <option value="failing">failing only</option>
-          </select>
-        </label>
-        <button class="secondary-btn" id="replayBtn">Load Replay</button>
-        <button class="secondary-btn" id="diagBtn">Load Startup Diagnostics</button>
+        <section class="controls">
+          <label>
+            API Key
+            <input id="apiKey" value="dev-owner-key" />
+          </label>
+          <label>
+            Operator Role
+            <select id="role">
+              <option value="viewer">viewer</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          <label>
+            Agent ID
+            <input id="agentId" placeholder="@namespace:agent-id" />
+          </label>
+          <label>
+            Search Query
+            <input id="query" value="normalize records" />
+          </label>
+          <button class="primary-btn" id="loadBtn">Load Dashboard</button>
+          <button class="secondary-btn" id="refreshBtn">Admin Refresh</button>
+        </section>
+        <p class="hint">Register an agent with `POST /v1/agents`, then paste its agent id to load dashboard data.</p>
+
+        <section class="replay-controls">
+          <label>
+            Delegation Replay ID
+            <input id="replayDelegationId" placeholder="delegation id from timeline" />
+          </label>
+          <label>
+            Startup Diagnostics
+            <select id="diagMode">
+              <option value="all">all checks</option>
+              <option value="failing">failing only</option>
+            </select>
+          </label>
+          <button class="secondary-btn" id="replayBtn">Load Replay</button>
+          <button class="secondary-btn" id="diagBtn">Load Startup Diagnostics</button>
+        </section>
       </section>
 
-      <p class="status" id="status"></p>
+      <div class="status-wrap">
+        <p class="status" id="status"></p>
+      </div>
 
       <section class="grid">
         <article class="card">

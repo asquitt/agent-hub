@@ -86,3 +86,4 @@
 | S67 | Diagnostics severity metadata + operator summary badges | DONE | 2026-02-13 05:38 UTC | Platform | Yes | docs/evidence/S67.md |
 | S68 | Operator diagnostics snapshot history endpoint | DONE | 2026-02-13 05:42 UTC | Platform | Yes | docs/evidence/S68.md |
 | S69 | Marketing homepage + operator/customer visual redesign | DONE | 2026-02-13 05:52 UTC | Platform | Yes | docs/evidence/S69.md |
+| S70 | UI redesign refinement + Playwright visual capture | DONE | 2026-02-13 06:29 UTC | Platform | Yes | docs/evidence/S70.md |

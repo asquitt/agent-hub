@@ -4,78 +4,157 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AgentHub Customer Journey</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
     <style>
       :root {
-        --bg-ink: #06111d;
-        --bg-steel: #0d2b3f;
-        --bg-sun: #f97316;
-        --bg-sky: #1f5f86;
-        --panel: rgba(248, 250, 252, 0.94);
-        --ink: #0f172a;
-        --soft: #334e68;
+        --bg: #f4eee3;
+        --ink: #132334;
+        --ink-soft: #35506b;
+        --line: rgba(19, 35, 52, 0.2);
+        --panel: rgba(255, 255, 255, 0.88);
+        --panel-strong: rgba(255, 255, 255, 0.95);
+        --night: rgba(10, 31, 50, 0.93);
+        --accent: #de5f2f;
+        --accent-2: #0a7a96;
         --ok: #166534;
         --warn: #9a3412;
+        --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
       }
 
       * {
         box-sizing: border-box;
       }
 
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(12px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
       body {
         margin: 0;
         min-height: 100vh;
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
         color: var(--ink);
+        font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at 12% 18%, rgba(249, 115, 22, 0.28) 0%, transparent 36%),
-          radial-gradient(circle at 86% 0%, rgba(14, 165, 233, 0.2) 0%, transparent 30%),
-          linear-gradient(155deg, var(--bg-ink) 0%, var(--bg-steel) 53%, var(--bg-sky) 100%);
+          radial-gradient(circle at 11% 10%, rgba(222, 95, 47, 0.16) 0%, transparent 34%),
+          radial-gradient(circle at 86% 0%, rgba(10, 122, 150, 0.18) 0%, transparent 34%),
+          linear-gradient(170deg, #ebe0cf 0%, #f8f1e8 44%, #e7f0f4 100%);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.24;
+        background-image:
+          linear-gradient(rgba(19, 35, 52, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(19, 35, 52, 0.03) 1px, transparent 1px);
+        background-size: 30px 30px;
       }
 
       main {
-        max-width: 1200px;
+        max-width: 1240px;
         margin: 0 auto;
         padding: 22px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.78);
+        padding: 10px 12px;
+        box-shadow: 0 10px 20px rgba(17, 31, 45, 0.1);
+        animation: rise 0.35s ease-out both;
+      }
+
+      .brand {
+        color: var(--ink);
+        text-decoration: none;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-weight: 800;
+        font-size: 1.03rem;
+        letter-spacing: 0.03em;
+      }
+
+      .topbar-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .topbar-links a {
+        text-decoration: none;
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.88);
+        padding: 6px 11px;
+        font-size: 0.78rem;
+        font-weight: 700;
       }
 
       .hero {
-        color: #f8fafc;
-        margin-bottom: 14px;
+        margin-top: 14px;
         display: grid;
-        gap: 10px;
+        gap: 11px;
         grid-template-columns: 1.15fr 0.85fr;
       }
 
+      .hero-copy,
+      .hero-note {
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        animation: rise 0.42s ease-out both;
+      }
+
       .hero-copy {
-        background: var(--panel);
-        border-radius: 16px;
-        padding: 14px;
-        box-shadow: 0 12px 24px rgba(2, 6, 23, 0.22);
+        background: var(--panel-strong);
+        box-shadow: 0 18px 34px rgba(17, 30, 45, 0.14);
+        padding: 18px;
       }
 
       .hero-copy h1 {
         margin: 0;
-        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
-        font-size: 2rem;
-        color: #0f172a;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-size: clamp(1.95rem, 4vw, 2.5rem);
+        line-height: 1.06;
       }
 
       .hero-copy p {
-        margin: 6px 0 0;
-        color: var(--soft);
+        margin: 8px 0 0;
+        color: var(--ink-soft);
       }
 
       .hero-note {
-        border-radius: 16px;
-        border: 1px solid rgba(226, 232, 240, 0.16);
-        background: rgba(10, 24, 38, 0.72);
-        padding: 14px;
-        color: #e2e8f0;
+        background: linear-gradient(165deg, rgba(10, 31, 50, 0.95) 0%, rgba(7, 94, 119, 0.9) 100%);
+        box-shadow: 0 18px 34px rgba(9, 23, 37, 0.27);
+        color: #e6f5ff;
+        padding: 16px;
+        animation-delay: 0.1s;
       }
 
       .hero-note h2 {
         margin: 0 0 8px;
-        font-size: 0.95rem;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-size: 0.97rem;
       }
 
       .hero-note ul {
@@ -83,26 +162,27 @@
         padding-left: 18px;
         display: grid;
         gap: 5px;
+        color: #cde5f4;
         font-size: 0.86rem;
       }
 
       .panel {
-        background: var(--panel);
         border-radius: 16px;
+        border: 1px solid var(--line);
+        background: var(--panel);
         padding: 14px;
-        box-shadow: 0 12px 24px rgba(2, 6, 23, 0.24);
-        margin-bottom: 12px;
+        box-shadow: 0 13px 24px rgba(17, 31, 44, 0.12);
       }
 
       .warning-banner {
-        margin: 10px 0 12px;
-        padding: 10px 12px;
+        margin: 0 0 12px;
         border-radius: 10px;
         border: 1px solid #fdba74;
-        background: rgba(255, 237, 213, 0.92);
+        background: rgba(255, 237, 213, 0.94);
         color: #7c2d12;
-        font-size: 0.88rem;
-        font-weight: 600;
+        padding: 10px 12px;
+        font-size: 0.86rem;
+        font-weight: 700;
       }
 
       .controls {
@@ -117,38 +197,46 @@
         gap: 6px;
         font-size: 0.74rem;
         text-transform: uppercase;
-        letter-spacing: 0.02em;
-        color: var(--soft);
+        letter-spacing: 0.04em;
+        color: var(--ink-soft);
+        font-weight: 700;
       }
 
       input,
       button {
         border-radius: 10px;
-        border: 1px solid #cbd5e1;
+        border: 1px solid rgba(52, 82, 108, 0.34);
         padding: 10px 11px;
         font: inherit;
       }
 
+      input:focus {
+        outline: 2px solid rgba(10, 122, 150, 0.28);
+        outline-offset: 1px;
+      }
+
       .actions {
-        display: flex;
-        gap: 10px;
         margin-top: 10px;
+        display: flex;
         flex-wrap: wrap;
+        gap: 10px;
       }
 
       button {
         border: 0;
         color: #fff;
-        font-weight: 650;
         cursor: pointer;
+        font-weight: 800;
       }
 
       .primary {
-        background: linear-gradient(118deg, #ea580c, var(--bg-sun));
+        background: linear-gradient(140deg, #b94b1f 0%, var(--accent) 54%, #f18e50 100%);
+        box-shadow: 0 9px 16px rgba(198, 84, 36, 0.25);
       }
 
       .secondary {
-        background: linear-gradient(118deg, #0f766e, #0ea5e9);
+        background: linear-gradient(140deg, #0a5a70 0%, var(--accent-2) 52%, #17a7c8 100%);
+        box-shadow: 0 9px 16px rgba(9, 96, 118, 0.23);
       }
 
       button:disabled {
@@ -159,38 +247,41 @@
       .status {
         min-height: 22px;
         margin: 10px 0 0;
-        font-size: 0.92rem;
+        font-size: 0.9rem;
       }
 
       .status.ok {
-        color: #bbf7d0;
+        color: #166534;
       }
 
       .status.warn {
-        color: #fdba74;
+        color: #9a3412;
       }
 
       .grid {
+        margin-top: 12px;
         display: grid;
         gap: 12px;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: 1fr 1fr;
       }
 
       h2 {
         margin: 0 0 8px;
-        font-size: 1rem;
+        font-family: "Syne", "Avenir Next", sans-serif;
+        font-size: 0.99rem;
       }
 
       ol {
         margin: 0;
-        padding-left: 18px;
-        max-height: 330px;
+        padding-left: 20px;
+        max-height: 340px;
         overflow: auto;
       }
 
       li {
         margin-bottom: 6px;
-        color: #0f172a;
+        color: #12314b;
+        font-size: 0.87rem;
       }
 
       li.ok {
@@ -203,31 +294,66 @@
 
       pre {
         margin: 0;
-        max-height: 330px;
+        max-height: 340px;
         overflow: auto;
         border-radius: 10px;
-        background: #f1f5f9;
+        border: 1px solid rgba(20, 62, 88, 0.35);
+        background: var(--night);
+        color: #c8ebff;
         padding: 10px;
-        font-size: 0.76rem;
+        font-size: 0.75rem;
+        line-height: 1.45;
+        font-family: var(--mono);
       }
 
-      @media (max-width: 760px) {
-        main {
-          padding: 14px;
-        }
-
+      @media (max-width: 920px) {
         .hero {
           grid-template-columns: 1fr;
         }
 
-        .hero-copy h1 {
-          font-size: 1.7rem;
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 700px) {
+        main {
+          padding: 14px;
+        }
+
+        .topbar {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .hero-copy,
+        .hero-note,
+        .panel {
+          padding: 13px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
         }
       }
     </style>
   </head>
   <body>
     <main>
+      <nav class="topbar">
+        <a class="brand" href="/">AgentHub</a>
+        <div class="topbar-links">
+          <a href="/">Home</a>
+          <a href="/operator">Operator</a>
+          <a href="/docs">API Docs</a>
+        </div>
+      </nav>
+
       <section class="hero">
         <article class="hero-copy">
           <h1>Customer Journey Console</h1>
