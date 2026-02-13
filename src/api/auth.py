@@ -10,11 +10,12 @@ from typing import Any
 
 from fastapi import Header, HTTPException
 
-API_KEYS = {
+LEGACY_API_KEYS = {
     "dev-owner-key": "owner-dev",
     "partner-owner-key": "owner-partner",
     "platform-owner-key": "owner-platform",
 }
+LEGACY_TOKEN_SECRET = "agenthub-dev-token-secret"
 
 DEFAULT_TOKEN_TTL_SECONDS = 1800
 MAX_TOKEN_TTL_SECONDS = 86400
@@ -24,8 +25,41 @@ def _now_epoch() -> int:
     return int(datetime.now(UTC).timestamp())
 
 
+def _enforce_mode_enabled() -> bool:
+    return str(os.getenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "warn")).strip().lower() == "enforce"
+
+
+def _api_key_map() -> dict[str, str]:
+    raw = os.getenv("AGENTHUB_API_KEYS_JSON")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            if _enforce_mode_enabled():
+                raise RuntimeError("AGENTHUB_API_KEYS_JSON must be valid JSON in enforce mode") from exc
+            parsed = None
+        if isinstance(parsed, dict):
+            normalized: dict[str, str] = {}
+            for key, owner in parsed.items():
+                key_str = str(key).strip()
+                owner_str = str(owner).strip()
+                if key_str and owner_str:
+                    normalized[key_str] = owner_str
+            if normalized:
+                return normalized
+            if _enforce_mode_enabled():
+                raise RuntimeError("AGENTHUB_API_KEYS_JSON must define at least one API key in enforce mode")
+    if _enforce_mode_enabled():
+        raise RuntimeError("AGENTHUB_API_KEYS_JSON is required in enforce mode")
+    return dict(LEGACY_API_KEYS)
+
+
 def _token_secret() -> bytes:
-    secret = os.getenv("AGENTHUB_AUTH_TOKEN_SECRET", "agenthub-dev-token-secret")
+    secret = os.getenv("AGENTHUB_AUTH_TOKEN_SECRET")
+    if secret is None or not secret.strip():
+        if _enforce_mode_enabled():
+            raise RuntimeError("AGENTHUB_AUTH_TOKEN_SECRET is required in enforce mode")
+        secret = LEGACY_TOKEN_SECRET
     return secret.encode("utf-8")
 
 
@@ -94,7 +128,7 @@ def verify_scoped_token(token: str) -> dict[str, Any]:
 def _owner_from_api_key(x_api_key: str | None) -> str | None:
     if not x_api_key:
         return None
-    return API_KEYS.get(x_api_key)
+    return _api_key_map().get(x_api_key)
 
 
 def _owner_and_scopes_from_authorization(authorization: str | None) -> tuple[str, list[str]] | None:
@@ -108,6 +142,33 @@ def _owner_and_scopes_from_authorization(authorization: str | None) -> tuple[str
     return claims["sub"], claims.get("scopes", [])
 
 
+def resolve_owner_from_headers(
+    *,
+    x_api_key: str | None,
+    authorization: str | None,
+    strict: bool = True,
+) -> str | None:
+    owner = _owner_from_api_key(x_api_key)
+    if owner is not None:
+        return owner
+    if not authorization:
+        return None
+    try:
+        token_auth = _owner_and_scopes_from_authorization(authorization)
+    except HTTPException:
+        if strict:
+            raise
+        return None
+    if token_auth is None:
+        return None
+    return token_auth[0]
+
+
+def validate_auth_configuration() -> None:
+    _ = _api_key_map()
+    _ = _token_secret()
+
+
 def require_api_key_owner(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> str:
     owner = _owner_from_api_key(x_api_key)
     if owner is None:
@@ -119,12 +180,9 @@ def require_api_key(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> str:
-    owner = _owner_from_api_key(x_api_key)
+    owner = resolve_owner_from_headers(x_api_key=x_api_key, authorization=authorization, strict=True)
     if owner is not None:
         return owner
-    token_auth = _owner_and_scopes_from_authorization(authorization)
-    if token_auth is not None:
-        return token_auth[0]
     raise HTTPException(status_code=401, detail="missing or invalid authentication")
 
 

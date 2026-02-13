@@ -101,6 +101,32 @@ class RegistryStore:
             )
         return versions
 
+    def _load_versions_for_agents(self, agent_ids: list[str]) -> dict[str, list[VersionRecord]]:
+        if not agent_ids:
+            return {}
+        assert self._conn is not None
+        placeholders = ",".join("?" for _ in agent_ids)
+        rows = self._conn.execute(
+            f"""
+            SELECT agent_id, version, manifest_json, eval_summary_json, created_at
+            FROM registry_agent_versions
+            WHERE agent_id IN ({placeholders})
+            ORDER BY created_at, version
+            """,
+            tuple(agent_ids),
+        ).fetchall()
+        out: dict[str, list[VersionRecord]] = {agent_id: [] for agent_id in agent_ids}
+        for row in rows:
+            agent_id = str(row["agent_id"])
+            out.setdefault(agent_id, []).append(
+                VersionRecord(
+                    version=str(row["version"]),
+                    manifest=json.loads(str(row["manifest_json"])),
+                    eval_summary=json.loads(str(row["eval_summary_json"])),
+                )
+            )
+        return out
+
     def reserve_namespace(self, namespace: str, owner: str, tenant_id: str = "tenant-default") -> None:
         with self._lock:
             assert self._conn is not None
@@ -188,6 +214,8 @@ class RegistryStore:
             query += " ORDER BY agent_id"
 
             rows = self._conn.execute(query, tuple(params)).fetchall()
+            agent_ids = [str(row["agent_id"]) for row in rows]
+            versions_by_agent = self._load_versions_for_agents(agent_ids)
             records: list[AgentRecord] = []
             for row in rows:
                 agent_id = str(row["agent_id"])
@@ -199,10 +227,18 @@ class RegistryStore:
                         slug=str(row["slug"]),
                         owner=str(row["owner"]),
                         status=str(row["status"]),
-                        versions=self._load_versions(agent_id),
+                        versions=versions_by_agent.get(agent_id, []),
                     )
                 )
             return records
+
+    def list_tenant_ids(self) -> list[str]:
+        with self._lock:
+            assert self._conn is not None
+            rows = self._conn.execute(
+                "SELECT DISTINCT tenant_id FROM registry_agents ORDER BY tenant_id"
+            ).fetchall()
+            return [str(row["tenant_id"]) for row in rows if str(row["tenant_id"]).strip()]
 
     def get_agent(self, agent_id: str, tenant_id: str | None = None) -> AgentRecord:
         with self._lock:

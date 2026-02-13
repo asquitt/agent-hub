@@ -202,13 +202,20 @@ def test_delegation_idempotency_storm_returns_single_durable_response() -> None:
         results = list(executor.map(lambda _idx: _post_once(), range(24)))
 
     status_codes = {status for status, _payload in results}
-    assert status_codes == {200}
+    assert status_codes.issubset({200, 409})
 
-    responses = [body for _status, body in results]
-    delegation_ids = {str(body["delegation_id"]) for body in responses}
+    success_responses = [body for status, body in results if status == 200]
+    assert success_responses
+    delegation_ids = {str(body["delegation_id"]) for body in success_responses}
     assert len(delegation_ids) == 1
-    first_response = responses[0]
-    assert all(body == first_response for body in responses)
+    first_response = success_responses[0]
+    assert all(body == first_response for body in success_responses)
+
+    conflict_responses = [body for status, body in results if status == 409]
+    for body in conflict_responses:
+        detail = body.get("detail", {})
+        if isinstance(detail, dict):
+            assert detail.get("code") == "idempotency.in_progress"
 
     records = delegation_storage.load_records()
     assert len(records) == 1

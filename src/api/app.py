@@ -3,14 +3,21 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from src.api.auth import issue_scoped_token, require_api_key, require_api_key_owner, require_scope
+from src.api.access_policy import access_mode, classify_route, evaluate_access, requires_idempotency
+from src.api.auth import (
+    issue_scoped_token,
+    require_api_key,
+    require_api_key_owner,
+    require_scope,
+    resolve_owner_from_headers,
+    validate_auth_configuration,
+)
 from src.api.manifest_validation import validate_manifest_object
 from src.api.models import (
     AuthTokenIssueRequest,
@@ -69,6 +76,7 @@ from src.devhub import service as devhub_service
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
 from src.federation import execute_federated, export_attestation_bundle, list_domain_profiles, list_federation_audit
+from src.idempotency import storage as idempotency_storage
 from src.knowledge import contribute_entry, query_entries, validate_entry
 from src.lease import create_lease, get_lease, promote_lease, rollback_install
 from src.marketplace import create_listing, get_contract, list_listings, purchase_listing, settle_contract
@@ -95,13 +103,7 @@ from src.provenance.service import (
 from src.reliability.service import DEFAULT_WINDOW_SIZE, build_slo_dashboard
 from src.trust.scoring import compute_trust_score, record_usage_event as trust_record_usage_event
 from src.versioning import compute_behavioral_diff
-from tools.capability_search.mock_engine import (
-    list_agent_capabilities as mock_list_agent_capabilities,
-    load_mock_capabilities,
-    match_capabilities as mock_match_capabilities,
-    recommend_capabilities as mock_recommend_capabilities,
-    search_capabilities as mock_search_capabilities,
-)
+from src.discovery.index import LIVE_CAPABILITY_INDEX
 
 app = FastAPI(title="AgentHub Registry Service", version="0.1.0")
 ROOT = Path(__file__).resolve().parents[2]
@@ -111,8 +113,6 @@ OPERATOR_ROLE_BY_OWNER = {
     "owner-partner": "viewer",
 }
 DELEGATION_IDEMPOTENCY_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
-DELEGATION_PENDING_WAIT_SECONDS = 4.0
-DELEGATION_PENDING_POLL_SECONDS = 0.02
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -135,16 +135,6 @@ def _request_hash(payload: dict[str, Any]) -> str:
 
 def _delegation_idempotency_owner(owner: str, tenant_id: str) -> str:
     return f"{owner}:{tenant_id}"
-
-
-def _wait_for_delegation_idempotency_response(owner: str, key: str) -> dict[str, Any] | None:
-    deadline = time.monotonic() + DELEGATION_PENDING_WAIT_SECONDS
-    while time.monotonic() < deadline:
-        replay = delegation_storage.get_idempotency_response(owner=owner, idempotency_key=key)
-        if replay is not None:
-            return replay
-        time.sleep(DELEGATION_PENDING_POLL_SECONDS)
-    return None
 
 
 def _serialize_agent(agent) -> dict[str, Any]:
@@ -200,14 +190,218 @@ def _require_operator_role(owner: str, requested_role: str | None, allowed_roles
     return role
 
 
+def _is_admin_owner(owner: str) -> bool:
+    return owner in {"owner-dev", "owner-platform"}
+
+
+def _require_invoice_read_access(owner: str, invoice: dict[str, Any]) -> None:
+    invoice_owner = str(invoice.get("owner", ""))
+    if _is_admin_owner(owner) or invoice_owner == owner:
+        return
+    raise HTTPException(status_code=403, detail="actor not permitted to view invoice")
+
+
+def _require_contract_read_access(owner: str, contract: dict[str, Any]) -> None:
+    buyer = str(contract.get("buyer", ""))
+    seller = str(contract.get("seller", ""))
+    if _is_admin_owner(owner) or owner in {buyer, seller}:
+        return
+    raise HTTPException(status_code=403, detail="actor not permitted to view contract")
+
+
 def _delegate_policy_signals(delegate_agent_id: str) -> tuple[float | None, list[str]]:
+    snapshot = LIVE_CAPABILITY_INDEX.snapshot()
     short_id = delegate_agent_id.split(":")[-1]
-    rows = [row for row in load_mock_capabilities() if row.get("agent_id") == short_id]
+    rows = [row for row in snapshot["rows"] if row.agent_id in {delegate_agent_id, short_id}]
     if not rows:
         return None, []
-    trust = max(float(row.get("trust_score", 0.0)) for row in rows)
-    permissions = sorted({perm for row in rows for perm in row.get("permissions", [])})
+    trust = max(float(row.trust_score) for row in rows)
+    permissions = sorted({perm for row in rows for perm in row.permissions})
     return trust, permissions
+
+
+def _constraints_from_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(filters, dict):
+        return {}
+    constraints: dict[str, Any] = {}
+    for key in ("max_latency_ms", "max_cost_usd", "min_trust_score", "required_permissions", "allowed_protocols"):
+        if key in filters and filters[key] is not None:
+            constraints[key] = filters[key]
+    return constraints
+
+
+def _apply_pagination(rows: list[dict[str, Any]], pagination: dict[str, Any] | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    total = len(rows)
+    if not pagination:
+        return rows, {"mode": "offset", "offset": 0, "limit": total, "total": total}
+
+    mode = str(pagination.get("mode", "offset"))
+    limit = int(pagination.get("limit", 20))
+    limit = max(1, min(limit, 100))
+    if mode == "cursor":
+        cursor = str(pagination.get("cursor") or "idx:0")
+        try:
+            start = int(cursor.split(":", 1)[1])
+        except (IndexError, ValueError):
+            start = 0
+        start = max(0, min(start, total))
+        sliced = rows[start : start + limit]
+        next_cursor = None
+        if start + limit < total:
+            next_cursor = f"idx:{start + limit}"
+        return sliced, {
+            "mode": "cursor",
+            "cursor": cursor,
+            "next_cursor": next_cursor,
+            "limit": limit,
+            "total": total,
+        }
+
+    offset = int(pagination.get("offset", 0))
+    offset = max(0, min(offset, total))
+    sliced = rows[offset : offset + limit]
+    return sliced, {"mode": "offset", "offset": offset, "limit": limit, "total": total}
+
+
+def _capability_search(
+    *,
+    query: str,
+    filters: dict[str, Any] | None = None,
+    pagination: dict[str, Any] | None = None,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    constraints = _constraints_from_filters(filters)
+    result = DISCOVERY_SERVICE.semantic_discovery(query=query, constraints=constraints, tenant_id=tenant_id)
+    rows, page = _apply_pagination(list(result.get("data", [])), pagination)
+    return {
+        **result,
+        "data": rows,
+        "pagination": page,
+    }
+
+
+def _capability_match(
+    *,
+    input_required: list[str],
+    output_required: list[str],
+    compatibility_mode: str = "backward_compatible",
+    filters: dict[str, Any] | None = None,
+    pagination: dict[str, Any] | None = None,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    constraints = _constraints_from_filters(filters)
+    result = DISCOVERY_SERVICE.contract_match(
+        input_required=input_required,
+        output_required=output_required,
+        max_cost_usd=constraints.get("max_cost_usd"),
+        tenant_id=tenant_id,
+    )
+    rows = list(result.get("data", []))
+    if compatibility_mode == "exact":
+        rows = [row for row in rows if str(row.get("compatibility")) == "exact"]
+    max_latency = constraints.get("max_latency_ms")
+    if max_latency is not None:
+        rows = [row for row in rows if int(row.get("p95_latency_ms", 10**9)) <= int(max_latency)]
+    rows, page = _apply_pagination(rows, pagination)
+    return {
+        **result,
+        "data": rows,
+        "pagination": page,
+    }
+
+
+def _capability_recommend(
+    *,
+    task_description: str,
+    current_capability_ids: list[str],
+    filters: dict[str, Any] | None = None,
+    pagination: dict[str, Any] | None = None,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    constraints = _constraints_from_filters(filters)
+    result = DISCOVERY_SERVICE.semantic_discovery(query=task_description, constraints=constraints, tenant_id=tenant_id)
+    blocked = {str(item) for item in current_capability_ids}
+    task_tokens = {token for token in task_description.lower().replace("-", " ").split() if token}
+    deduped: dict[str, dict[str, Any]] = {}
+    for row in list(result.get("data", [])):
+        capability_id = str(row.get("capability_id"))
+        if capability_id in blocked:
+            continue
+        corpus = " ".join(
+            [
+                capability_id,
+                str(row.get("capability_name", "")),
+                str(row.get("description", "")),
+            ]
+        ).lower()
+        overlap = len(task_tokens.intersection({token for token in corpus.replace("-", " ").split() if token}))
+        lexical_bonus = overlap / max(1, len(task_tokens))
+        recommendation_score = round(float(row.get("composite_score", 0.0)) + (0.5 * lexical_bonus), 6)
+        enriched = {
+            **row,
+            "recommendation_score": recommendation_score,
+            "recommendation_reason": "task semantic match",
+        }
+        existing = deduped.get(capability_id)
+        if existing is None or float(existing["recommendation_score"]) < recommendation_score:
+            deduped[capability_id] = enriched
+    rows = list(deduped.values())
+    rows.sort(key=lambda item: (-float(item["recommendation_score"]), float(item.get("estimated_cost_usd", 0.0))))
+    rows, page = _apply_pagination(rows, pagination)
+    return {
+        **result,
+        "data": rows,
+        "pagination": page,
+    }
+
+
+def _list_agent_capabilities(agent_id: str, tenant_id: str | None = None) -> dict[str, Any]:
+    snapshot = LIVE_CAPABILITY_INDEX.snapshot()
+    short_id = agent_id.split(":")[-1]
+    rows = []
+    for row in snapshot["rows"]:
+        if row.agent_id not in {agent_id, short_id}:
+            continue
+        if row.visibility == "public" or (tenant_id is not None and row.tenant_id in {tenant_id, "*"}):
+            rows.append(row)
+    if rows:
+        return {
+            "agent_id": agent_id,
+            "capabilities": [
+                {
+                    "capability_id": row.capability_id,
+                    "capability_name": row.capability_name,
+                    "description": row.description,
+                    "protocols": list(row.protocols),
+                    "permissions": list(row.permissions),
+                    "input_schema": {"type": "object", "required": list(row.input_required)},
+                    "output_schema": {"type": "object", "required": list(row.output_fields)},
+                }
+                for row in rows
+            ],
+        }
+
+    try:
+        agent = STORE.get_agent(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="agent not found") from exc
+
+    latest = agent.versions[-1].manifest
+    return {
+        "agent_id": agent_id,
+        "capabilities": [
+            {
+                "capability_id": c["id"],
+                "capability_name": c["name"],
+                "description": c["description"],
+                "protocols": c["protocols"],
+                "permissions": c.get("permissions", []),
+                "input_schema": c["input_schema"],
+                "output_schema": c["output_schema"],
+            }
+            for c in latest.get("capabilities", [])
+        ],
+    }
 
 
 def _resolve_tenant_id(raw_tenant_id: str | None) -> str:
@@ -215,6 +409,222 @@ def _resolve_tenant_id(raw_tenant_id: str | None) -> str:
         return "tenant-default"
     normalized = raw_tenant_id.strip()
     return normalized if normalized else "tenant-default"
+
+
+def _append_warning_header(response: Response, warning: str) -> None:
+    existing = response.headers.get("X-AgentHub-Deprecation-Warn")
+    if existing:
+        if warning not in existing:
+            response.headers["X-AgentHub-Deprecation-Warn"] = f"{existing}; {warning}"
+        return
+    response.headers["X-AgentHub-Deprecation-Warn"] = warning
+
+
+def _stable_error(status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"detail": {"code": code, "message": message}})
+
+
+def _meter_warn(
+    *,
+    actor: str,
+    kind: str,
+    method: str,
+    path: str,
+    tenant_id: str,
+    code: str,
+    message: str,
+) -> None:
+    record_metering_event(
+        actor=actor,
+        operation=kind,
+        cost_usd=0.0,
+        metadata={
+            "method": method,
+            "path": path,
+            "tenant_id": tenant_id,
+            "code": code,
+            "message": message,
+        },
+    )
+
+
+@app.on_event("startup")
+def _validate_runtime_auth_configuration() -> None:
+    validate_auth_configuration()
+
+
+@app.middleware("http")
+async def _agenthub_access_policy_middleware(request: Request, call_next):
+    method = request.method.upper()
+    path = request.url.path
+    tenant_id = _resolve_tenant_id(request.headers.get("X-Tenant-ID"))
+    classification = classify_route(method, path)
+    mode = access_mode()
+
+    auth_error: HTTPException | None = None
+    owner: str | None = None
+    try:
+        owner = resolve_owner_from_headers(
+            x_api_key=request.headers.get("X-API-Key"),
+            authorization=request.headers.get("Authorization"),
+            strict=False,
+        )
+    except HTTPException as exc:
+        auth_error = exc
+
+    request.state.agenthub_owner = owner
+    request.state.agenthub_tenant_id = tenant_id
+
+    violation = evaluate_access(classification=classification, owner=owner, tenant_id=tenant_id)
+    if auth_error is not None and classification != "public" and owner is None:
+        violation_code = "auth.invalid"
+        violation_message = str(auth_error.detail)
+    elif violation is not None:
+        violation_code = violation.code
+        violation_message = violation.message
+    else:
+        violation_code = None
+        violation_message = None
+
+    if violation_code is not None and mode == "enforce":
+        status_code = 401 if violation_code.startswith("auth.") else 403
+        return _stable_error(status_code, violation_code, violation_message or "request not permitted")
+
+    response = await call_next(request)
+    if violation_code is not None:
+        warning = f"{violation_code}:{violation_message}"
+        _append_warning_header(response, warning)
+        _meter_warn(
+            actor=owner or "anonymous",
+            kind="access.warn",
+            method=method,
+            path=path,
+            tenant_id=tenant_id,
+            code=violation_code,
+            message=violation_message or "request not permitted",
+        )
+    return response
+
+
+@app.middleware("http")
+async def _agenthub_idempotency_middleware(request: Request, call_next):
+    method = request.method.upper()
+    path = request.url.path
+    if not requires_idempotency(method, path):
+        return await call_next(request)
+
+    mode = access_mode()
+    tenant_id = _resolve_tenant_id(request.headers.get("X-Tenant-ID"))
+    owner = getattr(request.state, "agenthub_owner", None)
+    if owner is None:
+        owner = resolve_owner_from_headers(
+            x_api_key=request.headers.get("X-API-Key"),
+            authorization=request.headers.get("Authorization"),
+            strict=False,
+        )
+    actor = owner or "anonymous"
+
+    key = request.headers.get("Idempotency-Key")
+    if key is None or not key.strip():
+        if mode == "enforce":
+            return _stable_error(400, "idempotency.missing_key", "missing Idempotency-Key header")
+        response = await call_next(request)
+        _append_warning_header(response, "idempotency.missing_key:missing Idempotency-Key header")
+        _meter_warn(
+            actor=actor,
+            kind="idempotency.warn",
+            method=method,
+            path=path,
+            tenant_id=tenant_id,
+            code="idempotency.missing_key",
+            message="missing Idempotency-Key header",
+        )
+        return response
+
+    key = key.strip()
+    body = await request.body()
+    hash_input = b"|".join([method.encode("utf-8"), path.encode("utf-8"), request.url.query.encode("utf-8"), body])
+    request_hash = hashlib.sha256(hash_input).hexdigest()
+    reservation = idempotency_storage.reserve(
+        tenant_id=tenant_id,
+        actor=actor,
+        method=method,
+        route=path,
+        idempotency_key=key,
+        request_hash=request_hash,
+    )
+    state = str(reservation.get("state", "reserved"))
+    if state == "mismatch":
+        return _stable_error(409, "idempotency.key_reused_with_different_payload", "idempotency key reuse with different payload")
+    if state == "pending":
+        return _stable_error(409, "idempotency.in_progress", "request with idempotency key is still in progress")
+    if state == "response":
+        replay = reservation["response"]
+        replay_response = Response(
+            content=replay["body"],
+            status_code=int(replay.get("status_code", 200)),
+            media_type=str(replay.get("content_type") or "application/json"),
+        )
+        for header_name, value in dict(replay.get("headers", {})).items():
+            if header_name.lower() == "content-length":
+                continue
+            replay_response.headers[str(header_name)] = str(value)
+        replay_response.headers["X-AgentHub-Idempotent-Replay"] = "true"
+        return replay_response
+
+    async def _receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request_with_body = Request(request.scope, _receive)
+    try:
+        response = await call_next(request_with_body)
+        response_body = b""
+        async for chunk in response.body_iterator:
+            response_body += chunk
+        content_type = response.headers.get("content-type", "application/json")
+        response_headers = {k: v for k, v in response.headers.items()}
+
+        if response.status_code >= 500:
+            idempotency_storage.clear(
+                tenant_id=tenant_id,
+                actor=actor,
+                method=method,
+                route=path,
+                idempotency_key=key,
+            )
+        else:
+            idempotency_storage.finalize(
+                tenant_id=tenant_id,
+                actor=actor,
+                method=method,
+                route=path,
+                idempotency_key=key,
+                status_code=response.status_code,
+                content_type=content_type,
+                headers=response_headers,
+                body=response_body,
+            )
+
+        final_response = Response(
+            content=response_body,
+            status_code=response.status_code,
+            media_type=response.media_type,
+            background=response.background,
+        )
+        for header_name, value in response_headers.items():
+            if header_name.lower() == "content-length":
+                continue
+            final_response.headers[header_name] = value
+        return final_response
+    except Exception:
+        idempotency_storage.clear(
+            tenant_id=tenant_id,
+            actor=actor,
+            method=method,
+            route=path,
+            idempotency_key=key,
+        )
+        raise
 
 
 def _delegation_timeline(delegations: list[dict[str, Any]], limit: int = 60) -> list[dict[str, Any]]:
@@ -572,13 +982,17 @@ def list_namespace_agents(namespace: str, x_tenant_id: str | None = Header(defau
 
 
 @app.post("/v1/capabilities/search")
-def search_capabilities(request: SearchRequest) -> dict[str, Any]:
+def search_capabilities(
+    request: SearchRequest,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        result = mock_search_capabilities(
+        result = _capability_search(
             query=request.query,
             filters=request.filters.model_dump(exclude_none=True) if request.filters else None,
             pagination=request.pagination.model_dump(exclude_none=True) if request.pagination else None,
-            ranking_weights=request.ranking_weights,
+            tenant_id=tenant_id,
         )
         record_metering_event(
             actor="runtime.search",
@@ -592,14 +1006,19 @@ def search_capabilities(request: SearchRequest) -> dict[str, Any]:
 
 
 @app.post("/v1/capabilities/match")
-def match_capabilities(request: MatchRequest) -> dict[str, Any]:
+def match_capabilities(
+    request: MatchRequest,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        result = mock_match_capabilities(
+        result = _capability_match(
             input_required=_extract_required_fields(request.input_schema),
             output_required=_extract_required_fields(request.output_schema),
             compatibility_mode=request.filters.compatibility_mode if request.filters else "backward_compatible",
             filters=request.filters.model_dump(exclude_none=True) if request.filters else None,
             pagination=request.pagination.model_dump(exclude_none=True) if request.pagination else None,
+            tenant_id=tenant_id,
         )
         record_metering_event(
             actor="runtime.search",
@@ -613,44 +1032,26 @@ def match_capabilities(request: MatchRequest) -> dict[str, Any]:
 
 
 @app.get("/v1/agents/{agent_id}/capabilities")
-def list_agent_capabilities(agent_id: str) -> dict[str, Any]:
-    # Agent-native mock catalog for discovery + registered in-memory fallback.
-    short_id = agent_id.split(":")[-1]
-    try:
-        return mock_list_agent_capabilities(short_id)
-    except ValueError:
-        try:
-            agent = STORE.get_agent(agent_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="agent not found") from exc
-
-        latest = agent.versions[-1].manifest
-        return {
-            "agent_id": agent_id,
-            "capabilities": [
-                {
-                    "capability_id": c["id"],
-                    "capability_name": c["name"],
-                    "description": c["description"],
-                    "protocols": c["protocols"],
-                    "permissions": c.get("permissions", []),
-                    "input_schema": c["input_schema"],
-                    "output_schema": c["output_schema"],
-                }
-                for c in latest.get("capabilities", [])
-            ],
-        }
+def list_agent_capabilities(
+    agent_id: str,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    return _list_agent_capabilities(agent_id, tenant_id=_resolve_tenant_id(x_tenant_id))
 
 
 @app.post("/v1/capabilities/recommend")
-def recommend_capabilities(request: RecommendRequest) -> dict[str, Any]:
+def recommend_capabilities(
+    request: RecommendRequest,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        result = mock_recommend_capabilities(
+        result = _capability_recommend(
             task_description=request.task_description,
             current_capability_ids=request.current_capability_ids,
             filters=request.filters.model_dump(exclude_none=True) if request.filters else None,
             pagination=request.pagination.model_dump(exclude_none=True) if request.pagination else None,
-            ranking_weights=request.ranking_weights,
+            tenant_id=tenant_id,
         )
         record_metering_event(
             actor="runtime.search",
@@ -664,23 +1065,41 @@ def recommend_capabilities(request: RecommendRequest) -> dict[str, Any]:
 
 
 @app.post("/v1/discovery/search")
-def discovery_search(request: DiscoverySearchRequest) -> dict[str, Any]:
-    return DISCOVERY_SERVICE.semantic_discovery(query=request.query, constraints=request.constraints or {})
+def discovery_search(
+    request: DiscoverySearchRequest,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    return DISCOVERY_SERVICE.semantic_discovery(
+        query=request.query,
+        constraints=request.constraints or {},
+        tenant_id=_resolve_tenant_id(x_tenant_id),
+    )
 
 
 @app.post("/v1/discovery/contract-match")
-def discovery_contract_match(request: ContractMatchRequest) -> dict[str, Any]:
+def discovery_contract_match(
+    request: ContractMatchRequest,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
     constraints = request.constraints or {}
     return DISCOVERY_SERVICE.contract_match(
         input_required=[str(x) for x in request.input_schema.get("required", [])],
         output_required=[str(x) for x in request.output_schema.get("required", [])],
         max_cost_usd=constraints.get("max_cost_usd"),
+        tenant_id=_resolve_tenant_id(x_tenant_id),
     )
 
 
 @app.post("/v1/discovery/compatibility")
-def discovery_compatibility(request: CompatibilityRequest) -> dict[str, Any]:
-    return DISCOVERY_SERVICE.compatibility_report(my_schema=request.my_schema, agent_id=request.agent_id)
+def discovery_compatibility(
+    request: CompatibilityRequest,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    return DISCOVERY_SERVICE.compatibility_report(
+        my_schema=request.my_schema,
+        agent_id=request.agent_id,
+        tenant_id=_resolve_tenant_id(x_tenant_id),
+    )
 
 
 @app.get("/v1/discovery/mcp-tools")
@@ -689,15 +1108,20 @@ def discovery_mcp_tools() -> dict[str, Any]:
 
 
 @app.get("/v1/discovery/agent-manifest")
-def discovery_agent_manifest(agent_id: str, version: str | None = None) -> dict[str, Any]:
+def discovery_agent_manifest(
+    agent_id: str,
+    version: str | None = None,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        agent = STORE.get_agent(agent_id)
+        agent = STORE.get_agent(agent_id, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="agent not found") from exc
 
     if version:
         try:
-            record = STORE.get_version(agent_id, version)
+            record = STORE.get_version(agent_id, version, tenant_id=tenant_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="version not found") from exc
         return {"agent_id": agent_id, "version": version, "manifest": record.manifest}
@@ -730,9 +1154,10 @@ def operator_dashboard(
     eval_row = latest_result(agent_id=agent_id, version=latest.version)
     trust = compute_trust_score(agent_id=agent_id, owner=agent.owner)
 
-    search_payload = mock_search_capabilities(
+    search_payload = _capability_search(
         query=query,
         pagination={"mode": "offset", "offset": 0, "limit": 5},
+        tenant_id=getattr(agent, "tenant_id", "tenant-default"),
     )
 
     delegations = [
@@ -1072,16 +1497,20 @@ def post_billing_generate_invoice(
 
 
 @app.get("/v1/billing/invoices/{invoice_id}")
-def get_billing_invoice(invoice_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+def get_billing_invoice(invoice_id: str, owner: str = Depends(require_api_key)) -> dict[str, Any]:
     try:
-        return get_invoice(invoice_id)
+        invoice = get_invoice(invoice_id)
+        _require_invoice_read_access(owner, invoice)
+        return invoice
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="invoice not found") from exc
 
 
 @app.post("/v1/billing/invoices/{invoice_id}/reconcile")
-def post_billing_reconcile(invoice_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+def post_billing_reconcile(invoice_id: str, owner: str = Depends(require_api_key)) -> dict[str, Any]:
     try:
+        invoice = get_invoice(invoice_id)
+        _require_invoice_read_access(owner, invoice)
         return reconcile_invoice(invoice_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="invoice not found") from exc
@@ -1361,9 +1790,11 @@ def post_marketplace_purchase(
 
 
 @app.get("/v1/marketplace/contracts/{contract_id}")
-def get_marketplace_contract(contract_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+def get_marketplace_contract(contract_id: str, owner: str = Depends(require_api_key)) -> dict[str, Any]:
     try:
-        return get_contract(contract_id)
+        contract = get_contract(contract_id)
+        _require_contract_read_access(owner, contract)
+        return contract
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="contract not found") from exc
 
@@ -1410,7 +1841,12 @@ def post_marketplace_dispute(
 
 
 @app.get("/v1/marketplace/contracts/{contract_id}/disputes")
-def get_marketplace_disputes(contract_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+def get_marketplace_disputes(contract_id: str, owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        contract = get_contract(contract_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="contract not found") from exc
+    _require_contract_read_access(owner, contract)
     return {"data": list_disputes(contract_id=contract_id)}
 
 
@@ -1452,7 +1888,12 @@ def post_marketplace_payout(contract_id: str, owner: str = Depends(require_api_k
 
 
 @app.get("/v1/marketplace/contracts/{contract_id}/payouts")
-def get_marketplace_payouts(contract_id: str, _owner: str = Depends(require_api_key)) -> dict[str, Any]:
+def get_marketplace_payouts(contract_id: str, owner: str = Depends(require_api_key)) -> dict[str, Any]:
+    try:
+        contract = get_contract(contract_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="contract not found") from exc
+    _require_contract_read_access(owner, contract)
     return {"data": list_payouts(contract_id=contract_id)}
 
 
@@ -1475,25 +1916,23 @@ def post_delegation(
     )
     reservation_state = str(reservation.get("state"))
     if reservation_state == "mismatch":
-        raise HTTPException(status_code=409, detail="idempotency key replay with different request payload")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "idempotency.key_reused_with_different_payload",
+                "message": "idempotency key replay with different request payload",
+            },
+        )
     if reservation_state == "response":
         return copy.deepcopy(reservation["response"])
     if reservation_state == "pending":
-        replay = _wait_for_delegation_idempotency_response(owner=idempotency_owner, key=key)
-        if replay is not None:
-            return replay
-        reservation = delegation_storage.reserve_idempotency(
-            owner=idempotency_owner,
-            idempotency_key=key,
-            request_hash=request_digest,
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "idempotency.in_progress",
+                "message": "idempotency key request already in progress",
+            },
         )
-        reservation_state = str(reservation.get("state"))
-        if reservation_state == "mismatch":
-            raise HTTPException(status_code=409, detail="idempotency key replay with different request payload")
-        if reservation_state == "response":
-            return copy.deepcopy(reservation["response"])
-        if reservation_state == "pending":
-            raise HTTPException(status_code=409, detail="idempotency key request already in progress")
 
     owns_reservation = reservation_state == "reserved"
     if not owns_reservation:
@@ -1664,9 +2103,13 @@ def get_delegation_status_endpoint(delegation_id: str) -> dict[str, Any]:
 
 
 @app.get("/v1/agents/{agent_id}/trust")
-def get_agent_trust(agent_id: str) -> dict[str, Any]:
+def get_agent_trust(
+    agent_id: str,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    tenant_id = _resolve_tenant_id(x_tenant_id)
     try:
-        agent = STORE.get_agent(agent_id)
+        agent = STORE.get_agent(agent_id, tenant_id=tenant_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="agent not found") from exc
     return compute_trust_score(agent_id=agent.agent_id, owner=agent.owner)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -27,9 +28,11 @@ def _tokenize(value: str) -> set[str]:
 
 
 class DiscoveryService:
-    def __init__(self, ttl_seconds: int = 60) -> None:
+    def __init__(self, ttl_seconds: int = 60, max_cache_entries: int = 500) -> None:
         self.ttl_seconds = ttl_seconds
+        self.max_cache_entries = max(10, max_cache_entries)
         self._cache: dict[str, CacheEntry] = {}
+        self._cache_evictions = 0
 
     def _cache_key(self, payload: dict[str, Any]) -> str:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -49,9 +52,32 @@ class DiscoveryService:
 
     def _put_cache(self, payload: dict[str, Any], value: dict[str, Any]) -> None:
         self._cache[self._cache_key(payload)] = CacheEntry(value=value, expires_at=time.time() + self.ttl_seconds)
+        if len(self._cache) <= self.max_cache_entries:
+            return
+        oldest_key = min(self._cache.items(), key=lambda item: item[1].expires_at)[0]
+        del self._cache[oldest_key]
+        self._cache_evictions += 1
+
+    def cache_metrics(self) -> dict[str, Any]:
+        return {
+            "entries": len(self._cache),
+            "max_entries": self.max_cache_entries,
+            "evictions": self._cache_evictions,
+        }
 
     def refresh_index(self, force: bool = False) -> None:
         LIVE_CAPABILITY_INDEX.refresh(force=force)
+
+    def _visibility_filter(self, rows: list[CapabilityRow], tenant_id: str | None) -> list[CapabilityRow]:
+        out: list[CapabilityRow] = []
+        for row in rows:
+            visibility = str(row.visibility).lower()
+            if visibility == "public":
+                out.append(row)
+                continue
+            if tenant_id is not None and row.tenant_id in {tenant_id, "*"}:
+                out.append(row)
+        return out
 
     def _constraints_filter(self, rows: list[CapabilityRow], constraints: dict[str, Any]) -> list[CapabilityRow]:
         max_cost = constraints.get("max_cost_usd")
@@ -111,7 +137,12 @@ class DiscoveryService:
         )
         return round(composite, 6), score_breakdown
 
-    def semantic_discovery(self, query: str, constraints: dict[str, Any] | None = None) -> dict[str, Any]:
+    def semantic_discovery(
+        self,
+        query: str,
+        constraints: dict[str, Any] | None = None,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
         constraints = constraints or {}
         policy_decision = evaluate_discovery_policy(
             action="semantic_search",
@@ -129,13 +160,16 @@ class DiscoveryService:
             }
 
         snapshot = LIVE_CAPABILITY_INDEX.snapshot()
-        rows = self._constraints_filter(snapshot["rows"], constraints)
+        visible_rows = self._visibility_filter(snapshot["rows"], tenant_id=tenant_id)
+        rows = self._constraints_filter(visible_rows, constraints)
         scored: list[dict[str, Any]] = []
         for row in rows:
             composite, score_breakdown = self._semantic_score(query=query, row=row)
             scored.append(
                 {
                     "agent_id": row.agent_id,
+                    "tenant_id": row.tenant_id,
+                    "visibility": row.visibility,
                     "capability_id": row.capability_id,
                     "capability_name": row.capability_name,
                     "description": row.description,
@@ -179,11 +213,18 @@ class DiscoveryService:
             "index_metadata": {
                 "source_counts": snapshot["source_counts"],
                 "refreshed_at_epoch": snapshot["refreshed_at_epoch"],
+                "cache_metrics": self.cache_metrics(),
             },
             "policy_decision": policy_decision,
         }
 
-    def contract_match(self, input_required: list[str], output_required: list[str], max_cost_usd: float | None = None) -> dict[str, Any]:
+    def contract_match(
+        self,
+        input_required: list[str],
+        output_required: list[str],
+        max_cost_usd: float | None = None,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
         policy_decision = evaluate_contract_match_policy(
             actor="runtime.discovery",
             input_required=input_required,
@@ -204,6 +245,7 @@ class DiscoveryService:
             "input_required": sorted(input_required),
             "output_required": sorted(output_required),
             "max_cost_usd": max_cost_usd,
+            "tenant_id": tenant_id,
             "index_refreshed_at_epoch": snapshot["refreshed_at_epoch"],
         }
         cached = self._get_cached(payload)
@@ -213,7 +255,7 @@ class DiscoveryService:
         request_input = set(input_required)
         request_output = set(output_required)
         data: list[dict[str, Any]] = []
-        for row in snapshot["rows"]:
+        for row in self._visibility_filter(snapshot["rows"], tenant_id=tenant_id):
             if max_cost_usd is not None and row.estimated_cost_usd > float(max_cost_usd):
                 continue
             cap_input = set(row.input_required)
@@ -229,6 +271,8 @@ class DiscoveryService:
             data.append(
                 {
                     "agent_id": row.agent_id,
+                    "tenant_id": row.tenant_id,
+                    "visibility": row.visibility,
                     "capability_id": row.capability_id,
                     "capability_name": row.capability_name,
                     "compatibility": compatibility,
@@ -249,6 +293,7 @@ class DiscoveryService:
             "index_metadata": {
                 "source_counts": snapshot["source_counts"],
                 "refreshed_at_epoch": snapshot["refreshed_at_epoch"],
+                "cache_metrics": self.cache_metrics(),
             },
             "policy_decision": policy_decision,
         }
@@ -261,7 +306,7 @@ class DiscoveryService:
         self._put_cache(payload, out)
         return out
 
-    def compatibility_report(self, my_schema: dict[str, Any], agent_id: str) -> dict[str, Any]:
+    def compatibility_report(self, my_schema: dict[str, Any], agent_id: str, tenant_id: str | None = None) -> dict[str, Any]:
         policy_decision = evaluate_compatibility_policy(
             actor="runtime.discovery",
             my_schema=my_schema,
@@ -282,6 +327,7 @@ class DiscoveryService:
             "mode": "compat",
             "schema": my_schema,
             "agent_id": agent_id,
+            "tenant_id": tenant_id,
             "index_refreshed_at_epoch": snapshot["refreshed_at_epoch"],
         }
         cached = self._get_cached(payload)
@@ -289,7 +335,7 @@ class DiscoveryService:
             return cached
 
         required = set(my_schema.get("required", []))
-        rows = [row for row in snapshot["rows"] if row.agent_id == agent_id]
+        rows = [row for row in self._visibility_filter(snapshot["rows"], tenant_id=tenant_id) if row.agent_id == agent_id]
         reports: list[dict[str, Any]] = []
         for row in rows:
             cap_required = set(row.input_required)
@@ -311,6 +357,7 @@ class DiscoveryService:
             "index_metadata": {
                 "source_counts": snapshot["source_counts"],
                 "refreshed_at_epoch": snapshot["refreshed_at_epoch"],
+                "cache_metrics": self.cache_metrics(),
             },
             "policy_decision": policy_decision,
         }
@@ -324,7 +371,10 @@ class DiscoveryService:
         return out
 
 
-DISCOVERY_SERVICE = DiscoveryService(ttl_seconds=120)
+DISCOVERY_SERVICE = DiscoveryService(
+    ttl_seconds=120,
+    max_cache_entries=int(os.getenv("AGENTHUB_DISCOVERY_CACHE_MAX_ENTRIES", "500")),
+)
 
 
 def mcp_tool_declarations() -> list[dict[str, Any]]:

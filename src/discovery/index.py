@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.api.store import STORE
+from src.registry import list_agents_for_tenant, list_tenant_ids
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ADAPTER_CATALOG = ROOT / "tests" / "capability_search" / "fixtures" / "mock_capabilities.json"
@@ -17,6 +17,8 @@ DEFAULT_ADAPTER_CATALOG = ROOT / "tests" / "capability_search" / "fixtures" / "m
 @dataclass(frozen=True)
 class CapabilityRow:
     agent_id: str
+    tenant_id: str
+    visibility: str
     capability_id: str
     capability_name: str
     description: str
@@ -45,6 +47,8 @@ class LiveCapabilityIndex:
     def _normalize_row(self, row: dict[str, Any], source: str) -> CapabilityRow:
         return CapabilityRow(
             agent_id=str(row.get("agent_id", "")).strip(),
+            tenant_id=str(row.get("tenant_id", "tenant-default")).strip() or "tenant-default",
+            visibility=str(row.get("visibility", "public")).strip() or "public",
             capability_id=str(row.get("capability_id", "")).strip(),
             capability_name=str(row.get("capability_name", "")).strip(),
             description=str(row.get("description", "")).strip(),
@@ -75,42 +79,48 @@ class LiveCapabilityIndex:
         for item in raw:
             if not isinstance(item, dict):
                 continue
-            normalized = self._normalize_row(item, source="adapter")
+            normalized = self._normalize_row(
+                {"tenant_id": "*", "visibility": "public", **item},
+                source="adapter",
+            )
             if normalized.agent_id and normalized.capability_id:
                 rows.append(normalized)
         return rows
 
     def _registry_rows(self) -> list[CapabilityRow]:
         rows: list[CapabilityRow] = []
-        for agent in STORE.list_agents():
-            if not agent.versions:
-                continue
-            latest_manifest = agent.versions[-1].manifest
-            for cap in latest_manifest.get("capabilities", []):
-                if not isinstance(cap, dict):
+        for tenant_id in list_tenant_ids():
+            for agent in list_agents_for_tenant(tenant_id):
+                if not agent.versions:
                     continue
-                normalized = self._normalize_row(
-                    {
-                        "agent_id": agent.slug,
-                        "capability_id": cap.get("id"),
-                        "capability_name": cap.get("name"),
-                        "description": cap.get("description", ""),
-                        "tags": cap.get("tags", []),
-                        "category": cap.get("category", "general"),
-                        "protocols": cap.get("protocols", []),
-                        "permissions": cap.get("permissions", []),
-                        "trust_score": 0.75,
-                        "usage_30d": 0,
-                        "p95_latency_ms": cap.get("p95_latency_ms", 150),
-                        "estimated_cost_usd": cap.get("estimated_cost_usd", 0.05),
-                        "freshness_days": 0,
-                        "input_required": cap.get("input_schema", {}).get("required", []),
-                        "output_fields": cap.get("output_schema", {}).get("required", []),
-                    },
-                    source="registry",
-                )
-                if normalized.agent_id and normalized.capability_id:
-                    rows.append(normalized)
+                latest_manifest = agent.versions[-1].manifest
+                for cap in latest_manifest.get("capabilities", []):
+                    if not isinstance(cap, dict):
+                        continue
+                    normalized = self._normalize_row(
+                        {
+                            "agent_id": agent.slug,
+                            "tenant_id": agent.tenant_id,
+                            "visibility": cap.get("visibility", latest_manifest.get("visibility", "tenant")),
+                            "capability_id": cap.get("id"),
+                            "capability_name": cap.get("name"),
+                            "description": cap.get("description", ""),
+                            "tags": cap.get("tags", []),
+                            "category": cap.get("category", "general"),
+                            "protocols": cap.get("protocols", []),
+                            "permissions": cap.get("permissions", []),
+                            "trust_score": 0.75,
+                            "usage_30d": 0,
+                            "p95_latency_ms": cap.get("p95_latency_ms", 150),
+                            "estimated_cost_usd": cap.get("estimated_cost_usd", 0.05),
+                            "freshness_days": 0,
+                            "input_required": cap.get("input_schema", {}).get("required", []),
+                            "output_fields": cap.get("output_schema", {}).get("required", []),
+                        },
+                        source="registry",
+                    )
+                    if normalized.agent_id and normalized.capability_id:
+                        rows.append(normalized)
         return rows
 
     def refresh(self, force: bool = False) -> None:
@@ -120,13 +130,13 @@ class LiveCapabilityIndex:
                 return
             adapter_rows = self._adapter_rows()
             registry_rows = self._registry_rows()
-            merged: dict[tuple[str, str], CapabilityRow] = {}
+            merged: dict[tuple[str, str, str], CapabilityRow] = {}
 
             for row in adapter_rows:
-                merged[(row.agent_id, row.capability_id)] = row
+                merged[(row.tenant_id, row.agent_id, row.capability_id)] = row
             # Registry rows override adapter rows for same agent+capability ids.
             for row in registry_rows:
-                merged[(row.agent_id, row.capability_id)] = row
+                merged[(row.tenant_id, row.agent_id, row.capability_id)] = row
 
             self._rows = sorted(merged.values(), key=lambda row: (row.agent_id, row.capability_id))
             self._refreshed_at = now

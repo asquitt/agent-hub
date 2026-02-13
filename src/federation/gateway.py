@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from src.federation import storage
 
-DOMAIN_TOKENS = {
+LEGACY_DOMAIN_TOKENS = {
     "partner-east": "fed-partner-east-token",
     "partner-west": "fed-partner-west-token",
 }
@@ -29,6 +30,35 @@ DOMAIN_PROFILES = {
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _enforce_mode_enabled() -> bool:
+    return str(os.getenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "warn")).strip().lower() == "enforce"
+
+
+def _domain_tokens() -> dict[str, str]:
+    raw = os.getenv("AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            if _enforce_mode_enabled():
+                raise PermissionError("invalid AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON configuration") from exc
+            parsed = None
+        if isinstance(parsed, dict):
+            normalized: dict[str, str] = {}
+            for domain_id, token in parsed.items():
+                domain = str(domain_id).strip()
+                value = str(token).strip()
+                if domain and value:
+                    normalized[domain] = value
+            if normalized:
+                return normalized
+            if _enforce_mode_enabled():
+                raise PermissionError("federation tokens must be configured in enforce mode")
+    if _enforce_mode_enabled():
+        raise PermissionError("federation tokens must be configured in enforce mode")
+    return dict(LEGACY_DOMAIN_TOKENS)
 
 
 def _stable_hash(value: Any) -> str:
@@ -58,7 +88,7 @@ def execute_federated(
     requested_residency_region: str | None = None,
     connection_mode: str = "public_internet",
 ) -> dict[str, Any]:
-    expected_token = DOMAIN_TOKENS.get(domain_id)
+    expected_token = _domain_tokens().get(domain_id)
     if expected_token is None or domain_token != expected_token:
         raise PermissionError("federation domain authentication failed")
     profile = DOMAIN_PROFILES.get(
