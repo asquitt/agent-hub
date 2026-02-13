@@ -45,6 +45,7 @@ ADMIN_SCOPED_PATTERNS = (
     re.compile(r"^/v1/compliance/evidence/export$"),
     re.compile(r"^/v1/compliance/evidence$"),
     re.compile(r"^/v1/federation/attestations/export$"),
+    re.compile(r"^/v1/system/startup-diagnostics$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.

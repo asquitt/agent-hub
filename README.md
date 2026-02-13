@@ -109,8 +109,18 @@ export AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON='["owner-dev","owner-platform"]'
 
 ## Idempotency + Access Enforcement
 - Most write endpoints under `/v1/*` require `Idempotency-Key`.
-- Access controls run in `warn` mode by default.
-- Set `AGENTHUB_ACCESS_ENFORCEMENT_MODE=enforce` for strict rejection behavior.
+- Access controls run in `enforce` mode by default.
+- Set `AGENTHUB_ACCESS_ENFORCEMENT_MODE=warn` only for temporary migration compatibility.
+
+## Startup Diagnostics (S61)
+- Admin-only diagnostics endpoint:
+  - `GET /v1/system/startup-diagnostics`
+- Purpose:
+  - Reports whether required startup security env vars are present/valid without exposing secret values.
+- Access:
+  - Allowed owners: `owner-dev`, `owner-platform`
+  - Missing auth: `401`
+  - Non-admin auth: `403`
 
 ## CLI Quick Start
 Configure CLI:
@@ -185,8 +195,10 @@ Compose includes:
 
 ## Useful Configuration Variables
 - `AGENTHUB_ACCESS_ENFORCEMENT_MODE` (`warn` or `enforce`)
-- `AGENTHUB_API_KEYS_JSON` (custom API key map in enforce mode)
-- `AGENTHUB_AUTH_TOKEN_SECRET` (token signing secret)
+- `AGENTHUB_API_KEYS_JSON` (required JSON object of API key -> owner mappings)
+- `AGENTHUB_AUTH_TOKEN_SECRET` (required bearer token signing secret)
+- `AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON` (required JSON object of domain -> federation token)
+- `AGENTHUB_PROVENANCE_SIGNING_SECRET` (required provenance signing secret)
 - `AGENTHUB_CUSTOMER_UI_ENABLED` (`false` by default; controls `/customer` route availability)
 - `AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH` (`true` by default; auth requirement when customer UI is enabled)
 - `AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON` (`["owner-dev","owner-platform"]` default owner allowlist for enabled customer UI)
