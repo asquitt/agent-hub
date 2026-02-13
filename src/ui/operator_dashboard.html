@@ -159,6 +159,17 @@
         color: #fed7aa;
       }
 
+      .hint {
+        margin: 0 0 12px;
+        color: #d9e2ec;
+        font-size: 0.82rem;
+      }
+
+      button:disabled {
+        opacity: 0.58;
+        cursor: not-allowed;
+      }
+
       @media (max-width: 760px) {
         .shell {
           padding: 14px;
@@ -191,7 +202,7 @@
         </label>
         <label>
           Agent ID
-          <input id="agentId" value="@seed:pipeline-planner" />
+          <input id="agentId" placeholder="@namespace:agent-id" />
         </label>
         <label>
           Search Query
@@ -200,6 +211,7 @@
         <button class="primary-btn" id="loadBtn">Load Dashboard</button>
         <button class="secondary-btn" id="refreshBtn">Admin Refresh</button>
       </section>
+      <p class="hint">Register an agent with `POST /v1/agents`, then paste its agent id to load dashboard data.</p>
 
       <section class="replay-controls">
         <label>
@@ -254,6 +266,16 @@
       const query = document.getElementById("query");
       const statusOut = document.getElementById("status");
       const replayDelegationId = document.getElementById("replayDelegationId");
+      const refreshBtn = document.getElementById("refreshBtn");
+
+      function setStatus(kind, message) {
+        statusOut.className = kind === "ok" ? "status ok" : "status warn";
+        statusOut.textContent = message;
+      }
+
+      function updateRefreshAvailability() {
+        refreshBtn.disabled = role.value !== "admin";
+      }
 
       function render(id, payload) {
         document.getElementById(id).textContent = JSON.stringify(payload, null, 2);
@@ -267,14 +289,23 @@
       }
 
       async function loadDashboard() {
-        const params = new URLSearchParams({ agent_id: agentId.value, query: query.value });
+        const resolvedAgentId = agentId.value.trim();
+        if (!resolvedAgentId) {
+          setStatus("warn", "Agent id is required. Register an agent and paste its id.");
+          return;
+        }
+
+        const params = new URLSearchParams({ agent_id: resolvedAgentId, query: query.value.trim() });
         const response = await fetch(`/v1/operator/dashboard?${params}`, {
           headers: baseHeaders(),
         });
         const data = await response.json();
         if (!response.ok) {
-          statusOut.className = "status warn";
-          statusOut.textContent = `Dashboard load failed: ${JSON.stringify(data)}`;
+          if (data && data.detail === "agent not found") {
+            setStatus("warn", `Agent '${resolvedAgentId}' was not found. Register it first via POST /v1/agents.`);
+            return;
+          }
+          setStatus("warn", `Dashboard load failed: ${JSON.stringify(data)}`);
           return;
         }
 
@@ -291,50 +322,51 @@
           replayDelegationId.value = firstDelegation.delegation_id;
         }
 
-        statusOut.className = "status ok";
-        statusOut.textContent = `Loaded dashboard as ${data.role}`;
+        setStatus("ok", `Loaded dashboard as ${data.role}`);
       }
 
       async function refreshOperator() {
+        if (refreshBtn.disabled) {
+          setStatus("warn", "Admin refresh requires admin role.");
+          return;
+        }
         const response = await fetch("/v1/operator/refresh", {
           method: "POST",
           headers: baseHeaders(),
         });
         const data = await response.json();
         if (!response.ok) {
-          statusOut.className = "status warn";
-          statusOut.textContent = `Refresh failed: ${JSON.stringify(data)}`;
+          setStatus("warn", `Refresh failed: ${JSON.stringify(data)}`);
           return;
         }
-        statusOut.className = "status ok";
-        statusOut.textContent = `Refresh status: ${data.status} (${data.role})`;
+        setStatus("ok", `Refresh status: ${data.status} (${data.role})`);
       }
 
       async function loadReplay() {
-        if (!replayDelegationId.value) {
-          statusOut.className = "status warn";
-          statusOut.textContent = "Replay requires a delegation id.";
+        const resolvedDelegationId = replayDelegationId.value.trim();
+        if (!resolvedDelegationId) {
+          setStatus("warn", "Replay requires a delegation id.");
           return;
         }
 
-        const response = await fetch(`/v1/operator/replay/${encodeURIComponent(replayDelegationId.value)}`, {
+        const response = await fetch(`/v1/operator/replay/${encodeURIComponent(resolvedDelegationId)}`, {
           headers: baseHeaders(),
         });
         const data = await response.json();
         if (!response.ok) {
-          statusOut.className = "status warn";
-          statusOut.textContent = `Replay load failed: ${JSON.stringify(data)}`;
+          setStatus("warn", `Replay load failed: ${JSON.stringify(data)}`);
           return;
         }
 
         render("replayOut", data);
-        statusOut.className = "status ok";
-        statusOut.textContent = `Loaded replay for ${data.delegation_id}`;
+        setStatus("ok", `Loaded replay for ${data.delegation_id}`);
       }
 
       document.getElementById("loadBtn").addEventListener("click", loadDashboard);
-      document.getElementById("refreshBtn").addEventListener("click", refreshOperator);
+      refreshBtn.addEventListener("click", refreshOperator);
       document.getElementById("replayBtn").addEventListener("click", loadReplay);
+      role.addEventListener("change", updateRefreshAvailability);
+      updateRefreshAvailability();
     </script>
   </body>
 </html>

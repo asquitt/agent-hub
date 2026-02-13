@@ -124,3 +124,15 @@ def test_operator_versioning_page_serves_compare_ui() -> None:
     page = client.get("/operator/versioning")
     assert page.status_code == 200
     assert "Version Compare" in page.text
+    assert "Load Latest Pair" in page.text
+    assert 'placeholder="@namespace:agent-id"' in page.text
+    assert 'value="@demo:invoice-summarizer"' not in page.text
+
+
+def test_operator_page_prompts_for_agent_id_instead_of_hardcoded_seed() -> None:
+    client = TestClient(app)
+    page = client.get("/operator")
+    assert page.status_code == 200
+    assert 'placeholder="@namespace:agent-id"' in page.text
+    assert 'value="@seed:pipeline-planner"' not in page.text
+    assert "Register an agent with `POST /v1/agents`" in page.text

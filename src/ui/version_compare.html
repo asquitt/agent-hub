@@ -44,6 +44,25 @@
         font-weight: 600;
         cursor: pointer;
       }
+      .secondary {
+        background: #1b4965;
+      }
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+      }
+      .status {
+        min-height: 20px;
+        margin: 4px 0 10px;
+        font-size: 0.9rem;
+      }
+      .status.ok {
+        color: #166534;
+      }
+      .status.warn {
+        color: #92400e;
+      }
       pre {
         margin: 0;
         max-height: 420px;
@@ -61,31 +80,91 @@
     <section class="panel">
       <div class="grid">
         <input id="apiKey" value="dev-owner-key" placeholder="API key" />
-        <input id="agentId" value="@demo:invoice-summarizer" placeholder="Agent ID" />
-        <input id="baseVersion" value="1.0.0" placeholder="Base Version" />
-        <input id="targetVersion" value="1.1.0" placeholder="Target Version" />
+        <input id="agentId" placeholder="@namespace:agent-id" />
+        <input id="baseVersion" placeholder="e.g. 1.0.0" />
+        <input id="targetVersion" placeholder="e.g. 1.1.0" />
       </div>
-      <button id="compareBtn">Compare Versions</button>
+      <div class="actions">
+        <button class="secondary" id="loadPairBtn">Load Latest Pair</button>
+        <button id="compareBtn">Compare Versions</button>
+      </div>
     </section>
+
+    <p class="status" id="status"></p>
 
     <section class="panel">
       <pre id="output">{}</pre>
     </section>
 
     <script>
+      const statusOut = document.getElementById("status");
+      const output = document.getElementById("output");
+
+      function setStatus(kind, message) {
+        statusOut.className = kind === "ok" ? "status ok" : "status warn";
+        statusOut.textContent = message;
+      }
+
+      function getInputs() {
+        return {
+          apiKey: document.getElementById("apiKey").value.trim(),
+          agentId: document.getElementById("agentId").value.trim(),
+          base: document.getElementById("baseVersion").value.trim(),
+          target: document.getElementById("targetVersion").value.trim(),
+        };
+      }
+
+      async function loadLatestPair() {
+        const { apiKey, agentId } = getInputs();
+        if (!agentId) {
+          setStatus("warn", "Agent ID is required to load version history.");
+          return;
+        }
+
+        const response = await fetch(`/v1/agents/${encodeURIComponent(agentId)}/versions`, {
+          headers: { "X-API-Key": apiKey },
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setStatus("warn", `Unable to load versions: ${JSON.stringify(data)}`);
+          output.textContent = JSON.stringify(data, null, 2);
+          return;
+        }
+
+        const versions = (data.versions || []).map((item) => item.version);
+        if (versions.length < 2) {
+          setStatus("warn", "Need at least 2 versions to compare.");
+          output.textContent = JSON.stringify(data, null, 2);
+          return;
+        }
+
+        document.getElementById("baseVersion").value = versions[versions.length - 2];
+        document.getElementById("targetVersion").value = versions[versions.length - 1];
+        setStatus("ok", `Loaded version pair ${versions[versions.length - 2]} -> ${versions[versions.length - 1]}`);
+        output.textContent = JSON.stringify(data, null, 2);
+      }
+
       async function compareVersions() {
-        const apiKey = document.getElementById("apiKey").value;
-        const agentId = document.getElementById("agentId").value;
-        const base = document.getElementById("baseVersion").value;
-        const target = document.getElementById("targetVersion").value;
-        const output = document.getElementById("output");
+        const { apiKey, agentId, base, target } = getInputs();
+        if (!agentId || !base || !target) {
+          setStatus("warn", "Agent ID, base version, and target version are required.");
+          return;
+        }
         const response = await fetch(`/v1/agents/${encodeURIComponent(agentId)}/compare/${encodeURIComponent(base)}/${encodeURIComponent(target)}`, {
           headers: { "X-API-Key": apiKey },
         });
         const data = await response.json();
+        if (!response.ok) {
+          setStatus("warn", `Compare failed: ${JSON.stringify(data)}`);
+          output.textContent = JSON.stringify(data, null, 2);
+          return;
+        }
+
+        setStatus("ok", `Compared ${base} -> ${target}`);
         output.textContent = JSON.stringify(data, null, 2);
       }
 
+      document.getElementById("loadPairBtn").addEventListener("click", loadLatestPair);
       document.getElementById("compareBtn").addEventListener("click", compareVersions);
     </script>
   </body>
