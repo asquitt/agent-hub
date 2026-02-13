@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -7,9 +8,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from src.api.auth import require_api_key, require_scope
 from src.api.operator_helpers import delegation_timeline, policy_cost_overlay, require_operator_role
 from src.api.startup_diagnostics import build_startup_diagnostics
+from src.common.time import utc_now_iso
 from src.delegation import storage as delegation_storage
 from src.discovery.service import DISCOVERY_SERVICE
 from src.eval.storage import latest_result
+from src.operator import diagnostics_storage
 from src.registry.store import STORE
 from src.trust.scoring import compute_trust_score
 
@@ -120,7 +123,35 @@ def operator_startup_diagnostics(
 ) -> dict[str, Any]:
     role = require_operator_role(owner, x_operator_role, {"admin"})
     diagnostics = build_startup_diagnostics()
+    diagnostics_storage.append_snapshot(
+        {
+            "snapshot_id": str(uuid.uuid4()),
+            "captured_at": utc_now_iso(),
+            "actor": owner,
+            "overall_ready": bool(diagnostics.get("overall_ready")),
+            "startup_ready": bool(diagnostics.get("startup_ready")),
+            "summary": diagnostics.get("summary", {}),
+            "missing_or_invalid": list(diagnostics.get("missing_or_invalid", [])),
+            "probe_failures": list(diagnostics.get("probe_failures", [])),
+            "failing_only": bool(failing_only),
+        }
+    )
     if failing_only:
         diagnostics["checks"] = [row for row in diagnostics.get("checks", []) if not bool(row.get("valid"))]
         diagnostics["probes"] = [row for row in diagnostics.get("probes", []) if row.get("status") == "fail"]
     return {"role": role, **diagnostics}
+
+
+@router.get("/v1/operator/startup-diagnostics/history")
+def operator_startup_diagnostics_history(
+    limit: int = Query(default=20, ge=1, le=200),
+    owner: str = Depends(require_api_key),
+    x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
+) -> dict[str, Any]:
+    role = require_operator_role(owner, x_operator_role, {"admin"})
+    rows = diagnostics_storage.list_snapshots(limit=limit)
+    return {
+        "role": role,
+        "data": rows,
+        "pagination": {"limit": limit, "count": len(rows)},
+    }

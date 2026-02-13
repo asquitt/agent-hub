@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from src.api.app import app
 from src.api.store import STORE
 from src.delegation import storage as delegation_storage
+from src.operator import diagnostics_storage as operator_diagnostics_storage
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -19,10 +20,13 @@ ROOT = Path(__file__).resolve().parents[2]
 def isolated_operator_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     registry_db = tmp_path / "registry.db"
     delegation_db = tmp_path / "delegation.db"
+    diagnostics_db = tmp_path / "operator-diagnostics.db"
     monkeypatch.setenv("AGENTHUB_REGISTRY_DB_PATH", str(registry_db))
     monkeypatch.setenv("AGENTHUB_DELEGATION_DB_PATH", str(delegation_db))
+    monkeypatch.setenv("AGENTHUB_OPERATOR_DIAGNOSTICS_DB_PATH", str(diagnostics_db))
     STORE.reset_for_tests(db_path=registry_db)
     delegation_storage.reset_for_tests(db_path=delegation_db)
+    operator_diagnostics_storage.reset_for_tests(db_path=diagnostics_db)
     monkeypatch.setenv("AGENTHUB_EVAL_RESULTS_PATH", str(tmp_path / "evals.json"))
 
 
@@ -154,6 +158,25 @@ def test_operator_startup_diagnostics_failing_only_filter(monkeypatch: pytest.Mo
     assert payload["checks"] == []
     assert payload["probes"]
     assert all(row["status"] == "fail" for row in payload["probes"])
+
+
+def test_operator_startup_diagnostics_history_records_snapshots() -> None:
+    client = TestClient(app)
+    headers = {"X-API-Key": "dev-owner-key", "X-Operator-Role": "admin"}
+
+    first = client.get("/v1/operator/startup-diagnostics", headers=headers)
+    assert first.status_code == 200
+    second = client.get("/v1/operator/startup-diagnostics", params={"failing_only": "true"}, headers=headers)
+    assert second.status_code == 200
+
+    history = client.get("/v1/operator/startup-diagnostics/history", params={"limit": 5}, headers=headers)
+    assert history.status_code == 200, history.text
+    payload = history.json()
+    assert payload["role"] == "admin"
+    assert payload["data"]
+    assert payload["pagination"]["count"] >= 2
+    assert all("snapshot_id" in row for row in payload["data"])
+    assert any(bool(row.get("failing_only")) for row in payload["data"])
 
 
 def test_operator_versioning_page_serves_compare_ui() -> None:

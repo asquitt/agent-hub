@@ -84,3 +84,4 @@
 | S65 | Operator startup diagnostics endpoint + failing-only filter | DONE | 2026-02-13 05:32 UTC | Platform | Yes | docs/evidence/S65.md |
 | S66 | Operator UI startup diagnostics panel + E2E | DONE | 2026-02-13 05:35 UTC | Platform | Yes | docs/evidence/S66.md |
 | S67 | Diagnostics severity metadata + operator summary badges | DONE | 2026-02-13 05:38 UTC | Platform | Yes | docs/evidence/S67.md |
+| S68 | Operator diagnostics snapshot history endpoint | DONE | 2026-02-13 05:42 UTC | Platform | Yes | docs/evidence/S68.md |
