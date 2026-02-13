@@ -294,11 +294,14 @@ def cmd_whoami(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
+    def _ready(payload: dict[str, Any]) -> bool:
+        return bool(payload.get("overall_ready", payload.get("startup_ready")))
+
     if args.local:
         payload = build_startup_diagnostics()
         payload["mode"] = "local"
         _emit(payload, args.json)
-        return 0 if payload.get("startup_ready") else 1
+        return 0 if _ready(payload) else 1
 
     cfg = _config()
     api_url = args.api_url or cfg.get("api_url") or "http://127.0.0.1:8000"
@@ -358,7 +361,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     payload["mode"] = "remote"
     payload["api_url"] = api_url
     _emit(payload, args.json)
-    return 0 if payload.get("startup_ready") else 1
+    return 0 if _ready(payload) else 1
 
 
 def build_parser() -> argparse.ArgumentParser:

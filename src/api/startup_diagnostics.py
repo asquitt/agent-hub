@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, Mapping
+from pathlib import Path
 
 from src.api.access_policy import access_mode
 from src.common.time import utc_now_iso
@@ -13,6 +14,14 @@ REQUIRED_ENV_VARS = (
     "AGENTHUB_AUTH_TOKEN_SECRET",
     "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON",
     "AGENTHUB_PROVENANCE_SIGNING_SECRET",
+)
+
+PATH_PROBES = (
+    "AGENTHUB_REGISTRY_DB_PATH",
+    "AGENTHUB_DELEGATION_DB_PATH",
+    "AGENTHUB_BILLING_DB_PATH",
+    "AGENTHUB_PROCUREMENT_POLICY_PACKS_PATH",
+    "AGENTHUB_FEDERATION_AUDIT_PATH",
 )
 
 
@@ -86,6 +95,57 @@ def _check_non_empty_json_object(env: Mapping[str, str], key: str) -> dict[str, 
     }
 
 
+def _nearest_existing_parent(path: Path) -> Path:
+    current = path
+    while not current.exists() and current.parent != current:
+        current = current.parent
+    return current
+
+
+def _path_probe(env: Mapping[str, str], key: str) -> dict[str, Any]:
+    raw = env.get(key)
+    if raw is None or not str(raw).strip():
+        return {
+            "probe": key,
+            "configured": False,
+            "status": "skipped",
+            "message": "environment variable not configured",
+        }
+
+    path = Path(str(raw).strip()).expanduser()
+    parent = path.parent
+    check_target = parent
+    if not parent.exists():
+        check_target = _nearest_existing_parent(parent)
+
+    if not check_target.exists():
+        return {
+            "probe": key,
+            "configured": True,
+            "path": str(path),
+            "status": "fail",
+            "message": "no existing parent path found for probe",
+        }
+
+    if not check_target.is_dir():
+        return {
+            "probe": key,
+            "configured": True,
+            "path": str(path),
+            "status": "fail",
+            "message": f"probe parent is not a directory: {check_target}",
+        }
+
+    writable = os.access(check_target, os.W_OK)
+    return {
+        "probe": key,
+        "configured": True,
+        "path": str(path),
+        "status": "pass" if writable else "fail",
+        "message": "ok" if writable else f"probe parent is not writable: {check_target}",
+    }
+
+
 def build_startup_diagnostics(environ: Mapping[str, str] | None = None) -> dict[str, Any]:
     env = _read_env(environ)
     checks = [
@@ -94,12 +154,18 @@ def build_startup_diagnostics(environ: Mapping[str, str] | None = None) -> dict[
         {"component": "federation", **_check_non_empty_json_object(env, "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON")},
         {"component": "provenance", **_check_non_empty(env, "AGENTHUB_PROVENANCE_SIGNING_SECRET")},
     ]
+    probes = [_path_probe(env, key) for key in PATH_PROBES]
     missing_or_invalid = [row["env_var"] for row in checks if not row["valid"]]
+    probe_failures = [row["probe"] for row in probes if row["status"] == "fail"]
+    startup_ready = len(missing_or_invalid) == 0
     return {
         "generated_at": utc_now_iso(),
         "access_enforcement_mode": access_mode(),
         "required_env_vars": list(REQUIRED_ENV_VARS),
         "checks": checks,
-        "startup_ready": len(missing_or_invalid) == 0,
+        "startup_ready": startup_ready,
+        "probes": probes,
+        "probe_failures": probe_failures,
+        "overall_ready": startup_ready and len(probe_failures) == 0,
         "missing_or_invalid": missing_or_invalid,
     }

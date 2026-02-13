@@ -80,3 +80,4 @@
 | S61 | Startup configuration diagnostics + strict-mode docs alignment | DONE | 2026-02-13 05:20 UTC | Platform | Yes | docs/evidence/S61.md |
 | S62 | CLI deployment preflight (`agenthub doctor`) | DONE | 2026-02-13 05:24 UTC | Platform | Yes | docs/evidence/S62.md |
 | S63 | Doctor remote-mode hardening + CI preflight gate | DONE | 2026-02-13 05:26 UTC | Platform | Yes | docs/evidence/S63.md |
+| S64 | Diagnostics probe expansion + overall readiness semantics | DONE | 2026-02-13 05:29 UTC | Platform | Yes | docs/evidence/S64.md |

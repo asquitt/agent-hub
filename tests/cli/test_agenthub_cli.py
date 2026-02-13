@@ -109,6 +109,7 @@ def test_all_commands_with_json_support(tmp_path: Path) -> None:
     doctor_payload = parse_json_stdout(doctor_res)
     assert doctor_payload["mode"] == "local"
     assert doctor_payload["startup_ready"] is True
+    assert doctor_payload["overall_ready"] is True
 
 
 def test_doctor_local_returns_nonzero_for_invalid_startup_env(tmp_path: Path) -> None:
@@ -126,6 +127,7 @@ def test_doctor_local_returns_nonzero_for_invalid_startup_env(tmp_path: Path) ->
     payload = parse_json_stdout(doctor_res)
     assert payload["mode"] == "local"
     assert payload["startup_ready"] is False
+    assert payload["overall_ready"] is False
     assert "AGENTHUB_API_KEYS_JSON" in payload["missing_or_invalid"]
 
 

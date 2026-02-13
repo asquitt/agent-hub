@@ -21,6 +21,7 @@ def test_startup_diagnostics_reports_missing_and_invalid_fields() -> None:
     assert checks["AGENTHUB_AUTH_TOKEN_SECRET"]["valid"] is False
     assert checks["AGENTHUB_PROVENANCE_SIGNING_SECRET"]["present"] is False
     assert "AGENTHUB_PROVENANCE_SIGNING_SECRET" in payload["missing_or_invalid"]
+    assert payload["overall_ready"] is False
 
 
 def test_startup_diagnostics_endpoint_admin_access() -> None:
@@ -29,6 +30,7 @@ def test_startup_diagnostics_endpoint_admin_access() -> None:
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["startup_ready"] is True
+    assert payload["overall_ready"] is True
     assert payload["access_enforcement_mode"] == "enforce"
     assert sorted(payload["required_env_vars"]) == sorted(
         [
@@ -39,6 +41,21 @@ def test_startup_diagnostics_endpoint_admin_access() -> None:
         ]
     )
     assert all(row["valid"] is True for row in payload["checks"])
+
+
+def test_startup_diagnostics_reports_probe_failures() -> None:
+    payload = build_startup_diagnostics(
+        {
+            "AGENTHUB_API_KEYS_JSON": '{"dev-owner-key":"owner-dev"}',
+            "AGENTHUB_AUTH_TOKEN_SECRET": "ok-secret",
+            "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON": '{"partner-east":"token"}',
+            "AGENTHUB_PROVENANCE_SIGNING_SECRET": "ok-provenance-secret",
+            "AGENTHUB_REGISTRY_DB_PATH": "/dev/null/registry.db",
+        }
+    )
+    assert payload["startup_ready"] is True
+    assert payload["overall_ready"] is False
+    assert "AGENTHUB_REGISTRY_DB_PATH" in payload["probe_failures"]
 
 
 def test_startup_diagnostics_endpoint_blocks_non_admin() -> None:
