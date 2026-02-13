@@ -87,3 +87,4 @@
 | S68 | Operator diagnostics snapshot history endpoint | DONE | 2026-02-13 05:42 UTC | Platform | Yes | docs/evidence/S68.md |
 | S69 | Marketing homepage + operator/customer visual redesign | DONE | 2026-02-13 05:52 UTC | Platform | Yes | docs/evidence/S69.md |
 | S70 | UI redesign refinement + Playwright visual capture | DONE | 2026-02-13 06:29 UTC | Platform | Yes | docs/evidence/S70.md |
+| S71 | UI redesign pass v3 + screenshot refresh | DONE | 2026-02-13 06:41 UTC | Platform | Yes | docs/evidence/S71.md |

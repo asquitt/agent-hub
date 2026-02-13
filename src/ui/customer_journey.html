@@ -7,23 +7,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;600&display=swap"
       rel="stylesheet"
     />
     <style>
       :root {
-        --bg: #f4eee3;
-        --ink: #132334;
-        --ink-soft: #35506b;
-        --line: rgba(19, 35, 52, 0.2);
-        --panel: rgba(255, 255, 255, 0.88);
-        --panel-strong: rgba(255, 255, 255, 0.95);
-        --night: rgba(10, 31, 50, 0.93);
-        --accent: #de5f2f;
-        --accent-2: #0a7a96;
+        --bg-deep: #10243a;
+        --bg-ink: #0b1929;
+        --ink: #13273d;
+        --ink-soft: #35516b;
+        --panel: rgba(255, 255, 255, 0.9);
+        --panel-line: rgba(13, 35, 56, 0.18);
+        --brand: #ef6a2f;
+        --sea: #1a93a5;
         --ok: #166534;
         --warn: #9a3412;
-        --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+        --mono: "IBM Plex Mono", Menlo, monospace;
       }
 
       * {
@@ -44,12 +43,12 @@
       body {
         margin: 0;
         min-height: 100vh;
+        font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
         color: var(--ink);
-        font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at 11% 10%, rgba(222, 95, 47, 0.16) 0%, transparent 34%),
-          radial-gradient(circle at 86% 0%, rgba(10, 122, 150, 0.18) 0%, transparent 34%),
-          linear-gradient(170deg, #ebe0cf 0%, #f8f1e8 44%, #e7f0f4 100%);
+          radial-gradient(circle at 12% 8%, rgba(239, 106, 47, 0.24) 0%, transparent 36%),
+          radial-gradient(circle at 88% 0%, rgba(26, 147, 165, 0.28) 0%, transparent 40%),
+          linear-gradient(170deg, var(--bg-deep) 0%, var(--bg-ink) 42%, #143750 100%);
       }
 
       body::before {
@@ -57,17 +56,17 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-        opacity: 0.24;
+        opacity: 0.18;
         background-image:
-          linear-gradient(rgba(19, 35, 52, 0.03) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(19, 35, 52, 0.03) 1px, transparent 1px);
-        background-size: 30px 30px;
+          linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+        background-size: 28px 28px;
       }
 
       main {
-        max-width: 1240px;
+        max-width: 1260px;
         margin: 0 auto;
-        padding: 22px;
+        padding: 20px;
         position: relative;
         z-index: 1;
       }
@@ -77,20 +76,18 @@
         justify-content: space-between;
         align-items: center;
         gap: 10px;
-        border-radius: 14px;
-        border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.78);
         padding: 10px 12px;
-        box-shadow: 0 10px 20px rgba(17, 31, 45, 0.1);
+        border-radius: 13px;
+        border: 1px solid rgba(216, 240, 255, 0.24);
+        background: rgba(8, 24, 40, 0.66);
+        backdrop-filter: blur(8px);
         animation: rise 0.35s ease-out both;
       }
 
       .brand {
-        color: var(--ink);
+        color: #eff8ff;
         text-decoration: none;
-        font-family: "Syne", "Avenir Next", sans-serif;
         font-weight: 800;
-        font-size: 1.03rem;
         letter-spacing: 0.03em;
       }
 
@@ -102,76 +99,58 @@
 
       .topbar-links a {
         text-decoration: none;
-        color: var(--ink);
-        border: 1px solid var(--line);
+        color: #e5f6ff;
+        border: 1px solid rgba(216, 240, 255, 0.26);
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.88);
+        background: rgba(8, 40, 62, 0.55);
         padding: 6px 11px;
-        font-size: 0.78rem;
-        font-weight: 700;
+        font-size: 0.79rem;
+        font-weight: 600;
       }
 
       .hero {
-        margin-top: 14px;
-        display: grid;
-        gap: 11px;
-        grid-template-columns: 1.15fr 0.85fr;
-      }
-
-      .hero-copy,
-      .hero-note {
-        border-radius: 18px;
-        border: 1px solid var(--line);
-        animation: rise 0.42s ease-out both;
-      }
-
-      .hero-copy {
-        background: var(--panel-strong);
-        box-shadow: 0 18px 34px rgba(17, 30, 45, 0.14);
+        margin-top: 12px;
+        border-radius: 20px;
+        border: 1px solid rgba(221, 243, 255, 0.22);
+        background: linear-gradient(166deg, rgba(13, 37, 57, 0.95) 0%, rgba(10, 86, 107, 0.9) 100%);
+        color: #e7f7ff;
         padding: 18px;
+        box-shadow: 0 20px 36px rgba(2, 12, 23, 0.32);
+        animation: rise 0.46s ease-out both;
       }
 
-      .hero-copy h1 {
+      .hero h1 {
         margin: 0;
-        font-family: "Syne", "Avenir Next", sans-serif;
-        font-size: clamp(1.95rem, 4vw, 2.5rem);
-        line-height: 1.06;
+        font-family: "Fraunces", "Outfit", sans-serif;
+        font-size: clamp(2rem, 3.8vw, 2.6rem);
+        line-height: 1.04;
       }
 
-      .hero-copy p {
+      .hero p {
         margin: 8px 0 0;
-        color: var(--ink-soft);
+        color: #d0e7f6;
       }
 
-      .hero-note {
-        background: linear-gradient(165deg, rgba(10, 31, 50, 0.95) 0%, rgba(7, 94, 119, 0.9) 100%);
-        box-shadow: 0 18px 34px rgba(9, 23, 37, 0.27);
-        color: #e6f5ff;
-        padding: 16px;
-        animation-delay: 0.1s;
-      }
-
-      .hero-note h2 {
-        margin: 0 0 8px;
-        font-family: "Syne", "Avenir Next", sans-serif;
-        font-size: 0.97rem;
-      }
-
-      .hero-note ul {
-        margin: 0;
-        padding-left: 18px;
+      .workspace {
+        margin-top: 12px;
         display: grid;
-        gap: 5px;
-        color: #cde5f4;
-        font-size: 0.86rem;
+        gap: 12px;
+        grid-template-columns: 360px 1fr;
       }
 
       .panel {
         border-radius: 16px;
-        border: 1px solid var(--line);
+        border: 1px solid var(--panel-line);
         background: var(--panel);
         padding: 14px;
-        box-shadow: 0 13px 24px rgba(17, 31, 44, 0.12);
+        box-shadow: 0 13px 24px rgba(4, 18, 31, 0.2);
+      }
+
+      .form-panel {
+        align-self: start;
+        position: sticky;
+        top: 14px;
+        animation: rise 0.5s ease-out both;
       }
 
       .warning-banner {
@@ -188,14 +167,13 @@
       .controls {
         display: grid;
         gap: 10px;
-        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
       }
 
       label {
         display: flex;
         flex-direction: column;
         gap: 6px;
-        font-size: 0.74rem;
+        font-size: 0.73rem;
         text-transform: uppercase;
         letter-spacing: 0.04em;
         color: var(--ink-soft);
@@ -205,13 +183,13 @@
       input,
       button {
         border-radius: 10px;
-        border: 1px solid rgba(52, 82, 108, 0.34);
+        border: 1px solid rgba(19, 55, 84, 0.26);
         padding: 10px 11px;
         font: inherit;
       }
 
       input:focus {
-        outline: 2px solid rgba(10, 122, 150, 0.28);
+        outline: 2px solid rgba(26, 147, 165, 0.35);
         outline-offset: 1px;
       }
 
@@ -226,17 +204,17 @@
         border: 0;
         color: #fff;
         cursor: pointer;
-        font-weight: 800;
+        font-weight: 700;
       }
 
       .primary {
-        background: linear-gradient(140deg, #b94b1f 0%, var(--accent) 54%, #f18e50 100%);
-        box-shadow: 0 9px 16px rgba(198, 84, 36, 0.25);
+        background: linear-gradient(140deg, #c44f1f 0%, var(--brand) 55%, #ff965c 100%);
+        box-shadow: 0 10px 18px rgba(210, 89, 38, 0.3);
       }
 
       .secondary {
-        background: linear-gradient(140deg, #0a5a70 0%, var(--accent-2) 52%, #17a7c8 100%);
-        box-shadow: 0 9px 16px rgba(9, 96, 118, 0.23);
+        background: linear-gradient(140deg, #156d78 0%, var(--sea) 54%, #2cb9cb 100%);
+        box-shadow: 0 10px 18px rgba(22, 111, 123, 0.29);
       }
 
       button:disabled {
@@ -251,15 +229,42 @@
       }
 
       .status.ok {
-        color: #166534;
+        color: var(--ok);
       }
 
       .status.warn {
-        color: #9a3412;
+        color: var(--warn);
+      }
+
+      .output-shell {
+        animation: rise 0.55s ease-out both;
+      }
+
+      .hero-note {
+        border-radius: 14px;
+        border: 1px solid rgba(218, 239, 251, 0.2);
+        background: rgba(8, 30, 48, 0.58);
+        color: #d4ebf8;
+        padding: 12px;
+        margin-bottom: 10px;
+      }
+
+      .hero-note h2 {
+        margin: 0 0 8px;
+        color: #f0f9ff;
+        font-family: "Fraunces", "Outfit", sans-serif;
+        font-size: 0.97rem;
+      }
+
+      .hero-note ul {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 5px;
+        font-size: 0.85rem;
       }
 
       .grid {
-        margin-top: 12px;
         display: grid;
         gap: 12px;
         grid-template-columns: 1fr 1fr;
@@ -267,8 +272,8 @@
 
       h2 {
         margin: 0 0 8px;
-        font-family: "Syne", "Avenir Next", sans-serif;
-        font-size: 0.99rem;
+        font-family: "Fraunces", "Outfit", sans-serif;
+        font-size: 1rem;
       }
 
       ol {
@@ -298,7 +303,7 @@
         overflow: auto;
         border-radius: 10px;
         border: 1px solid rgba(20, 62, 88, 0.35);
-        background: var(--night);
+        background: #081a2b;
         color: #c8ebff;
         padding: 10px;
         font-size: 0.75rem;
@@ -306,11 +311,17 @@
         font-family: var(--mono);
       }
 
-      @media (max-width: 920px) {
-        .hero {
+      @media (max-width: 1100px) {
+        .workspace {
           grid-template-columns: 1fr;
         }
 
+        .form-panel {
+          position: static;
+        }
+      }
+
+      @media (max-width: 900px) {
         .grid {
           grid-template-columns: 1fr;
         }
@@ -326,8 +337,7 @@
           align-items: flex-start;
         }
 
-        .hero-copy,
-        .hero-note,
+        .hero,
         .panel {
           padding: 13px;
         }
@@ -355,67 +365,70 @@
       </nav>
 
       <section class="hero">
-        <article class="hero-copy">
-          <h1>Customer Journey Console</h1>
-          <p>
-            End-to-end demo runner for onboarding, discovery, delegation, procurement, marketplace settlement, and
-            billing reconciliation.
-          </p>
-        </article>
-        <article class="hero-note">
-          <h2>Runbook focus</h2>
-          <ul>
-            <li>Explicit API-key roles for seller, buyer, and admin flows.</li>
-            <li>Deterministic step logs and JSON output for evidence capture.</li>
-            <li>Replay-safe write paths with idempotency headers on mutating calls.</li>
-          </ul>
-        </article>
+        <h1>Customer Journey Console</h1>
+        <p>
+          End-to-end demo runner for onboarding, discovery, delegation, procurement, marketplace settlement, and
+          billing reconciliation.
+        </p>
       </section>
 
-      <section class="panel">
-        <div class="warning-banner">Demo-only workflow; requires enabled server flag and authorized principal.</div>
-        <div class="controls">
-          <label>
-            Seller API Key
-            <input id="sellerKey" value="" />
-          </label>
-          <label>
-            Buyer API Key
-            <input id="buyerKey" value="" />
-          </label>
-          <label>
-            Admin API Key
-            <input id="adminKey" value="" />
-          </label>
-          <label>
-            Search Query
-            <input id="searchQuery" value="plan pipeline" />
-          </label>
-          <label>
-            Unit Price USD
-            <input id="unitPrice" value="0.75" />
-          </label>
-          <label>
-            Units
-            <input id="units" value="4" />
-          </label>
-        </div>
-        <div class="actions">
-          <button class="primary" id="runBtn" disabled>Run Full Demo</button>
-          <button class="secondary" id="resetBtn">Reset Output</button>
-        </div>
-        <p class="status" id="status"></p>
-      </section>
+      <section class="workspace">
+        <section class="panel form-panel">
+          <div class="warning-banner">Demo-only workflow; requires enabled server flag and authorized principal.</div>
+          <div class="controls">
+            <label>
+              Seller API Key
+              <input id="sellerKey" value="" />
+            </label>
+            <label>
+              Buyer API Key
+              <input id="buyerKey" value="" />
+            </label>
+            <label>
+              Admin API Key
+              <input id="adminKey" value="" />
+            </label>
+            <label>
+              Search Query
+              <input id="searchQuery" value="plan pipeline" />
+            </label>
+            <label>
+              Unit Price USD
+              <input id="unitPrice" value="0.75" />
+            </label>
+            <label>
+              Units
+              <input id="units" value="4" />
+            </label>
+          </div>
+          <div class="actions">
+            <button class="primary" id="runBtn" disabled>Run Full Demo</button>
+            <button class="secondary" id="resetBtn">Reset Output</button>
+          </div>
+          <p class="status" id="status"></p>
+        </section>
 
-      <section class="grid">
-        <article class="panel">
-          <h2>Step Log</h2>
-          <ol id="stepLog"></ol>
-        </article>
-        <article class="panel">
-          <h2>Run Output</h2>
-          <pre id="output">{}</pre>
-        </article>
+        <section class="output-shell">
+          <article class="hero-note">
+            <h2>Runbook focus</h2>
+            <ul>
+              <li>Explicit API-key roles for seller, buyer, and admin flows.</li>
+              <li>Deterministic step logs and JSON output for evidence capture.</li>
+              <li>Replay-safe write paths with idempotency headers on mutating calls.</li>
+            </ul>
+          </article>
+
+          <section class="grid">
+            <article class="panel">
+              <h2>Step Log</h2>
+              <ol id="stepLog"></ol>
+            </article>
+            <article class="panel">
+              <h2>Run Output</h2>
+              <pre id="output">{}</pre>
+            </article>
+          </section>
+        </section>
       </section>
     </main>
 

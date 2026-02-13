@@ -7,17 +7,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;600&display=swap"
       rel="stylesheet"
     />
     <style>
       :root {
-        --ink: #142335;
-        --ink-soft: #36506b;
-        --line: rgba(20, 35, 53, 0.2);
+        --bg-deep: #10243a;
+        --bg-ink: #0b1929;
+        --ink: #13273d;
+        --ink-soft: #35516b;
         --panel: rgba(255, 255, 255, 0.9);
-        --brand: #de5e2f;
-        --brand-2: #0b7794;
+        --panel-line: rgba(13, 35, 56, 0.18);
+        --brand: #ef6a2f;
+        --sea: #1a93a5;
       }
 
       * {
@@ -28,12 +30,12 @@
         margin: 0;
         min-height: 100vh;
         padding: 22px;
+        font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
         color: var(--ink);
-        font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at 8% 10%, rgba(222, 94, 47, 0.15) 0%, transparent 33%),
-          radial-gradient(circle at 90% 0%, rgba(11, 119, 148, 0.18) 0%, transparent 35%),
-          linear-gradient(165deg, #ede2d2 0%, #f8f2e9 44%, #e9f1f5 100%);
+          radial-gradient(circle at 12% 8%, rgba(239, 106, 47, 0.24) 0%, transparent 36%),
+          radial-gradient(circle at 88% 0%, rgba(26, 147, 165, 0.28) 0%, transparent 40%),
+          linear-gradient(170deg, var(--bg-deep) 0%, var(--bg-ink) 42%, #143750 100%);
       }
 
       body::before {
@@ -41,11 +43,11 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-        opacity: 0.22;
+        opacity: 0.18;
         background-image:
-          linear-gradient(rgba(20, 35, 53, 0.03) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(20, 35, 53, 0.03) 1px, transparent 1px);
-        background-size: 30px 30px;
+          linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+        background-size: 28px 28px;
       }
 
       .shell {
@@ -57,21 +59,22 @@
 
       h1 {
         margin: 0;
-        font-family: "Syne", "Avenir Next", sans-serif;
-        font-size: clamp(2rem, 5vw, 2.5rem);
+        color: #eef8ff;
+        font-family: "Fraunces", "Outfit", sans-serif;
+        font-size: clamp(2.1rem, 5vw, 2.6rem);
       }
 
       .lead {
         margin: 8px 0 12px;
-        color: var(--ink-soft);
+        color: #d3e8f7;
       }
 
       .panel {
         background: var(--panel);
-        border: 1px solid var(--line);
+        border: 1px solid var(--panel-line);
         border-radius: 14px;
         padding: 14px;
-        box-shadow: 0 12px 22px rgba(17, 31, 45, 0.11);
+        box-shadow: 0 12px 22px rgba(4, 18, 31, 0.22);
         margin-bottom: 12px;
       }
 
@@ -85,27 +88,27 @@
       input,
       button {
         width: 100%;
-        border: 1px solid rgba(53, 83, 110, 0.34);
+        border: 1px solid rgba(19, 55, 84, 0.26);
         border-radius: 10px;
         padding: 10px;
         font: inherit;
       }
 
       input:focus {
-        outline: 2px solid rgba(11, 119, 148, 0.26);
+        outline: 2px solid rgba(26, 147, 165, 0.35);
         outline-offset: 1px;
       }
 
       button {
         border: 0;
         color: #fff;
-        background: linear-gradient(140deg, #b94b1f 0%, var(--brand) 52%, #f18e50 100%);
-        font-weight: 800;
+        background: linear-gradient(140deg, #c44f1f 0%, var(--brand) 55%, #ff965c 100%);
+        font-weight: 700;
         cursor: pointer;
       }
 
       .secondary {
-        background: linear-gradient(140deg, #0a5a70 0%, var(--brand-2) 52%, #17a6c7 100%);
+        background: linear-gradient(140deg, #156d78 0%, var(--sea) 54%, #2cb9cb 100%);
       }
 
       .actions {
@@ -121,11 +124,11 @@
       }
 
       .status.ok {
-        color: #166534;
+        color: #86efac;
       }
 
       .status.warn {
-        color: #92400e;
+        color: #fdba74;
       }
 
       pre {
@@ -134,10 +137,10 @@
         overflow: auto;
         border-radius: 10px;
         border: 1px solid rgba(20, 62, 88, 0.35);
-        background: #0b1f31;
-        color: #caecff;
+        background: #081a2b;
+        color: #caebff;
         padding: 10px;
-        font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+        font-family: "IBM Plex Mono", Menlo, monospace;
       }
     </style>
   </head>

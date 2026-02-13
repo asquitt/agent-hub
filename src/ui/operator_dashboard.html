@@ -7,23 +7,21 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;600&display=swap"
       rel="stylesheet"
     />
     <style>
       :root {
-        --bg: #f3ede3;
-        --ink: #142233;
-        --ink-soft: #38526d;
-        --line: rgba(20, 34, 51, 0.2);
-        --panel: rgba(255, 255, 255, 0.88);
-        --panel-strong: rgba(255, 255, 255, 0.96);
-        --rail: rgba(11, 30, 47, 0.9);
-        --brand: #df5f2d;
-        --brand-2: #0a7893;
-        --ok: #166534;
-        --warn: #9a3412;
-        --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+        --bg-deep: #10243a;
+        --bg-ink: #0b1929;
+        --ink: #12273d;
+        --ink-soft: #365470;
+        --panel: rgba(255, 255, 255, 0.9);
+        --panel-line: rgba(13, 35, 56, 0.18);
+        --nav-line: rgba(216, 240, 255, 0.24);
+        --brand: #ef6a2f;
+        --sea: #1a93a5;
+        --mono: "IBM Plex Mono", Menlo, monospace;
       }
 
       * {
@@ -44,12 +42,12 @@
       body {
         margin: 0;
         min-height: 100vh;
+        font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
         color: var(--ink);
-        font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at 12% 10%, rgba(223, 95, 45, 0.16) 0%, transparent 32%),
-          radial-gradient(circle at 88% 0%, rgba(10, 120, 147, 0.19) 0%, transparent 34%),
-          linear-gradient(170deg, #ebe0cf 0%, #f8f2ea 45%, #e8f2f6 100%);
+          radial-gradient(circle at 12% 8%, rgba(239, 106, 47, 0.26) 0%, transparent 36%),
+          radial-gradient(circle at 88% 0%, rgba(26, 147, 165, 0.28) 0%, transparent 40%),
+          linear-gradient(170deg, var(--bg-deep) 0%, var(--bg-ink) 42%, #143750 100%);
       }
 
       body::before {
@@ -57,17 +55,17 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-        opacity: 0.25;
+        opacity: 0.18;
         background-image:
-          linear-gradient(rgba(20, 34, 51, 0.03) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(20, 34, 51, 0.03) 1px, transparent 1px);
-        background-size: 30px 30px;
+          linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+        background-size: 28px 28px;
       }
 
       .shell {
-        max-width: 1260px;
+        max-width: 1290px;
         margin: 0 auto;
-        padding: 22px;
+        padding: 20px;
         position: relative;
         z-index: 1;
       }
@@ -76,119 +74,92 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 12px;
-        background: rgba(255, 255, 255, 0.77);
-        border: 1px solid var(--line);
-        border-radius: 14px;
+        gap: 10px;
         padding: 10px 12px;
-        box-shadow: 0 10px 20px rgba(19, 36, 54, 0.1);
+        border-radius: 13px;
+        border: 1px solid var(--nav-line);
+        background: rgba(8, 24, 40, 0.66);
+        backdrop-filter: blur(8px);
         animation: rise 0.35s ease-out both;
       }
 
       .brand {
-        color: var(--ink);
+        color: #eff8ff;
         text-decoration: none;
-        font-family: "Syne", "Avenir Next", sans-serif;
         font-weight: 800;
-        font-size: 1.04rem;
         letter-spacing: 0.03em;
       }
 
       .topbar-links {
         display: flex;
-        flex-wrap: wrap;
         gap: 8px;
+        flex-wrap: wrap;
       }
 
       .topbar-links a {
         text-decoration: none;
-        color: var(--ink);
-        border: 1px solid var(--line);
+        color: #e5f6ff;
+        border: 1px solid rgba(216, 240, 255, 0.26);
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.88);
+        background: rgba(8, 40, 62, 0.55);
         padding: 6px 11px;
-        font-size: 0.78rem;
-        font-weight: 700;
+        font-size: 0.79rem;
+        font-weight: 600;
       }
 
       .hero {
-        margin-top: 14px;
-        display: grid;
-        gap: 12px;
-        grid-template-columns: 1.1fr 0.9fr;
+        margin-top: 12px;
+        border-radius: 20px;
+        border: 1px solid rgba(221, 243, 255, 0.22);
+        background: linear-gradient(166deg, rgba(13, 37, 57, 0.95) 0%, rgba(10, 86, 107, 0.9) 100%);
+        color: #e6f6ff;
+        padding: 18px;
+        box-shadow: 0 20px 36px rgba(2, 12, 23, 0.32);
+        animation: rise 0.48s ease-out both;
       }
 
-      .hero-copy,
-      .hero-quick {
-        border-radius: 18px;
-        border: 1px solid var(--line);
-        animation: rise 0.42s ease-out both;
-      }
-
-      .hero-copy {
-        background: var(--panel-strong);
-        box-shadow: 0 18px 34px rgba(17, 31, 47, 0.14);
-        padding: 20px;
+      .hero p {
+        margin: 0;
       }
 
       .eyebrow {
-        margin: 0;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
-        font-size: 0.7rem;
+        letter-spacing: 0.12em;
+        font-size: 0.71rem;
         font-weight: 700;
-        color: var(--ink-soft);
+        color: #b8d8ec;
       }
 
-      .hero-copy h1 {
-        margin: 8px 0 8px;
-        font-family: "Syne", "Avenir Next", sans-serif;
-        font-size: clamp(1.95rem, 3.7vw, 2.6rem);
+      .hero h1 {
+        margin: 8px 0;
+        font-family: "Fraunces", "Outfit", sans-serif;
+        font-size: clamp(1.95rem, 3.3vw, 2.55rem);
         line-height: 1.06;
       }
 
-      .hero-copy p {
-        margin: 0;
-        color: var(--ink-soft);
-      }
-
-      .hero-quick {
-        background: linear-gradient(165deg, rgba(10, 30, 49, 0.94) 0%, rgba(6, 92, 116, 0.9) 100%);
-        box-shadow: 0 18px 34px rgba(9, 24, 38, 0.25);
-        color: #e7f5ff;
-        padding: 19px;
-        animation-delay: 0.08s;
-      }
-
-      .hero-quick h2 {
-        margin: 0 0 8px;
-        font-family: "Syne", "Avenir Next", sans-serif;
-        font-size: 1rem;
-      }
-
-      .hero-quick ul {
-        margin: 0;
-        padding-left: 18px;
+      .workspace {
+        margin-top: 12px;
         display: grid;
-        gap: 6px;
-        color: #d0e9f7;
-        font-size: 0.88rem;
+        gap: 12px;
+        grid-template-columns: 340px 1fr;
       }
 
       .control-shell {
-        margin-top: 12px;
-        border-radius: 18px;
-        border: 1px solid var(--line);
+        border-radius: 16px;
+        border: 1px solid var(--panel-line);
         background: var(--panel);
-        padding: 16px;
-        box-shadow: 0 16px 30px rgba(16, 29, 44, 0.12);
-        animation: rise 0.48s ease-out both;
+        padding: 15px;
+        box-shadow: 0 14px 24px rgba(4, 19, 32, 0.22);
+        align-self: start;
+        position: sticky;
+        top: 14px;
+        animation: rise 0.52s ease-out both;
       }
 
       .control-shell h2 {
         margin: 0 0 5px;
-        font-family: "Syne", "Avenir Next", sans-serif;
-        font-size: 1.03rem;
+        font-family: "Fraunces", "Outfit", sans-serif;
+        font-size: 1.07rem;
       }
 
       .control-shell p {
@@ -202,13 +173,13 @@
         margin-top: 10px;
         display: grid;
         gap: 10px;
-        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        grid-template-columns: 1fr;
       }
 
       .replay-controls {
         margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px dashed rgba(56, 90, 117, 0.32);
+        padding-top: 11px;
+        border-top: 1px dashed rgba(56, 90, 117, 0.3);
       }
 
       label {
@@ -226,7 +197,7 @@
       select,
       button {
         border-radius: 10px;
-        border: 1px solid rgba(53, 83, 110, 0.34);
+        border: 1px solid rgba(19, 55, 84, 0.26);
         background: #fff;
         color: var(--ink);
         padding: 10px 11px;
@@ -235,7 +206,7 @@
 
       input:focus,
       select:focus {
-        outline: 2px solid rgba(10, 120, 147, 0.28);
+        outline: 2px solid rgba(26, 147, 165, 0.35);
         outline-offset: 1px;
       }
 
@@ -243,17 +214,17 @@
         border: 0;
         color: #fff;
         cursor: pointer;
-        font-weight: 800;
+        font-weight: 700;
       }
 
       .primary-btn {
-        background: linear-gradient(140deg, #b84a1e 0%, var(--brand) 52%, #f28d4f 100%);
-        box-shadow: 0 9px 16px rgba(199, 83, 35, 0.26);
+        background: linear-gradient(140deg, #c44f1f 0%, var(--brand) 55%, #ff965c 100%);
+        box-shadow: 0 10px 18px rgba(210, 89, 38, 0.3);
       }
 
       .secondary-btn {
-        background: linear-gradient(140deg, #0a5a71 0%, var(--brand-2) 52%, #17a5c6 100%);
-        box-shadow: 0 9px 16px rgba(9, 97, 119, 0.24);
+        background: linear-gradient(140deg, #156d78 0%, var(--sea) 54%, #2cb9cb 100%);
+        box-shadow: 0 10px 18px rgba(22, 111, 123, 0.29);
       }
 
       button:disabled {
@@ -264,14 +235,17 @@
       .hint {
         margin: 10px 0 0;
         color: var(--ink-soft);
-        font-size: 0.83rem;
+        font-size: 0.82rem;
+      }
+
+      .output-shell {
+        animation: rise 0.56s ease-out both;
       }
 
       .status-wrap {
-        margin-top: 10px;
         border-radius: 12px;
-        border: 1px solid rgba(13, 34, 54, 0.2);
-        background: var(--rail);
+        border: 1px solid rgba(228, 241, 251, 0.2);
+        background: rgba(8, 20, 33, 0.52);
         padding: 8px 12px;
       }
 
@@ -279,7 +253,7 @@
         min-height: 20px;
         margin: 0;
         font-size: 0.9rem;
-        color: #d8edf8;
+        color: #dcecf7;
       }
 
       .status.ok {
@@ -291,33 +265,24 @@
       }
 
       .grid {
-        margin-top: 12px;
+        margin-top: 11px;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         gap: 11px;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       }
 
       .card {
         border-radius: 14px;
-        border: 1px solid var(--line);
+        border: 1px solid var(--panel-line);
         background: var(--panel);
         padding: 12px;
-        box-shadow: 0 12px 22px rgba(17, 31, 47, 0.12);
-        animation: rise 0.5s ease-out both;
-      }
-
-      .card:nth-child(odd) {
-        animation-delay: 0.04s;
-      }
-
-      .card:nth-child(even) {
-        animation-delay: 0.08s;
+        box-shadow: 0 13px 22px rgba(4, 18, 31, 0.2);
       }
 
       .card h2 {
         margin: 0 0 8px;
-        font-family: "Syne", "Avenir Next", sans-serif;
-        font-size: 0.98rem;
+        font-family: "Fraunces", "Outfit", sans-serif;
+        font-size: 1rem;
       }
 
       pre {
@@ -325,9 +290,9 @@
         max-height: 310px;
         overflow: auto;
         border-radius: 10px;
-        border: 1px solid rgba(20, 62, 88, 0.35);
-        background: #0b1f31;
-        color: #caecff;
+        border: 1px solid rgba(13, 57, 82, 0.3);
+        background: #081a2b;
+        color: #caebff;
         padding: 10px;
         font-size: 0.75rem;
         line-height: 1.45;
@@ -361,9 +326,13 @@
         color: #9a3412;
       }
 
-      @media (max-width: 900px) {
-        .hero {
+      @media (max-width: 1100px) {
+        .workspace {
           grid-template-columns: 1fr;
+        }
+
+        .control-shell {
+          position: static;
         }
       }
 
@@ -372,15 +341,14 @@
           padding: 14px;
         }
 
-        .hero-copy,
-        .hero-quick,
-        .control-shell {
-          padding: 13px;
-        }
-
         .topbar {
           flex-direction: column;
           align-items: flex-start;
+        }
+
+        .hero,
+        .control-shell {
+          padding: 14px;
         }
       }
 
@@ -406,111 +374,105 @@
       </nav>
 
       <section class="hero">
-        <article class="hero-copy">
-          <p class="eyebrow">Operator Surface</p>
-          <h1>Operator Console v2</h1>
-          <p>Timeline explorer, policy/cost overlay, replay diagnostics, and startup readiness checks.</p>
-        </article>
-        <article class="hero-quick">
-          <h2>Workflow quick path</h2>
-          <ul>
-            <li>Load dashboard by agent id to inspect trust/eval/delegation state.</li>
-            <li>Replay delegation outcomes for incident triage.</li>
-            <li>Run startup diagnostics in all/failing mode for release readiness.</li>
-          </ul>
-        </article>
+        <p class="eyebrow">Operator Surface</p>
+        <h1>Operator Console v2</h1>
+        <p>Timeline explorer, policy/cost overlay, replay diagnostics, and startup readiness checks.</p>
       </section>
 
-      <section class="control-shell">
-        <h2>Control plane</h2>
-        <p>Use explicit role and scoped API keys to load observability data and privileged actions.</p>
+      <section class="workspace">
+        <aside class="control-shell">
+          <h2>Control plane</h2>
+          <p>Use explicit role and scoped API keys to load observability data and privileged actions.</p>
 
-        <section class="controls">
-          <label>
-            API Key
-            <input id="apiKey" value="dev-owner-key" />
-          </label>
-          <label>
-            Operator Role
-            <select id="role">
-              <option value="viewer">viewer</option>
-              <option value="admin">admin</option>
-            </select>
-          </label>
-          <label>
-            Agent ID
-            <input id="agentId" placeholder="@namespace:agent-id" />
-          </label>
-          <label>
-            Search Query
-            <input id="query" value="normalize records" />
-          </label>
-          <button class="primary-btn" id="loadBtn">Load Dashboard</button>
-          <button class="secondary-btn" id="refreshBtn">Admin Refresh</button>
-        </section>
-        <p class="hint">Register an agent with `POST /v1/agents`, then paste its agent id to load dashboard data.</p>
+          <section class="controls">
+            <label>
+              API Key
+              <input id="apiKey" value="dev-owner-key" />
+            </label>
+            <label>
+              Operator Role
+              <select id="role">
+                <option value="viewer">viewer</option>
+                <option value="admin">admin</option>
+              </select>
+            </label>
+            <label>
+              Agent ID
+              <input id="agentId" placeholder="@namespace:agent-id" />
+            </label>
+            <label>
+              Search Query
+              <input id="query" value="normalize records" />
+            </label>
+            <button class="primary-btn" id="loadBtn">Load Dashboard</button>
+            <button class="secondary-btn" id="refreshBtn">Admin Refresh</button>
+          </section>
+          <p class="hint">Register an agent with `POST /v1/agents`, then paste its agent id to load dashboard data.</p>
 
-        <section class="replay-controls">
-          <label>
-            Delegation Replay ID
-            <input id="replayDelegationId" placeholder="delegation id from timeline" />
-          </label>
-          <label>
-            Startup Diagnostics
-            <select id="diagMode">
-              <option value="all">all checks</option>
-              <option value="failing">failing only</option>
-            </select>
-          </label>
-          <button class="secondary-btn" id="replayBtn">Load Replay</button>
-          <button class="secondary-btn" id="diagBtn">Load Startup Diagnostics</button>
-        </section>
-      </section>
+          <section class="replay-controls">
+            <label>
+              Delegation Replay ID
+              <input id="replayDelegationId" placeholder="delegation id from timeline" />
+            </label>
+            <label>
+              Startup Diagnostics
+              <select id="diagMode">
+                <option value="all">all checks</option>
+                <option value="failing">failing only</option>
+              </select>
+            </label>
+            <button class="secondary-btn" id="replayBtn">Load Replay</button>
+            <button class="secondary-btn" id="diagBtn">Load Startup Diagnostics</button>
+          </section>
+        </aside>
 
-      <div class="status-wrap">
-        <p class="status" id="status"></p>
-      </div>
-
-      <section class="grid">
-        <article class="card">
-          <h2>Search</h2>
-          <pre id="searchOut">{}</pre>
-        </article>
-        <article class="card">
-          <h2>Agent Detail</h2>
-          <pre id="agentOut">{}</pre>
-        </article>
-        <article class="card">
-          <h2>Eval</h2>
-          <pre id="evalOut">{}</pre>
-        </article>
-        <article class="card">
-          <h2>Trust</h2>
-          <pre id="trustOut">{}</pre>
-        </article>
-        <article class="card">
-          <h2>Policy/Cost Overlay</h2>
-          <pre id="overlayOut">{}</pre>
-        </article>
-        <article class="card">
-          <h2>Delegations</h2>
-          <pre id="delegOut">[]</pre>
-        </article>
-        <article class="card">
-          <h2>Timeline Explorer</h2>
-          <pre id="timelineOut">[]</pre>
-        </article>
-        <article class="card">
-          <h2>Replay</h2>
-          <pre id="replayOut">{}</pre>
-        </article>
-        <article class="card">
-          <h2>Startup Diagnostics</h2>
-          <div class="diag-summary" id="diagSummary">
-            <span class="pill">not loaded</span>
+        <section class="output-shell">
+          <div class="status-wrap">
+            <p class="status" id="status"></p>
           </div>
-          <pre id="diagOut">{}</pre>
-        </article>
+
+          <section class="grid">
+            <article class="card">
+              <h2>Search</h2>
+              <pre id="searchOut">{}</pre>
+            </article>
+            <article class="card">
+              <h2>Agent Detail</h2>
+              <pre id="agentOut">{}</pre>
+            </article>
+            <article class="card">
+              <h2>Eval</h2>
+              <pre id="evalOut">{}</pre>
+            </article>
+            <article class="card">
+              <h2>Trust</h2>
+              <pre id="trustOut">{}</pre>
+            </article>
+            <article class="card">
+              <h2>Policy/Cost Overlay</h2>
+              <pre id="overlayOut">{}</pre>
+            </article>
+            <article class="card">
+              <h2>Delegations</h2>
+              <pre id="delegOut">[]</pre>
+            </article>
+            <article class="card">
+              <h2>Timeline Explorer</h2>
+              <pre id="timelineOut">[]</pre>
+            </article>
+            <article class="card">
+              <h2>Replay</h2>
+              <pre id="replayOut">{}</pre>
+            </article>
+            <article class="card">
+              <h2>Startup Diagnostics</h2>
+              <div class="diag-summary" id="diagSummary">
+                <span class="pill">not loaded</span>
+              </div>
+              <pre id="diagOut">{}</pre>
+            </article>
+          </section>
+        </section>
       </section>
     </main>
 
