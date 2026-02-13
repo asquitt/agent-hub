@@ -173,6 +173,7 @@ def test_operator_page_prompts_for_agent_id_instead_of_hardcoded_seed() -> None:
     assert 'placeholder="@namespace:agent-id"' in page.text
     assert 'value="@seed:pipeline-planner"' not in page.text
     assert "Register an agent with `POST /v1/agents`" in page.text
+    assert "Load Startup Diagnostics" in page.text
 
 
 def test_customer_journey_page_returns_404_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

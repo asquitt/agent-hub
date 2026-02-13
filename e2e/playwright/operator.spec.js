@@ -73,4 +73,18 @@ test.describe("S55 Operator and Versioning E2E", () => {
     const refreshPayload = await expectStatus(refresh, 200, "refresh with bearer token");
     expect(refreshPayload.status).toBe("refreshed");
   });
+
+  test("operator startup diagnostics panel loads for admin role", async ({ page }) => {
+    await page.goto("/operator");
+    await expect(page.getByRole("button", { name: "Load Startup Diagnostics" })).toBeDisabled();
+
+    await page.getByLabel("API Key").fill("dev-owner-key");
+    await page.getByLabel("Operator Role").selectOption("admin");
+    await expect(page.getByRole("button", { name: "Load Startup Diagnostics" })).toBeEnabled();
+
+    await page.getByLabel("Startup Diagnostics").selectOption("failing");
+    await page.getByRole("button", { name: "Load Startup Diagnostics" }).click();
+    await expect(page.locator("#status")).toContainText("Loaded startup diagnostics");
+    await expect(page.locator("#diagOut")).toContainText('"overall_ready"');
+  });
 });

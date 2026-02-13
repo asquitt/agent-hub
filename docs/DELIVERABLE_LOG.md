@@ -82,3 +82,4 @@
 | S63 | Doctor remote-mode hardening + CI preflight gate | DONE | 2026-02-13 05:26 UTC | Platform | Yes | docs/evidence/S63.md |
 | S64 | Diagnostics probe expansion + overall readiness semantics | DONE | 2026-02-13 05:29 UTC | Platform | Yes | docs/evidence/S64.md |
 | S65 | Operator startup diagnostics endpoint + failing-only filter | DONE | 2026-02-13 05:32 UTC | Platform | Yes | docs/evidence/S65.md |
+| S66 | Operator UI startup diagnostics panel + E2E | DONE | 2026-02-13 05:35 UTC | Platform | Yes | docs/evidence/S66.md |

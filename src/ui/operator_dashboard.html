@@ -218,7 +218,15 @@
           Delegation Replay ID
           <input id="replayDelegationId" placeholder="delegation id from timeline" />
         </label>
+        <label>
+          Startup Diagnostics
+          <select id="diagMode">
+            <option value="all">all checks</option>
+            <option value="failing">failing only</option>
+          </select>
+        </label>
         <button class="secondary-btn" id="replayBtn">Load Replay</button>
+        <button class="secondary-btn" id="diagBtn">Load Startup Diagnostics</button>
       </section>
 
       <p class="status" id="status"></p>
@@ -256,6 +264,10 @@
           <h2>Replay</h2>
           <pre id="replayOut">{}</pre>
         </article>
+        <article class="card">
+          <h2>Startup Diagnostics</h2>
+          <pre id="diagOut">{}</pre>
+        </article>
       </section>
     </main>
 
@@ -266,6 +278,8 @@
       const query = document.getElementById("query");
       const statusOut = document.getElementById("status");
       const replayDelegationId = document.getElementById("replayDelegationId");
+      const diagMode = document.getElementById("diagMode");
+      const diagBtn = document.getElementById("diagBtn");
       const refreshBtn = document.getElementById("refreshBtn");
 
       function setStatus(kind, message) {
@@ -275,6 +289,7 @@
 
       function updateRefreshAvailability() {
         refreshBtn.disabled = role.value !== "admin";
+        diagBtn.disabled = role.value !== "admin";
       }
 
       function render(id, payload) {
@@ -362,9 +377,34 @@
         setStatus("ok", `Loaded replay for ${data.delegation_id}`);
       }
 
+      async function loadStartupDiagnostics() {
+        if (diagBtn.disabled) {
+          setStatus("warn", "Startup diagnostics requires admin role.");
+          return;
+        }
+
+        const params = new URLSearchParams();
+        if (diagMode.value === "failing") {
+          params.set("failing_only", "true");
+        }
+        const query = params.toString();
+        const path = query ? `/v1/operator/startup-diagnostics?${query}` : "/v1/operator/startup-diagnostics";
+        const response = await fetch(path, {
+          headers: baseHeaders(),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setStatus("warn", `Diagnostics load failed: ${JSON.stringify(data)}`);
+          return;
+        }
+        render("diagOut", data);
+        setStatus("ok", `Loaded startup diagnostics (${diagMode.value})`);
+      }
+
       document.getElementById("loadBtn").addEventListener("click", loadDashboard);
       refreshBtn.addEventListener("click", refreshOperator);
       document.getElementById("replayBtn").addEventListener("click", loadReplay);
+      diagBtn.addEventListener("click", loadStartupDiagnostics);
       role.addEventListener("change", updateRefreshAvailability);
       updateRefreshAvailability();
     </script>
