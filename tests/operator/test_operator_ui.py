@@ -136,3 +136,11 @@ def test_operator_page_prompts_for_agent_id_instead_of_hardcoded_seed() -> None:
     assert 'placeholder="@namespace:agent-id"' in page.text
     assert 'value="@seed:pipeline-planner"' not in page.text
     assert "Register an agent with `POST /v1/agents`" in page.text
+
+
+def test_customer_journey_page_serves_e2e_console() -> None:
+    client = TestClient(app)
+    page = client.get("/customer")
+    assert page.status_code == 200
+    assert "Customer Journey Console" in page.text
+    assert "Run Full Demo" in page.text

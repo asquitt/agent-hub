@@ -23,6 +23,7 @@ PUBLIC_ROUTES = {
     ("GET", "/.well-known/agent-card.json"),
     ("GET", "/operator"),
     ("GET", "/operator/versioning"),
+    ("GET", "/customer"),
 }
 
 TENANT_SCOPED_PATTERNS = (

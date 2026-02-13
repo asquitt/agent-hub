@@ -71,3 +71,6 @@
 | S52 | GA launch candidate | DONE | 2026-02-12 23:17 UTC | Platform | Yes | docs/evidence/S52.md |
 | S53 | Architecture remediation foundations | DONE | 2026-02-13 00:24 UTC | Platform | Yes | docs/evidence/S53.md |
 | S54 | Duplicate/orphan consolidation | DONE | 2026-02-13 00:52 UTC | Platform | Yes | docs/evidence/S54.md |
+| S55 | Playwright operator/versioning baseline | DONE | 2026-02-13 02:01 UTC | Platform | Yes | docs/evidence/S55.md |
+| S56 | Commercial flow E2E (marketplace/procurement/billing) | DONE | 2026-02-13 02:01 UTC | Platform | Yes | docs/evidence/S56.md |
+| S57 | Customer journey UI + mobile/Desktop E2E | DONE | 2026-02-13 02:01 UTC | Platform | Yes | docs/evidence/S57.md |

@@ -767,6 +767,12 @@ def operator_versioning_console() -> str:
     return ui_path.read_text(encoding="utf-8")
 
 
+@app.get("/customer", response_class=HTMLResponse)
+def customer_journey_console() -> str:
+    ui_path = ROOT / "src" / "ui" / "customer_journey.html"
+    return ui_path.read_text(encoding="utf-8")
+
+
 @app.post("/v1/agents")
 def register_agent(
     request: AgentRegistrationRequest,

@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: dev test lint migrate eval trust gate launch-check discovery-load cli-test operator-test versioning-test lease-test knowledge-test billing-test launch-test compose-up compose-down
+.PHONY: dev test lint migrate eval trust gate launch-check discovery-load cli-test operator-test versioning-test lease-test knowledge-test billing-test launch-test e2e-install e2e-test compose-up compose-down
 
 dev:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -51,6 +51,13 @@ billing-test:
 
 launch-test:
 	pytest tests/launch/test_launch_readiness.py -q
+
+e2e-install:
+	npm install
+	npx playwright install chromium
+
+e2e-test:
+	npm run e2e
 
 compose-up:
 	docker compose up --build -d

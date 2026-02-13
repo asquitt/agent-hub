@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgentHub Customer Journey</title>
+    <style>
+      :root {
+        --bg-ink: #091520;
+        --bg-steel: #10354b;
+        --bg-sun: #f97316;
+        --panel: rgba(248, 250, 252, 0.94);
+        --ink: #0f172a;
+        --soft: #334155;
+        --ok: #166534;
+        --warn: #9a3412;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 12% 18%, rgba(249, 115, 22, 0.3) 0%, transparent 35%),
+          radial-gradient(circle at 86% 0%, rgba(14, 165, 233, 0.24) 0%, transparent 28%),
+          linear-gradient(155deg, var(--bg-ink) 0%, var(--bg-steel) 56%, #1d4f6c 100%);
+      }
+
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 22px;
+      }
+
+      .hero {
+        color: #f8fafc;
+        margin-bottom: 14px;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+        font-size: 2rem;
+      }
+
+      .hero p {
+        margin: 6px 0 0;
+        color: #dbeafe;
+      }
+
+      .panel {
+        background: var(--panel);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: 0 12px 24px rgba(2, 6, 23, 0.24);
+        margin-bottom: 12px;
+      }
+
+      .controls {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 0.74rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        color: var(--soft);
+      }
+
+      input,
+      button {
+        border-radius: 10px;
+        border: 1px solid #cbd5e1;
+        padding: 10px 11px;
+        font: inherit;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: 0;
+        color: #fff;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      .primary {
+        background: linear-gradient(118deg, #ea580c, var(--bg-sun));
+      }
+
+      .secondary {
+        background: linear-gradient(118deg, #0f766e, #0ea5e9);
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .status {
+        min-height: 22px;
+        margin: 10px 0 0;
+        font-size: 0.92rem;
+      }
+
+      .status.ok {
+        color: #bbf7d0;
+      }
+
+      .status.warn {
+        color: #fdba74;
+      }
+
+      .grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      }
+
+      h2 {
+        margin: 0 0 8px;
+        font-size: 1rem;
+      }
+
+      ol {
+        margin: 0;
+        padding-left: 18px;
+        max-height: 330px;
+        overflow: auto;
+      }
+
+      li {
+        margin-bottom: 6px;
+        color: #0f172a;
+      }
+
+      li.ok {
+        color: var(--ok);
+      }
+
+      li.warn {
+        color: var(--warn);
+      }
+
+      pre {
+        margin: 0;
+        max-height: 330px;
+        overflow: auto;
+        border-radius: 10px;
+        background: #f1f5f9;
+        padding: 10px;
+        font-size: 0.76rem;
+      }
+
+      @media (max-width: 760px) {
+        main {
+          padding: 14px;
+        }
+
+        .hero h1 {
+          font-size: 1.7rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Customer Journey Console</h1>
+        <p>
+          End-to-end demo runner for onboarding, discovery, delegation, procurement, marketplace settlement, and billing
+          reconciliation.
+        </p>
+      </section>
+
+      <section class="panel">
+        <div class="controls">
+          <label>
+            Seller API Key
+            <input id="sellerKey" value="dev-owner-key" />
+          </label>
+          <label>
+            Buyer API Key
+            <input id="buyerKey" value="partner-owner-key" />
+          </label>
+          <label>
+            Admin API Key
+            <input id="adminKey" value="platform-owner-key" />
+          </label>
+          <label>
+            Search Query
+            <input id="searchQuery" value="plan pipeline" />
+          </label>
+          <label>
+            Unit Price USD
+            <input id="unitPrice" value="0.75" />
+          </label>
+          <label>
+            Units
+            <input id="units" value="4" />
+          </label>
+        </div>
+        <div class="actions">
+          <button class="primary" id="runBtn">Run Full Demo</button>
+          <button class="secondary" id="resetBtn">Reset Output</button>
+        </div>
+        <p class="status" id="status"></p>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>Step Log</h2>
+          <ol id="stepLog"></ol>
+        </article>
+        <article class="panel">
+          <h2>Run Output</h2>
+          <pre id="output">{}</pre>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      const runBtn = document.getElementById("runBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const statusOut = document.getElementById("status");
+      const stepLog = document.getElementById("stepLog");
+      const output = document.getElementById("output");
+
+      function randomSuffix() {
+        const raw = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+        return raw.toLowerCase();
+      }
+
+      function setStatus(kind, message) {
+        statusOut.className = kind === "ok" ? "status ok" : "status warn";
+        statusOut.textContent = message;
+      }
+
+      function appendStep(name, details, ok) {
+        const li = document.createElement("li");
+        li.className = ok ? "ok" : "warn";
+        li.textContent = `${ok ? "PASS" : "FAIL"}: ${name}${details ? ` -> ${details}` : ""}`;
+        stepLog.appendChild(li);
+      }
+
+      function manifestTemplate(agentSlug, version) {
+        return {
+          schema_version: "0.1",
+          identity: {
+            id: agentSlug,
+            name: `Customer Journey ${agentSlug}`,
+            version,
+            description: "Demo agent for end-to-end customer journey validation.",
+            owner: "agenthub-e2e",
+            type: "orchestrator",
+          },
+          capabilities: [
+            {
+              id: "plan-pipeline",
+              name: "Plan Pipeline",
+              category: "orchestration",
+              description: "Plans multi-agent execution pipelines.",
+              input_schema: {
+                type: "object",
+                properties: {
+                  task: { type: "string" },
+                },
+                required: ["task"],
+                additionalProperties: false,
+              },
+              output_schema: {
+                type: "object",
+                properties: {
+                  recommended_agents: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                },
+                required: ["recommended_agents"],
+                additionalProperties: false,
+              },
+              protocols: ["MCP", "A2A"],
+              permissions: ["capabilities.search"],
+              idempotency_key_required: false,
+              side_effect_level: "none",
+            },
+          ],
+          interfaces: [
+            {
+              name: "mcp",
+              protocol: "MCP",
+              endpoint: "https://example.local/mcp/customer-journey-agent",
+              auth: "signed_jwt",
+              privileged: false,
+            },
+          ],
+          trust: {
+            minimum_trust_score: 0.75,
+            allowed_trust_sources: ["first_party"],
+            policy: {
+              injection_protection: "strict",
+              pii_handling: "deny",
+              data_retention_days: 7,
+              high_risk_approval_required: true,
+            },
+            budget_guardrails: {
+              soft_alert_pct: 80,
+              reauthorization_pct: 100,
+              hard_stop_pct: 120,
+            },
+            credential_policy: {
+              short_lived_credentials: true,
+              max_ttl_minutes: 60,
+            },
+          },
+          runtime: {
+            execution_mode: "deterministic_workflow",
+            sandbox: "container",
+            max_retries: 2,
+            timeout_seconds: 30,
+            idempotency_required: true,
+            replay_safe: true,
+            observability: {
+              log_privileged_actions: true,
+              emit_cost_metrics: true,
+              emit_latency_metrics: true,
+            },
+          },
+        };
+      }
+
+      async function requestJson({ method, path, apiKey, runId, body, headers = {} }) {
+        const httpMethod = method.toUpperCase();
+        const requestHeaders = {
+          "X-API-Key": apiKey,
+          ...headers,
+        };
+        if (["POST", "PUT", "PATCH", "DELETE"].includes(httpMethod)) {
+          requestHeaders["Idempotency-Key"] =
+            requestHeaders["Idempotency-Key"] || `${runId}-${path.replace(/[\\/{}:?&=]/g, "_")}-${Date.now()}`;
+        }
+        if (body !== undefined) {
+          requestHeaders["Content-Type"] = "application/json";
+        }
+
+        const response = await fetch(path, {
+          method: httpMethod,
+          headers: requestHeaders,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+
+        const text = await response.text();
+        let payload = null;
+        if (text) {
+          try {
+            payload = JSON.parse(text);
+          } catch (_error) {
+            payload = { raw: text };
+          }
+        }
+
+        if (!response.ok) {
+          const detail = payload && typeof payload === "object" ? JSON.stringify(payload) : String(payload);
+          throw new Error(`${httpMethod} ${path} -> ${response.status}: ${detail}`);
+        }
+
+        return payload;
+      }
+
+      function resetOutput() {
+        stepLog.innerHTML = "";
+        output.textContent = "{}";
+        setStatus("ok", "Ready.");
+      }
+
+      async function runDemo() {
+        runBtn.disabled = true;
+        resetOutput();
+        setStatus("ok", "Running full customer journey...");
+
+        const sellerKey = document.getElementById("sellerKey").value.trim();
+        const buyerKey = document.getElementById("buyerKey").value.trim();
+        const adminKey = document.getElementById("adminKey").value.trim();
+        const searchQuery = document.getElementById("searchQuery").value.trim() || "plan pipeline";
+        const unitPrice = Number(document.getElementById("unitPrice").value);
+        const units = Number(document.getElementById("units").value);
+
+        const suffix = randomSuffix();
+        const runId = `customer-e2e-${suffix}`;
+        const namespace = `@cust${suffix.slice(0, 8)}`;
+        const agentSlug = `customer-agent-${suffix}`;
+        const accountId = `acct-${suffix.slice(0, 10)}`;
+
+        const summary = {
+          run_id: runId,
+          namespace,
+          account_id: accountId,
+        };
+
+        try {
+          const register = await requestJson({
+            method: "POST",
+            path: "/v1/agents",
+            apiKey: sellerKey,
+            runId,
+            body: {
+              namespace,
+              manifest: manifestTemplate(agentSlug, "1.0.0"),
+            },
+          });
+          appendStep("Register agent v1.0.0", register.id, true);
+          summary.agent_id = register.id;
+
+          const update = await requestJson({
+            method: "PUT",
+            path: `/v1/agents/${encodeURIComponent(register.id)}`,
+            apiKey: sellerKey,
+            runId,
+            body: {
+              manifest: manifestTemplate(agentSlug, "1.1.0"),
+            },
+          });
+          appendStep("Publish agent v1.1.0", update.latest_version, true);
+
+          const search = await requestJson({
+            method: "POST",
+            path: "/v1/capabilities/search",
+            apiKey: buyerKey,
+            runId,
+            body: {
+              query: searchQuery,
+              pagination: { mode: "offset", offset: 0, limit: 5 },
+            },
+          });
+          appendStep("Capability search", `${(search.data || []).length} results`, true);
+
+          const delegation = await requestJson({
+            method: "POST",
+            path: "/v1/delegations",
+            apiKey: sellerKey,
+            runId,
+            body: {
+              requester_agent_id: register.id,
+              delegate_agent_id: register.id,
+              task_spec: "Customer journey delegation",
+              estimated_cost_usd: 2.0,
+              max_budget_usd: 5.0,
+              simulated_actual_cost_usd: 1.7,
+            },
+          });
+          appendStep("Create delegation", delegation.delegation_id, true);
+          summary.delegation_id = delegation.delegation_id;
+
+          const dashboard = await requestJson({
+            method: "GET",
+            path: `/v1/operator/dashboard?agent_id=${encodeURIComponent(register.id)}&query=${encodeURIComponent(searchQuery)}`,
+            apiKey: buyerKey,
+            runId,
+            headers: { "X-Operator-Role": "viewer" },
+          });
+          appendStep("Operator dashboard", `timeline=${(dashboard.sections.timeline || []).length}`, true);
+
+          const listing = await requestJson({
+            method: "POST",
+            path: "/v1/marketplace/listings",
+            apiKey: sellerKey,
+            runId,
+            body: {
+              capability_ref: "@seed:data-normalizer/normalize-records",
+              unit_price_usd: unitPrice,
+              max_units_per_purchase: 10,
+              policy_purchase_limit_usd: 10.0,
+            },
+          });
+          appendStep("Create listing", listing.listing_id, true);
+
+          const policyPack = await requestJson({
+            method: "POST",
+            path: "/v1/procurement/policy-packs",
+            apiKey: adminKey,
+            runId,
+            body: {
+              buyer: "owner-partner",
+              auto_approve_limit_usd: 1.0,
+              hard_stop_limit_usd: 5.0,
+              allowed_sellers: ["owner-dev"],
+            },
+          });
+          appendStep("Upsert procurement policy pack", policyPack.pack_id, true);
+
+          const approval = await requestJson({
+            method: "POST",
+            path: "/v1/procurement/approvals",
+            apiKey: buyerKey,
+            runId,
+            body: {
+              buyer: "owner-partner",
+              listing_id: listing.listing_id,
+              units,
+              estimated_total_usd: Number((units * unitPrice).toFixed(6)),
+              note: "customer-journey approval request",
+            },
+          });
+          appendStep("Request procurement approval", approval.approval_id, true);
+
+          const decision = await requestJson({
+            method: "POST",
+            path: `/v1/procurement/approvals/${approval.approval_id}/decision`,
+            apiKey: adminKey,
+            runId,
+            body: {
+              decision: "approve",
+              approved_max_total_usd: Number((units * unitPrice + 0.5).toFixed(6)),
+              note: "approved in customer journey",
+            },
+          });
+          appendStep("Approve procurement request", decision.status, true);
+
+          const purchase = await requestJson({
+            method: "POST",
+            path: "/v1/marketplace/purchase",
+            apiKey: buyerKey,
+            runId,
+            body: {
+              listing_id: listing.listing_id,
+              units,
+              max_total_usd: Number((units * unitPrice + 5).toFixed(6)),
+              policy_approved: true,
+              procurement_approval_id: approval.approval_id,
+            },
+          });
+          appendStep("Purchase listing", purchase.contract_id, true);
+          summary.contract_id = purchase.contract_id;
+
+          const settlement = await requestJson({
+            method: "POST",
+            path: `/v1/marketplace/contracts/${purchase.contract_id}/settle`,
+            apiKey: buyerKey,
+            runId,
+            body: { units_used: units },
+          });
+          appendStep("Settle contract", settlement.status, true);
+
+          const dispute = await requestJson({
+            method: "POST",
+            path: `/v1/marketplace/contracts/${purchase.contract_id}/disputes`,
+            apiKey: buyerKey,
+            runId,
+            body: {
+              reason: "quality variance adjustment",
+              requested_amount_usd: Number((unitPrice * 0.5).toFixed(6)),
+            },
+          });
+          appendStep("Create dispute", dispute.dispute_id, true);
+
+          const resolved = await requestJson({
+            method: "POST",
+            path: `/v1/marketplace/disputes/${dispute.dispute_id}/resolve`,
+            apiKey: adminKey,
+            runId,
+            body: {
+              resolution: "approved_partial",
+              approved_amount_usd: Number((unitPrice * 0.25).toFixed(6)),
+            },
+          });
+          appendStep("Resolve dispute", resolved.status, true);
+
+          const payout = await requestJson({
+            method: "POST",
+            path: `/v1/marketplace/contracts/${purchase.contract_id}/payout`,
+            apiKey: adminKey,
+            runId,
+          });
+          appendStep("Execute payout", `net=${payout.net_payout_usd}`, true);
+
+          await requestJson({
+            method: "POST",
+            path: "/v1/billing/subscriptions",
+            apiKey: sellerKey,
+            runId,
+            body: {
+              account_id: accountId,
+              plan_id: "journey-pro",
+              monthly_fee_usd: 12.0,
+              included_units: 100,
+            },
+          });
+          appendStep("Create subscription", accountId, true);
+
+          await requestJson({
+            method: "POST",
+            path: "/v1/billing/usage",
+            apiKey: sellerKey,
+            runId,
+            body: {
+              account_id: accountId,
+              meter: "marketplace_calls",
+              quantity: units,
+              unit_price_usd: 0.35,
+            },
+          });
+          appendStep("Record billing usage", `${units} units`, true);
+
+          const invoice = await requestJson({
+            method: "POST",
+            path: "/v1/billing/invoices/generate",
+            apiKey: sellerKey,
+            runId,
+            body: { account_id: accountId },
+          });
+          appendStep("Generate invoice", invoice.invoice_id, true);
+
+          const reconcile = await requestJson({
+            method: "POST",
+            path: `/v1/billing/invoices/${invoice.invoice_id}/reconcile`,
+            apiKey: sellerKey,
+            runId,
+          });
+          appendStep("Reconcile invoice", `matched=${reconcile.matched}`, true);
+
+          const replay = await requestJson({
+            method: "GET",
+            path: `/v1/operator/replay/${delegation.delegation_id}`,
+            apiKey: buyerKey,
+            runId,
+            headers: { "X-Operator-Role": "viewer" },
+          });
+          appendStep("Load operator replay", `events=${(replay.timeline || []).length}`, true);
+
+          const compare = await requestJson({
+            method: "GET",
+            path: `/v1/agents/${encodeURIComponent(register.id)}/compare/1.0.0/1.1.0`,
+            apiKey: sellerKey,
+            runId,
+          });
+          appendStep("Compare versions", compare.behavioral_diff.compatibility, true);
+
+          summary.discovery_result_count = (search.data || []).length;
+          summary.invoice_id = invoice.invoice_id;
+          summary.invoice_due_usd = invoice.due_usd;
+          summary.reconcile_matched = reconcile.matched;
+          summary.dispute_id = dispute.dispute_id;
+          summary.payout_id = payout.payout_id;
+          summary.compare_risk_level = compare.behavioral_diff.risk_level;
+
+          output.textContent = JSON.stringify(
+            {
+              summary,
+              artifacts: {
+                agent: register,
+                delegation,
+                listing,
+                approval,
+                purchase,
+                payout,
+                invoice,
+                reconcile,
+                compare,
+              },
+            },
+            null,
+            2
+          );
+          setStatus("ok", "Demo completed successfully.");
+        } catch (error) {
+          appendStep("Demo run", error.message, false);
+          output.textContent = JSON.stringify({ error: error.message }, null, 2);
+          setStatus("warn", "Demo failed. Review step log and output payload.");
+        } finally {
+          runBtn.disabled = false;
+        }
+      }
+
+      runBtn.addEventListener("click", runDemo);
+      resetBtn.addEventListener("click", resetOutput);
+      resetOutput();
+    </script>
+  </body>
+</html>

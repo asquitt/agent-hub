@@ -73,6 +73,7 @@ Open interfaces:
 - OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`
 - Operator Console: `http://127.0.0.1:8000/operator`
 - Version Compare UI: `http://127.0.0.1:8000/operator/versioning`
+- Customer Journey Console: `http://127.0.0.1:8000/customer`
 
 ## Local Authentication Defaults
 Default development API keys map to owners:
@@ -134,6 +135,12 @@ make lease-test
 make knowledge-test
 make billing-test
 make cli-test
+```
+
+Playwright E2E:
+```bash
+make e2e-install
+make e2e-test
 ```
 
 Syntax/lint sanity:
