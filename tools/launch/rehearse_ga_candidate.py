@@ -42,10 +42,8 @@ def main() -> int:
     manifest = yaml.safe_load((ROOT / args.manifest).read_text(encoding="utf-8"))
     gate_review = json.loads((ROOT / args.gate_review).read_text(encoding="utf-8"))
 
-    STORE.namespaces.clear()
-    STORE.agents.clear()
-    lease_service.LEASES.clear()
-    lease_service.INSTALLS.clear()
+    STORE.reset_for_tests()
+    lease_service.reset_state_for_tests()
 
     with TestClient(app) as client:
         report = build_ga_launch_rehearsal_report(

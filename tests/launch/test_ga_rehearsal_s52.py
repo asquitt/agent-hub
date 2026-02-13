@@ -20,10 +20,11 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture(autouse=True)
 def reset_runtime_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     registry_db = tmp_path / "registry.db"
+    lease_db = tmp_path / "lease.db"
     monkeypatch.setenv("AGENTHUB_REGISTRY_DB_PATH", str(registry_db))
+    monkeypatch.setenv("AGENTHUB_LEASE_DB_PATH", str(lease_db))
     STORE.reset_for_tests(db_path=registry_db)
-    lease_service.LEASES.clear()
-    lease_service.INSTALLS.clear()
+    lease_service.reset_state_for_tests()
 
 
 def _load_manifest() -> dict:

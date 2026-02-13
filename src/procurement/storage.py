@@ -4,13 +4,14 @@ import os
 from pathlib import Path
 from typing import Any
 
-from src.common.json_store import read_json_list, write_json_list
+from src.common.sqlite_collections import read_collection, write_collection
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_POLICY_PACKS = ROOT / "data" / "procurement" / "policy_packs.json"
 DEFAULT_APPROVALS = ROOT / "data" / "procurement" / "approvals.json"
 DEFAULT_EXCEPTIONS = ROOT / "data" / "procurement" / "exceptions.json"
 DEFAULT_AUDIT = ROOT / "data" / "procurement" / "audit.json"
+DEFAULT_DB = ROOT / "data" / "procurement" / "procurement.db"
 
 
 def _path(name: str) -> Path:
@@ -25,11 +26,34 @@ def _path(name: str) -> Path:
     raise ValueError(f"unsupported procurement storage name: {name}")
 
 
+def _db_path() -> Path:
+    override = os.getenv("AGENTHUB_PROCUREMENT_DB_PATH")
+    if override:
+        return Path(override)
+    for legacy_env in (
+        "AGENTHUB_PROCUREMENT_POLICY_PACKS_PATH",
+        "AGENTHUB_PROCUREMENT_APPROVALS_PATH",
+        "AGENTHUB_PROCUREMENT_EXCEPTIONS_PATH",
+        "AGENTHUB_PROCUREMENT_AUDIT_PATH",
+    ):
+        if os.getenv(legacy_env):
+            return _path("policy_packs").parent / "procurement.db"
+    return DEFAULT_DB
+
+
 def load(name: str) -> list[dict[str, Any]]:
-    path = _path(name)
-    return read_json_list(path)
+    return read_collection(
+        db_path=_db_path(),
+        scope="procurement",
+        collection_name=name,
+        legacy_path=_path(name),
+    )
 
 
 def save(name: str, rows: list[dict[str, Any]]) -> None:
-    path = _path(name)
-    write_json_list(path, rows)
+    write_collection(
+        db_path=_db_path(),
+        scope="procurement",
+        collection_name=name,
+        rows=rows,
+    )

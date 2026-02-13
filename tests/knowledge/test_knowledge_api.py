@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.app import app
@@ -23,8 +26,13 @@ def _contribute(client: TestClient, content: str) -> dict:
     return response.json()
 
 
+@pytest.fixture(autouse=True)
+def reset_knowledge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTHUB_KNOWLEDGE_DB_PATH", str(tmp_path / "knowledge.db"))
+    service.reset_state_for_tests()
+
+
 def test_knowledge_contribution_query_and_provenance_hash() -> None:
-    service.KNOWLEDGE_ENTRIES.clear()
     client = TestClient(app)
 
     row = _contribute(client, "Use a deterministic checklist for alert triage and evidence capture.")
@@ -41,7 +49,6 @@ def test_knowledge_contribution_query_and_provenance_hash() -> None:
 
 
 def test_poisoning_defense_rejects_prompt_injection_patterns() -> None:
-    service.KNOWLEDGE_ENTRIES.clear()
     client = TestClient(app)
 
     response = client.post(
@@ -61,7 +68,6 @@ def test_poisoning_defense_rejects_prompt_injection_patterns() -> None:
 
 
 def test_confidence_decay_and_cross_validation_feedback() -> None:
-    service.KNOWLEDGE_ENTRIES.clear()
     client = TestClient(app)
 
     now_value = {"epoch": 2_000_000_000}

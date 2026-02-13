@@ -6,8 +6,7 @@ from typing import Any
 
 from src.common.time import iso_from_epoch, utc_now_epoch
 
-LEASES: dict[str, dict[str, Any]] = {}
-INSTALLS: dict[str, dict[str, Any]] = {}
+from . import storage as lease_storage
 
 
 def _now_epoch() -> int:
@@ -56,17 +55,24 @@ def create_lease(
         "attestation_hash": attestation_hash,
         "promotion": None,
     }
-    LEASES[lease_id] = record
+    leases = lease_storage.load_leases()
+    leases[lease_id] = record
+    lease_storage.save_leases(leases)
     return _normalize_status(record.copy(), now)
 
 
 def get_lease(lease_id: str, owner: str) -> dict[str, Any]:
-    if lease_id not in LEASES:
+    leases = lease_storage.load_leases()
+    if lease_id not in leases:
         raise KeyError("lease not found")
-    row = LEASES[lease_id]
+    row = leases[lease_id]
     if row["owner"] != owner:
         raise PermissionError("owner mismatch")
+    previous_status = row["status"]
     _normalize_status(row)
+    if row["status"] != previous_status:
+        leases[lease_id] = row
+        lease_storage.save_leases(leases)
     return row.copy()
 
 
@@ -79,13 +85,18 @@ def promote_lease(
     approval_ticket: str,
     compatibility_verified: bool,
 ) -> dict[str, Any]:
-    if lease_id not in LEASES:
+    leases = lease_storage.load_leases()
+    if lease_id not in leases:
         raise KeyError("lease not found")
-    row = LEASES[lease_id]
+    row = leases[lease_id]
     if row["owner"] != owner:
         raise PermissionError("owner mismatch")
 
+    previous_status = row["status"]
     _normalize_status(row)
+    if row["status"] != previous_status:
+        leases[lease_id] = row
+        lease_storage.save_leases(leases)
     if row["status"] == "expired":
         raise ValueError("lease expired")
     if row["status"] == "promoted":
@@ -104,7 +115,8 @@ def promote_lease(
         raise PermissionError("invalid attestation signature")
 
     install_id = str(uuid.uuid4())
-    INSTALLS[install_id] = {
+    installs = lease_storage.load_installs()
+    installs[install_id] = {
         "install_id": install_id,
         "lease_id": lease_id,
         "owner": owner,
@@ -117,6 +129,7 @@ def promote_lease(
         "rolled_back_at": None,
         "rollback_reason": None,
     }
+    lease_storage.save_installs(installs)
 
     row["status"] = "promoted"
     row["promotion"] = {
@@ -127,13 +140,16 @@ def promote_lease(
         "compatibility_verified": compatibility_verified,
         "install_id": install_id,
     }
+    leases[lease_id] = row
+    lease_storage.save_leases(leases)
     return row.copy()
 
 
 def rollback_install(install_id: str, owner: str, reason: str) -> dict[str, Any]:
-    if install_id not in INSTALLS:
+    installs = lease_storage.load_installs()
+    if install_id not in installs:
         raise KeyError("install not found")
-    row = INSTALLS[install_id]
+    row = installs[install_id]
     if row["owner"] != owner:
         raise PermissionError("owner mismatch")
     if row["status"] == "rolled_back":
@@ -141,4 +157,10 @@ def rollback_install(install_id: str, owner: str, reason: str) -> dict[str, Any]
     row["status"] = "rolled_back"
     row["rolled_back_at"] = _iso_from_epoch(_now_epoch())
     row["rollback_reason"] = reason
+    installs[install_id] = row
+    lease_storage.save_installs(installs)
     return row.copy()
+
+
+def reset_state_for_tests() -> None:
+    lease_storage.reset_for_tests()

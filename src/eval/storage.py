@@ -4,10 +4,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-from src.common.json_store import append_json_list_row, read_json_list, write_json_list
+from src.common.sqlite_collections import append_collection_row, read_collection, write_collection
 
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS_PATH = ROOT / "data" / "evals" / "results.json"
+DEFAULT_DB = ROOT / "data" / "evals" / "evals.db"
 
 
 def _current_results_path() -> Path:
@@ -15,16 +16,41 @@ def _current_results_path() -> Path:
     return Path(override) if override else RESULTS_PATH
 
 
+def _db_path() -> Path:
+    override = os.getenv("AGENTHUB_EVAL_DB_PATH")
+    if override:
+        return Path(override)
+    if os.getenv("AGENTHUB_EVAL_RESULTS_PATH"):
+        return _current_results_path().parent / "evals.db"
+    return DEFAULT_DB
+
+
 def load_results() -> list[dict[str, Any]]:
-    return read_json_list(_current_results_path())
+    return read_collection(
+        db_path=_db_path(),
+        scope="eval",
+        collection_name="results",
+        legacy_path=_current_results_path(),
+    )
 
 
 def save_results(rows: list[dict[str, Any]]) -> None:
-    write_json_list(_current_results_path(), rows)
+    write_collection(
+        db_path=_db_path(),
+        scope="eval",
+        collection_name="results",
+        rows=rows,
+    )
 
 
 def append_result(result: dict[str, Any]) -> None:
-    append_json_list_row(_current_results_path(), result)
+    append_collection_row(
+        db_path=_db_path(),
+        scope="eval",
+        collection_name="results",
+        row=result,
+        legacy_path=_current_results_path(),
+    )
 
 
 def latest_result(agent_id: str, version: str | None = None) -> dict[str, Any] | None:

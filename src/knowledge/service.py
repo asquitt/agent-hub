@@ -5,8 +5,8 @@ import uuid
 from typing import Any
 
 from src.common.time import iso_from_epoch, utc_now_epoch
+from . import storage as knowledge_storage
 
-KNOWLEDGE_ENTRIES: dict[str, dict[str, Any]] = {}
 POISON_PATTERNS = [
     "ignore previous instructions",
     "system prompt",
@@ -82,7 +82,9 @@ def contribute_entry(
         "created_at_epoch": now,
         "updated_at": _iso(now),
     }
-    KNOWLEDGE_ENTRIES[entry_id] = row
+    entries = knowledge_storage.load_entries()
+    entries[entry_id] = row
+    knowledge_storage.save_entries(entries)
     out = row.copy()
     out["confidence"] = _confidence(row, now_epoch=now)
     return out
@@ -93,7 +95,8 @@ def query_entries(query: str, limit: int = 10) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     now = _now_epoch()
 
-    for row in KNOWLEDGE_ENTRIES.values():
+    entries = knowledge_storage.load_entries()
+    for row in entries.values():
         text = " ".join([row["title"], row["content"], " ".join(row["tags"])]).lower()
         if terms and not all(term in text for term in terms):
             continue
@@ -106,9 +109,10 @@ def query_entries(query: str, limit: int = 10) -> list[dict[str, Any]]:
 
 
 def validate_entry(entry_id: str, validator: str, verdict: bool, rationale: str) -> dict[str, Any]:
-    if entry_id not in KNOWLEDGE_ENTRIES:
+    entries = knowledge_storage.load_entries()
+    if entry_id not in entries:
         raise KeyError("entry not found")
-    row = KNOWLEDGE_ENTRIES[entry_id]
+    row = entries[entry_id]
     now = _now_epoch()
 
     row["validations"].append(
@@ -120,7 +124,13 @@ def validate_entry(entry_id: str, validator: str, verdict: bool, rationale: str)
         }
     )
     row["updated_at"] = _iso(now)
+    entries[entry_id] = row
+    knowledge_storage.save_entries(entries)
 
     out = row.copy()
     out["confidence"] = _confidence(row, now_epoch=now)
     return out
+
+
+def reset_state_for_tests() -> None:
+    knowledge_storage.reset_for_tests()

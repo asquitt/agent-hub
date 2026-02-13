@@ -4,10 +4,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-from src.common.json_store import read_json_list, write_json_list
+from src.common.sqlite_collections import append_collection_row, read_collection, write_collection
 
 ROOT = Path(__file__).resolve().parents[2]
 TRUST_DIR = ROOT / "data" / "trust"
+DEFAULT_DB = TRUST_DIR / "trust.db"
 DEFAULT_FILES = {
     "usage_events": TRUST_DIR / "usage_events.json",
     "reviews": TRUST_DIR / "reviews.json",
@@ -24,18 +25,42 @@ def _path(name: str) -> Path:
     return Path(override) if override else DEFAULT_FILES[name]
 
 
+def _db_path() -> Path:
+    override = os.getenv("AGENTHUB_TRUST_DB_PATH")
+    if override:
+        return Path(override)
+    for legacy_name in DEFAULT_FILES:
+        if os.getenv(f"AGENTHUB_TRUST_{legacy_name.upper()}_PATH"):
+            return _path(legacy_name).parent / "trust.db"
+    return DEFAULT_DB
+
+
 def load(name: str) -> list[dict[str, Any]]:
-    return read_json_list(_path(name))
+    return read_collection(
+        db_path=_db_path(),
+        scope="trust",
+        collection_name=name,
+        legacy_path=_path(name),
+    )
 
 
 def save(name: str, rows: list[dict[str, Any]]) -> None:
-    write_json_list(_path(name), rows)
+    write_collection(
+        db_path=_db_path(),
+        scope="trust",
+        collection_name=name,
+        rows=rows,
+    )
 
 
 def append(name: str, row: dict[str, Any]) -> None:
-    rows = load(name)
-    rows.append(row)
-    save(name, rows)
+    append_collection_row(
+        db_path=_db_path(),
+        scope="trust",
+        collection_name=name,
+        row=row,
+        legacy_path=_path(name),
+    )
 
 
 def upsert_score(score_row: dict[str, Any]) -> None:

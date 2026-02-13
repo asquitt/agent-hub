@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,8 +11,9 @@ from src.lease import service
 
 
 @pytest.fixture(autouse=True)
-def reset_leases() -> None:
-    service.LEASES.clear()
+def reset_leases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTHUB_LEASE_DB_PATH", str(tmp_path / "lease.db"))
+    service.reset_state_for_tests()
 
 
 def test_lease_create_and_promote_success() -> None:
