@@ -144,6 +144,33 @@
         font-size: 0.76rem;
       }
 
+      .diag-summary {
+        margin: 0 0 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .diag-summary .pill {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        background: #d9e2ec;
+        color: #102a43;
+      }
+
+      .diag-summary .pill.ok {
+        background: #bbf7d0;
+        color: #14532d;
+      }
+
+      .diag-summary .pill.warn {
+        background: #fed7aa;
+        color: #9a3412;
+      }
+
       .status {
         color: #f0f4f8;
         min-height: 20px;
@@ -266,6 +293,9 @@
         </article>
         <article class="card">
           <h2>Startup Diagnostics</h2>
+          <div class="diag-summary" id="diagSummary">
+            <span class="pill">not loaded</span>
+          </div>
           <pre id="diagOut">{}</pre>
         </article>
       </section>
@@ -280,6 +310,7 @@
       const replayDelegationId = document.getElementById("replayDelegationId");
       const diagMode = document.getElementById("diagMode");
       const diagBtn = document.getElementById("diagBtn");
+      const diagSummary = document.getElementById("diagSummary");
       const refreshBtn = document.getElementById("refreshBtn");
 
       function setStatus(kind, message) {
@@ -294,6 +325,18 @@
 
       function render(id, payload) {
         document.getElementById(id).textContent = JSON.stringify(payload, null, 2);
+      }
+
+      function renderDiagnosticsSummary(payload) {
+        const summary = payload.summary || {};
+        const overallReady = Boolean(payload.overall_ready);
+        const checksFail = Number(summary.check_failures || 0);
+        const probesFail = Number(summary.probe_failures || 0);
+        diagSummary.innerHTML = [
+          `<span class="pill ${overallReady ? "ok" : "warn"}">overall: ${overallReady ? "ready" : "not-ready"}</span>`,
+          `<span class="pill ${checksFail ? "warn" : "ok"}">checks fail: ${checksFail}</span>`,
+          `<span class="pill ${probesFail ? "warn" : "ok"}">probes fail: ${probesFail}</span>`,
+        ].join("");
       }
 
       function baseHeaders() {
@@ -397,6 +440,7 @@
           setStatus("warn", `Diagnostics load failed: ${JSON.stringify(data)}`);
           return;
         }
+        renderDiagnosticsSummary(data);
         render("diagOut", data);
         setStatus("ok", `Loaded startup diagnostics (${diagMode.value})`);
       }

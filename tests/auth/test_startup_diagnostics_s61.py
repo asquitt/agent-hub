@@ -21,6 +21,8 @@ def test_startup_diagnostics_reports_missing_and_invalid_fields() -> None:
     assert checks["AGENTHUB_AUTH_TOKEN_SECRET"]["valid"] is False
     assert checks["AGENTHUB_PROVENANCE_SIGNING_SECRET"]["present"] is False
     assert "AGENTHUB_PROVENANCE_SIGNING_SECRET" in payload["missing_or_invalid"]
+    assert checks["AGENTHUB_API_KEYS_JSON"]["severity"] == "critical"
+    assert payload["summary"]["check_failures"] >= 1
     assert payload["overall_ready"] is False
 
 
@@ -31,6 +33,7 @@ def test_startup_diagnostics_endpoint_admin_access() -> None:
     payload = response.json()
     assert payload["startup_ready"] is True
     assert payload["overall_ready"] is True
+    assert payload["summary"]["check_failures"] == 0
     assert payload["access_enforcement_mode"] == "enforce"
     assert sorted(payload["required_env_vars"]) == sorted(
         [
@@ -56,6 +59,9 @@ def test_startup_diagnostics_reports_probe_failures() -> None:
     assert payload["startup_ready"] is True
     assert payload["overall_ready"] is False
     assert "AGENTHUB_REGISTRY_DB_PATH" in payload["probe_failures"]
+    assert payload["summary"]["probe_failures"] >= 1
+    failed_probe = next(row for row in payload["probes"] if row["probe"] == "AGENTHUB_REGISTRY_DB_PATH")
+    assert failed_probe["severity"] == "high"
 
 
 def test_startup_diagnostics_endpoint_blocks_non_admin() -> None:

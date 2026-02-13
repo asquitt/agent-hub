@@ -85,6 +85,7 @@ test.describe("S55 Operator and Versioning E2E", () => {
     await page.getByLabel("Startup Diagnostics").selectOption("failing");
     await page.getByRole("button", { name: "Load Startup Diagnostics" }).click();
     await expect(page.locator("#status")).toContainText("Loaded startup diagnostics");
+    await expect(page.locator("#diagSummary")).toContainText("overall:");
     await expect(page.locator("#diagOut")).toContainText('"overall_ready"');
   });
 });

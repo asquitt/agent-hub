@@ -155,9 +155,24 @@ def build_startup_diagnostics(environ: Mapping[str, str] | None = None) -> dict[
         {"component": "provenance", **_check_non_empty(env, "AGENTHUB_PROVENANCE_SIGNING_SECRET")},
     ]
     probes = [_path_probe(env, key) for key in PATH_PROBES]
+    for row in checks:
+        row["severity"] = "critical" if not bool(row.get("valid")) else "info"
+    for row in probes:
+        status = str(row.get("status", "skipped"))
+        if status == "fail":
+            row["severity"] = "high"
+        elif status == "pass":
+            row["severity"] = "info"
+        else:
+            row["severity"] = "low"
     missing_or_invalid = [row["env_var"] for row in checks if not row["valid"]]
     probe_failures = [row["probe"] for row in probes if row["status"] == "fail"]
     startup_ready = len(missing_or_invalid) == 0
+    overall_ready = startup_ready and len(probe_failures) == 0
+    severity_counts = {"critical": 0, "high": 0, "low": 0, "info": 0}
+    for row in checks + probes:
+        severity = str(row.get("severity", "info"))
+        severity_counts[severity] = severity_counts.get(severity, 0) + 1
     return {
         "generated_at": utc_now_iso(),
         "access_enforcement_mode": access_mode(),
@@ -166,6 +181,12 @@ def build_startup_diagnostics(environ: Mapping[str, str] | None = None) -> dict[
         "startup_ready": startup_ready,
         "probes": probes,
         "probe_failures": probe_failures,
-        "overall_ready": startup_ready and len(probe_failures) == 0,
+        "overall_ready": overall_ready,
+        "summary": {
+            "check_failures": len(missing_or_invalid),
+            "probe_failures": len(probe_failures),
+            "overall_ready": overall_ready,
+            "severity_counts": severity_counts,
+        },
         "missing_or_invalid": missing_or_invalid,
     }

@@ -118,6 +118,7 @@ export AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON='["owner-dev","owner-platform"]'
 - Purpose:
   - Reports whether required startup security env vars are present/valid without exposing secret values.
   - Includes path probes and `overall_ready` (startup checks + probe checks).
+  - Includes severity metadata and summary counters for rapid triage.
 - Access:
   - Allowed owners: `owner-dev`, `owner-platform`
   - Missing auth: `401`
