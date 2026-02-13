@@ -73,7 +73,7 @@ Open interfaces:
 - OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`
 - Operator Console: `http://127.0.0.1:8000/operator`
 - Version Compare UI: `http://127.0.0.1:8000/operator/versioning`
-- Customer Journey Console: `http://127.0.0.1:8000/customer`
+- Customer Journey Console: `http://127.0.0.1:8000/customer` (disabled by default; returns `404` unless enabled)
 
 ## Local Authentication Defaults
 Default development API keys map to owners:
@@ -93,6 +93,19 @@ curl -s -X POST http://127.0.0.1:8000/v1/auth/tokens \
   -H "Content-Type: application/json" \
   -d '{"scopes":["operator.refresh"],"ttl_seconds":1800}'
 ```
+
+## Customer UI Hardening (S58)
+- `GET /customer` returns `404` by default.
+- Enable the route only for controlled demo/staging runs:
+```bash
+export AGENTHUB_CUSTOMER_UI_ENABLED=true
+export AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH=true
+export AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON='["owner-dev","owner-platform"]'
+```
+- When enabled with auth required:
+  - Missing auth -> `401`
+  - Authenticated but owner not allowlisted -> `403`
+- The page is a demo workflow surface, not production end-user auth UX.
 
 ## Idempotency + Access Enforcement
 - Most write endpoints under `/v1/*` require `Idempotency-Key`.
@@ -143,6 +156,12 @@ make e2e-install
 make e2e-test
 ```
 
+Strict hardening gate (same as CI required jobs):
+```bash
+pytest tests/auth/test_access_enforcement_s53.py tests/operator/test_operator_ui.py tests/gate/test_architecture_guardrails_s53.py -q
+npm run e2e
+```
+
 Syntax/lint sanity:
 ```bash
 make lint
@@ -168,6 +187,9 @@ Compose includes:
 - `AGENTHUB_ACCESS_ENFORCEMENT_MODE` (`warn` or `enforce`)
 - `AGENTHUB_API_KEYS_JSON` (custom API key map in enforce mode)
 - `AGENTHUB_AUTH_TOKEN_SECRET` (token signing secret)
+- `AGENTHUB_CUSTOMER_UI_ENABLED` (`false` by default; controls `/customer` route availability)
+- `AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH` (`true` by default; auth requirement when customer UI is enabled)
+- `AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON` (`["owner-dev","owner-platform"]` default owner allowlist for enabled customer UI)
 - `AGENTHUB_OWNER_TENANTS_JSON` (owner-to-tenant mapping)
 - `AGENTHUB_REGISTRY_DB_PATH` (registry SQLite path)
 - `AGENTHUB_DELEGATION_DB_PATH` (delegation SQLite path)
@@ -195,6 +217,21 @@ Compose includes:
 - Marketplace finance: `docs/billing/MARKETPLACE_FINANCE_V2_S44.md`
 - Compliance controls: `docs/compliance/COMPLIANCE_CONTROLS_S47.md`
 - GA rehearsal: `docs/launch/GA_REHEARSAL_RUNBOOK_S52.md`
+
+## CI Required Checks (Branch Protection)
+Workflow: `.github/workflows/quality-gates.yml`
+
+Configure GitHub branch protection for `main`:
+1. Enable `Require status checks to pass before merging`.
+2. Add required checks:
+   - `pytest-targeted`
+   - `playwright-e2e`
+   - `quality-gates`
+   - In GitHub UI these may appear as:
+     - `Quality Gates / pytest-targeted`
+     - `Quality Gates / playwright-e2e`
+     - `Quality Gates / quality-gates`
+3. Keep these checks required for pull requests and direct pushes to protected branches.
 
 ## License
 Proprietary/Confidential unless explicitly stated otherwise.

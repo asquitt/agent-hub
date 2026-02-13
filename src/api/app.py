@@ -3,11 +3,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from pathlib import Path
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import JSONResponse, Response
 
 from src.api.access_policy import access_mode, classify_route, evaluate_access, requires_idempotency
 from src.api.auth import (
@@ -18,6 +18,8 @@ from src.api.auth import (
     resolve_owner_from_headers,
     validate_auth_configuration,
 )
+from src.api.operator_helpers import delegation_timeline, policy_cost_overlay, require_operator_role
+from src.api.routes import customer_router, operator_router, system_router
 from src.api.manifest_validation import validate_manifest_object
 from src.api.models import (
     AuthTokenIssueRequest,
@@ -105,13 +107,17 @@ from src.trust.scoring import compute_trust_score, record_usage_event as trust_r
 from src.versioning import compute_behavioral_diff
 from src.discovery.index import LIVE_CAPABILITY_INDEX
 
-app = FastAPI(title="AgentHub Registry Service", version="0.1.0")
-ROOT = Path(__file__).resolve().parents[2]
-OPERATOR_ROLE_BY_OWNER = {
-    "owner-dev": "admin",
-    "owner-platform": "admin",
-    "owner-partner": "viewer",
-}
+
+@asynccontextmanager
+async def _app_lifespan(_app: FastAPI):
+    validate_auth_configuration()
+    yield
+
+
+app = FastAPI(title="AgentHub Registry Service", version="0.1.0", lifespan=_app_lifespan)
+app.include_router(system_router)
+app.include_router(customer_router)
+app.include_router(operator_router)
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -157,24 +163,6 @@ def _serialize_agent(agent) -> dict[str, Any]:
         },
         "versions": [v.version for v in agent.versions],
     }
-
-
-def _resolve_operator_role(owner: str, requested_role: str | None) -> str:
-    assigned = OPERATOR_ROLE_BY_OWNER.get(owner, "viewer")
-    if requested_role is None:
-        return assigned
-    if requested_role not in {"viewer", "admin"}:
-        raise HTTPException(status_code=403, detail="invalid operator role")
-    if requested_role == "admin" and assigned != "admin":
-        raise HTTPException(status_code=403, detail="insufficient operator role")
-    return requested_role
-
-
-def _require_operator_role(owner: str, requested_role: str | None, allowed_roles: set[str]) -> str:
-    role = _resolve_operator_role(owner, requested_role)
-    if role not in allowed_roles:
-        raise HTTPException(status_code=403, detail="operator role not permitted")
-    return role
 
 
 def _is_admin_owner(owner: str) -> bool:
@@ -435,11 +423,6 @@ def _meter_warn(
     )
 
 
-@app.on_event("startup")
-def _validate_runtime_auth_configuration() -> None:
-    validate_auth_configuration()
-
-
 @app.middleware("http")
 async def _agenthub_access_policy_middleware(request: Request, call_next):
     method = request.method.upper()
@@ -614,95 +597,6 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
         raise
 
 
-def _delegation_timeline(delegations: list[dict[str, Any]], limit: int = 60) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for row in delegations:
-        delegation_id = str(row.get("delegation_id", ""))
-        for stage in row.get("lifecycle", []):
-            if not isinstance(stage, dict):
-                continue
-            events.append(
-                {
-                    "timestamp": stage.get("timestamp"),
-                    "delegation_id": delegation_id,
-                    "event_type": "lifecycle_stage",
-                    "event_name": stage.get("stage"),
-                    "details": stage.get("details", {}),
-                }
-            )
-        for audit in row.get("audit_trail", []):
-            if not isinstance(audit, dict):
-                continue
-            events.append(
-                {
-                    "timestamp": audit.get("timestamp"),
-                    "delegation_id": delegation_id,
-                    "event_type": "audit",
-                    "event_name": audit.get("type", "audit"),
-                    "details": audit.get("details", {}),
-                }
-            )
-
-    events.sort(key=lambda item: str(item.get("timestamp", "")), reverse=True)
-    return events[:limit]
-
-
-def _policy_cost_overlay(delegations: list[dict[str, Any]]) -> dict[str, Any]:
-    estimated_total = 0.0
-    actual_total = 0.0
-    hard_stop_count = 0
-    pending_reauth_count = 0
-    soft_alert_count = 0
-
-    cards: list[dict[str, Any]] = []
-    for row in delegations:
-        estimated = float(row.get("estimated_cost_usd", 0.0) or 0.0)
-        actual = float(row.get("actual_cost_usd", 0.0) or 0.0)
-        estimated_total += estimated
-        actual_total += actual
-
-        status = str(row.get("status", "unknown"))
-        if status == "failed_hard_stop":
-            hard_stop_count += 1
-        if status == "pending_reauthorization":
-            pending_reauth_count += 1
-        budget_controls = row.get("budget_controls", {}) if isinstance(row.get("budget_controls"), dict) else {}
-        if bool(budget_controls.get("soft_alert")):
-            soft_alert_count += 1
-
-        policy_decision = row.get("policy_decision", {}) if isinstance(row.get("policy_decision"), dict) else {}
-        cards.append(
-            {
-                "delegation_id": row.get("delegation_id"),
-                "status": status,
-                "updated_at": row.get("updated_at"),
-                "estimated_cost_usd": round(estimated, 6),
-                "actual_cost_usd": round(actual, 6),
-                "budget_ratio": float(budget_controls.get("ratio", 0.0) or 0.0),
-                "budget_state": budget_controls.get("state", "unknown"),
-                "policy_decision": policy_decision.get("decision", "unknown"),
-            }
-        )
-
-    cards.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
-    return {
-        "totals": {
-            "estimated_cost_usd": round(estimated_total, 6),
-            "actual_cost_usd": round(actual_total, 6),
-            "delegation_count": len(delegations),
-            "hard_stop_count": hard_stop_count,
-            "pending_reauthorization_count": pending_reauth_count,
-            "soft_alert_count": soft_alert_count,
-        },
-        "delegation_cards": cards[:8],
-    }
-
-
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
-    return {"status": "ok"}
-
-
 @app.post("/v1/auth/tokens")
 def issue_auth_token(
     request: AuthTokenIssueRequest,
@@ -753,24 +647,6 @@ def post_artifact_provenance_verify(
         envelope=request.envelope,
     )
     return {"verification": verification}
-
-
-@app.get("/operator", response_class=HTMLResponse)
-def operator_console() -> str:
-    ui_path = ROOT / "src" / "ui" / "operator_dashboard.html"
-    return ui_path.read_text(encoding="utf-8")
-
-
-@app.get("/operator/versioning", response_class=HTMLResponse)
-def operator_versioning_console() -> str:
-    ui_path = ROOT / "src" / "ui" / "version_compare.html"
-    return ui_path.read_text(encoding="utf-8")
-
-
-@app.get("/customer", response_class=HTMLResponse)
-def customer_journey_console() -> str:
-    ui_path = ROOT / "src" / "ui" / "customer_journey.html"
-    return ui_path.read_text(encoding="utf-8")
 
 
 @app.post("/v1/agents")
@@ -1112,107 +988,6 @@ def discovery_agent_manifest(
     return {"agent_id": agent_id, "version": latest.version, "manifest": latest.manifest}
 
 
-@app.get("/.well-known/agent-card.json")
-def discovery_agent_card() -> dict[str, Any]:
-    card_path = ROOT / ".well-known" / "agent-card.json"
-    return json.loads(card_path.read_text(encoding="utf-8"))
-
-
-@app.get("/v1/operator/dashboard")
-def operator_dashboard(
-    agent_id: str,
-    query: str = Query(default="normalize records"),
-    owner: str = Depends(require_api_key),
-    x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
-) -> dict[str, Any]:
-    role = _require_operator_role(owner, x_operator_role, {"viewer", "admin"})
-
-    try:
-        agent = STORE.get_agent(agent_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="agent not found") from exc
-
-    latest = agent.versions[-1]
-    eval_row = latest_result(agent_id=agent_id, version=latest.version)
-    trust = compute_trust_score(agent_id=agent_id, owner=agent.owner)
-
-    search_payload = _capability_search(
-        query=query,
-        pagination={"mode": "offset", "offset": 0, "limit": 5},
-        tenant_id=getattr(agent, "tenant_id", "tenant-default"),
-    )
-
-    delegations = [
-        row
-        for row in delegation_storage.load_records()
-        if row.get("requester_agent_id") == agent_id or row.get("delegate_agent_id") == agent_id
-    ]
-    delegations.sort(key=lambda row: row.get("updated_at", ""), reverse=True)
-    overlay = _policy_cost_overlay(delegations)
-    timeline = _delegation_timeline(delegations, limit=80)
-
-    return {
-        "role": role,
-        "agent_id": agent_id,
-        "sections": {
-            "search": {
-                "query": query,
-                "results": search_payload.get("data", []),
-            },
-            "agent_detail": {
-                "namespace": agent.namespace,
-                "status": agent.status,
-                "latest_version": latest.version,
-                "capability_count": len(latest.manifest.get("capabilities", [])),
-            },
-            "eval": eval_row
-            or {
-                "status": "pending",
-                "agent_id": agent_id,
-                "version": latest.version,
-            },
-            "trust": trust,
-            "delegations": delegations[:5],
-            "policy_cost_overlay": overlay,
-            "timeline": timeline,
-        },
-    }
-
-
-@app.get("/v1/operator/replay/{delegation_id}")
-def operator_replay(
-    delegation_id: str,
-    owner: str = Depends(require_api_key),
-    x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
-) -> dict[str, Any]:
-    role = _require_operator_role(owner, x_operator_role, {"viewer", "admin"})
-    row = delegation_storage.get_record(delegation_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="delegation not found")
-    queue_state = delegation_storage.get_queue_state(delegation_id)
-    overlay = _policy_cost_overlay([row])
-    timeline = _delegation_timeline([row], limit=200)
-    return {
-        "role": role,
-        "delegation_id": delegation_id,
-        "status": row.get("status", "unknown"),
-        "queue_state": queue_state,
-        "policy_decision": row.get("policy_decision"),
-        "budget_controls": row.get("budget_controls"),
-        "cost_overlay": overlay["totals"],
-        "timeline": timeline,
-    }
-
-
-@app.post("/v1/operator/refresh")
-def operator_refresh(
-    owner: str = Depends(require_scope("operator.refresh")),
-    x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
-) -> dict[str, str]:
-    role = _require_operator_role(owner, x_operator_role, {"admin"})
-    return {"status": "refreshed", "role": role}
-
-
 @app.post("/v1/devhub/reviews")
 def post_devhub_review(
     request: DevHubReviewCreateRequest,
@@ -1253,7 +1028,7 @@ def post_devhub_review_decision(
     owner: str = Depends(require_api_key),
     x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
 ) -> dict[str, Any]:
-    _ = _require_operator_role(owner, x_operator_role, {"admin"})
+    _ = require_operator_role(owner, x_operator_role, {"admin"})
     try:
         return devhub_service.decide_release_review(
             review_id=review_id,
@@ -1273,7 +1048,7 @@ def post_devhub_review_promote(
     owner: str = Depends(require_api_key),
     x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
 ) -> dict[str, Any]:
-    _ = _require_operator_role(owner, x_operator_role, {"admin"})
+    _ = require_operator_role(owner, x_operator_role, {"admin"})
     try:
         return devhub_service.promote_release_review(review_id=review_id, promoted_by=owner)
     except KeyError as exc:

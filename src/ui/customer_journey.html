@@ -61,6 +61,17 @@
         margin-bottom: 12px;
       }
 
+      .warning-banner {
+        margin: 10px 0 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #fdba74;
+        background: rgba(255, 237, 213, 0.92);
+        color: #7c2d12;
+        font-size: 0.88rem;
+        font-weight: 600;
+      }
+
       .controls {
         display: grid;
         gap: 10px;
@@ -189,18 +200,19 @@
       </section>
 
       <section class="panel">
+        <div class="warning-banner">Demo-only workflow; requires enabled server flag and authorized principal.</div>
         <div class="controls">
           <label>
             Seller API Key
-            <input id="sellerKey" value="dev-owner-key" />
+            <input id="sellerKey" value="" />
           </label>
           <label>
             Buyer API Key
-            <input id="buyerKey" value="partner-owner-key" />
+            <input id="buyerKey" value="" />
           </label>
           <label>
             Admin API Key
-            <input id="adminKey" value="platform-owner-key" />
+            <input id="adminKey" value="" />
           </label>
           <label>
             Search Query
@@ -216,7 +228,7 @@
           </label>
         </div>
         <div class="actions">
-          <button class="primary" id="runBtn">Run Full Demo</button>
+          <button class="primary" id="runBtn" disabled>Run Full Demo</button>
           <button class="secondary" id="resetBtn">Reset Output</button>
         </div>
         <p class="status" id="status"></p>
@@ -240,6 +252,9 @@
       const statusOut = document.getElementById("status");
       const stepLog = document.getElementById("stepLog");
       const output = document.getElementById("output");
+      const sellerKeyInput = document.getElementById("sellerKey");
+      const buyerKeyInput = document.getElementById("buyerKey");
+      const adminKeyInput = document.getElementById("adminKey");
 
       function randomSuffix() {
         const raw = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
@@ -249,6 +264,26 @@
       function setStatus(kind, message) {
         statusOut.className = kind === "ok" ? "status ok" : "status warn";
         statusOut.textContent = message;
+      }
+
+      function customerKeysPresent() {
+        return (
+          sellerKeyInput.value.trim().length > 0 &&
+          buyerKeyInput.value.trim().length > 0 &&
+          adminKeyInput.value.trim().length > 0
+        );
+      }
+
+      function syncRunButtonState() {
+        const enabled = customerKeysPresent();
+        runBtn.disabled = !enabled;
+        if (!enabled) {
+          setStatus("warn", "Enter seller, buyer, and admin API keys to enable the demo run.");
+          return;
+        }
+        if (!statusOut.textContent || statusOut.textContent.startsWith("Enter seller")) {
+          setStatus("ok", "Ready.");
+        }
       }
 
       function appendStep(name, details, ok) {
@@ -385,12 +420,13 @@
       function resetOutput() {
         stepLog.innerHTML = "";
         output.textContent = "{}";
-        setStatus("ok", "Ready.");
+        syncRunButtonState();
       }
 
       async function runDemo() {
         runBtn.disabled = true;
-        resetOutput();
+        stepLog.innerHTML = "";
+        output.textContent = "{}";
         setStatus("ok", "Running full customer journey...");
 
         const sellerKey = document.getElementById("sellerKey").value.trim();
@@ -682,12 +718,15 @@
           output.textContent = JSON.stringify({ error: error.message }, null, 2);
           setStatus("warn", "Demo failed. Review step log and output payload.");
         } finally {
-          runBtn.disabled = false;
+          syncRunButtonState();
         }
       }
 
       runBtn.addEventListener("click", runDemo);
       resetBtn.addEventListener("click", resetOutput);
+      sellerKeyInput.addEventListener("input", syncRunButtonState);
+      buyerKeyInput.addEventListener("input", syncRunButtonState);
+      adminKeyInput.addEventListener("input", syncRunButtonState);
       resetOutput();
     </script>
   </body>

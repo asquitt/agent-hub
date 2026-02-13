@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import warnings
 from pathlib import Path
 
 import pytest
@@ -138,9 +139,86 @@ def test_operator_page_prompts_for_agent_id_instead_of_hardcoded_seed() -> None:
     assert "Register an agent with `POST /v1/agents`" in page.text
 
 
-def test_customer_journey_page_serves_e2e_console() -> None:
+def test_customer_journey_page_returns_404_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AGENTHUB_CUSTOMER_UI_ENABLED", raising=False)
+    monkeypatch.delenv("AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH", raising=False)
+    monkeypatch.delenv("AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON", raising=False)
+    client = TestClient(app)
+    page = client.get("/customer", headers={"X-API-Key": "dev-owner-key"})
+    assert page.status_code == 404
+
+
+def test_customer_journey_requires_auth_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTHUB_CUSTOMER_UI_ENABLED", "true")
+    monkeypatch.setenv("AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH", "true")
+    monkeypatch.setenv("AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON", '["owner-dev","owner-platform"]')
     client = TestClient(app)
     page = client.get("/customer")
+    assert page.status_code == 401
+
+
+def test_customer_journey_rejects_owner_not_allowlisted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTHUB_CUSTOMER_UI_ENABLED", "true")
+    monkeypatch.setenv("AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH", "true")
+    monkeypatch.setenv("AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON", '["owner-dev"]')
+    client = TestClient(app)
+    page = client.get("/customer", headers={"X-API-Key": "partner-owner-key"})
+    assert page.status_code == 403
+
+
+def test_customer_journey_page_serves_for_authorized_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTHUB_CUSTOMER_UI_ENABLED", "true")
+    monkeypatch.setenv("AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH", "true")
+    monkeypatch.setenv("AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON", '["owner-dev","owner-platform"]')
+    client = TestClient(app)
+    page = client.get("/customer", headers={"X-API-Key": "dev-owner-key"})
     assert page.status_code == 200
     assert "Customer Journey Console" in page.text
     assert "Run Full Demo" in page.text
+    assert 'id="sellerKey" value=""' in page.text
+    assert 'id="buyerKey" value=""' in page.text
+    assert 'id="adminKey" value=""' in page.text
+    assert "dev-owner-key" not in page.text
+    assert "partner-owner-key" not in page.text
+    assert "platform-owner-key" not in page.text
+
+
+def test_lifespan_startup_passes_with_valid_enforce_auth_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "enforce")
+    monkeypatch.setenv(
+        "AGENTHUB_API_KEYS_JSON",
+        '{"dev-owner-key":"owner-dev","partner-owner-key":"owner-partner","platform-owner-key":"owner-platform"}',
+    )
+    monkeypatch.setenv("AGENTHUB_AUTH_TOKEN_SECRET", "s58-startup-secret")
+    with TestClient(app) as client:
+        response = client.get("/healthz")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+
+def test_lifespan_startup_fails_without_required_enforce_auth_envs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "enforce")
+    monkeypatch.delenv("AGENTHUB_API_KEYS_JSON", raising=False)
+    monkeypatch.delenv("AGENTHUB_AUTH_TOKEN_SECRET", raising=False)
+
+    with pytest.raises(RuntimeError, match="AGENTHUB_API_KEYS_JSON is required in enforce mode"):
+        with TestClient(app):
+            pass
+
+
+def test_startup_has_no_on_event_deprecation_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "enforce")
+    monkeypatch.setenv(
+        "AGENTHUB_API_KEYS_JSON",
+        '{"dev-owner-key":"owner-dev","partner-owner-key":"owner-partner","platform-owner-key":"owner-platform"}',
+    )
+    monkeypatch.setenv("AGENTHUB_AUTH_TOKEN_SECRET", "s58-warning-check-secret")
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always", DeprecationWarning)
+        with TestClient(app) as client:
+            response = client.get("/healthz")
+            assert response.status_code == 200
+
+    on_event_warnings = [item for item in captured if "on_event" in str(item.message)]
+    assert on_event_warnings == []
