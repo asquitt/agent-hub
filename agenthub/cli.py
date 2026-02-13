@@ -309,20 +309,52 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         _emit({"ok": False, "error": "missing API key (run login or pass --api-key)", "mode": "remote"}, args.json)
         return 1
 
-    response = httpx.get(f"{api_url}/v1/system/startup-diagnostics", headers=headers, timeout=10)
-    if response.status_code >= 400:
+    try:
+        response = httpx.get(f"{api_url}/v1/system/startup-diagnostics", headers=headers, timeout=10)
+    except httpx.RequestError as exc:
         _emit(
             {
                 "ok": False,
-                "status_code": response.status_code,
-                "error": response.text,
+                "error_kind": "request_error",
+                "error": str(exc),
                 "mode": "remote",
                 "api_url": api_url,
             },
             args.json,
         )
         return 1
-    payload = response.json()
+    if response.status_code >= 400:
+        detail: Any
+        try:
+            detail = response.json()
+        except ValueError:
+            detail = response.text
+        _emit(
+            {
+                "ok": False,
+                "error_kind": "http_error",
+                "status_code": response.status_code,
+                "error": detail,
+                "mode": "remote",
+                "api_url": api_url,
+            },
+            args.json,
+        )
+        return 1
+    try:
+        payload = response.json()
+    except ValueError:
+        _emit(
+            {
+                "ok": False,
+                "error_kind": "invalid_json",
+                "error": "remote diagnostics response was not valid JSON",
+                "mode": "remote",
+                "api_url": api_url,
+            },
+            args.json,
+        )
+        return 1
     payload["mode"] = "remote"
     payload["api_url"] = api_url
     _emit(payload, args.json)
@@ -399,7 +431,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_whoami.set_defaults(func=cmd_whoami)
 
     p_doctor = sub.add_parser("doctor")
-    p_doctor.add_argument("--local", action="store_true")
+    doctor_mode = p_doctor.add_mutually_exclusive_group()
+    doctor_mode.add_argument("--local", action="store_true")
+    doctor_mode.add_argument("--remote", action="store_true")
     p_doctor.add_argument("--api-url")
     p_doctor.add_argument("--api-key")
     p_doctor.add_argument("--json", action="store_true")

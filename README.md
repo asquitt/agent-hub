@@ -127,7 +127,8 @@ Configure CLI:
 ```bash
 agenthub login --api-url http://127.0.0.1:8000 --api-key dev-owner-key --json
 agenthub whoami --json
-agenthub doctor --json
+agenthub doctor --local --json
+agenthub doctor --remote --json
 ```
 
 Create and validate a manifest:

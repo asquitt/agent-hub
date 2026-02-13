@@ -25,6 +25,15 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install -e .
 
+      - name: Startup preflight doctor
+        run: |
+          AGENTHUB_ACCESS_ENFORCEMENT_MODE=enforce \
+          AGENTHUB_API_KEYS_JSON='{"dev-owner-key":"owner-dev"}' \
+          AGENTHUB_AUTH_TOKEN_SECRET='ci-doctor-auth-secret' \
+          AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON='{"partner-east":"ci-fed-token"}' \
+          AGENTHUB_PROVENANCE_SIGNING_SECRET='ci-doctor-provenance-secret' \
+          python -m agenthub.cli doctor --local --json
+
       - name: Run targeted hardening tests
         run: pytest tests/auth/test_access_enforcement_s53.py tests/operator/test_operator_ui.py tests/gate/test_architecture_guardrails_s53.py -q
 

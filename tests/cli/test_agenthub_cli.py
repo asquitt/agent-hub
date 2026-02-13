@@ -109,3 +109,32 @@ def test_all_commands_with_json_support(tmp_path: Path) -> None:
     doctor_payload = parse_json_stdout(doctor_res)
     assert doctor_payload["mode"] == "local"
     assert doctor_payload["startup_ready"] is True
+
+
+def test_doctor_local_returns_nonzero_for_invalid_startup_env(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    state_home = tmp_path / ".agenthub-test"
+    bad_env = {
+        "AGENTHUB_API_KEYS_JSON": "{bad-json",
+        "AGENTHUB_AUTH_TOKEN_SECRET": "",
+        "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON": "{}",
+        "AGENTHUB_PROVENANCE_SIGNING_SECRET": "",
+    }
+    doctor_res = run_cli(["doctor", "--local", "--json"], cwd=workspace, state_home=state_home, extra_env=bad_env)
+    assert doctor_res.returncode == 1
+    payload = parse_json_stdout(doctor_res)
+    assert payload["mode"] == "local"
+    assert payload["startup_ready"] is False
+    assert "AGENTHUB_API_KEYS_JSON" in payload["missing_or_invalid"]
+
+
+def test_doctor_remote_requires_api_key(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    state_home = tmp_path / ".agenthub-test"
+    doctor_res = run_cli(["doctor", "--remote", "--json"], cwd=workspace, state_home=state_home)
+    assert doctor_res.returncode == 1
+    payload = parse_json_stdout(doctor_res)
+    assert payload["mode"] == "remote"
+    assert "missing API key" in payload["error"]
