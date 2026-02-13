@@ -6,14 +6,15 @@
     <title>AgentHub Operator Console</title>
     <style>
       :root {
-        --bg-night: #08131f;
-        --bg-deep: #0f2738;
-        --bg-highlight: #1b4965;
-        --panel: rgba(247, 250, 252, 0.94);
+        --bg-night: #06111d;
+        --bg-deep: #0b2537;
+        --bg-highlight: #1f5f86;
+        --panel: rgba(249, 251, 253, 0.94);
+        --panel-dark: rgba(11, 28, 41, 0.72);
         --ink: #102a43;
-        --ink-soft: #486581;
+        --ink-soft: #334e68;
         --accent: #ff7b00;
-        --accent-alt: #0e7490;
+        --accent-alt: #0ea5e9;
         --ok: #15803d;
         --warn: #b45309;
       }
@@ -39,9 +40,9 @@
         font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
         color: var(--ink);
         background:
-          radial-gradient(circle at 18% 20%, rgba(27, 73, 101, 0.85) 0%, transparent 38%),
-          radial-gradient(circle at 78% 0%, rgba(255, 123, 0, 0.22) 0%, transparent 30%),
-          linear-gradient(160deg, var(--bg-night) 0%, var(--bg-deep) 55%, #133b57 100%);
+          radial-gradient(circle at 18% 20%, rgba(31, 95, 134, 0.72) 0%, transparent 40%),
+          radial-gradient(circle at 82% 0%, rgba(255, 123, 0, 0.24) 0%, transparent 31%),
+          linear-gradient(160deg, var(--bg-night) 0%, var(--bg-deep) 54%, var(--bg-highlight) 100%);
       }
 
       .shell {
@@ -51,21 +52,62 @@
       }
 
       .hero {
-        color: #f0f4f8;
+        color: #f8fafc;
         margin-bottom: 16px;
         animation: rise 0.32s ease-out;
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 1.1fr 0.9fr;
       }
 
-      .hero h1 {
+      .hero-copy {
+        background: var(--panel);
+        border-radius: 16px;
+        padding: 14px;
+        box-shadow: 0 12px 28px rgba(2, 12, 23, 0.22);
+      }
+
+      .eyebrow {
+        margin: 0 0 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.72rem;
+        color: var(--ink-soft);
+        font-weight: 700;
+      }
+
+      .hero-copy h1 {
         margin: 0 0 4px;
         font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
         font-size: 2.1rem;
         letter-spacing: 0.02em;
+        color: var(--ink);
       }
 
-      .hero p {
+      .hero-copy p {
         margin: 0;
-        color: #d9e2ec;
+        color: var(--ink-soft);
+      }
+
+      .hero-quick {
+        background: var(--panel-dark);
+        border: 1px solid rgba(226, 232, 240, 0.16);
+        border-radius: 16px;
+        padding: 14px;
+        color: #e2e8f0;
+      }
+
+      .hero-quick h2 {
+        margin: 0 0 8px;
+        font-size: 0.98rem;
+      }
+
+      .hero-quick ul {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+        font-size: 0.88rem;
       }
 
       .controls,
@@ -98,6 +140,7 @@
         border: 1px solid #bcccdc;
         padding: 10px 12px;
         font: inherit;
+        background: #ffffff;
       }
 
       button {
@@ -202,7 +245,11 @@
           padding: 14px;
         }
 
-        .hero h1 {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-copy h1 {
           font-size: 1.7rem;
         }
       }
@@ -211,8 +258,19 @@
   <body>
     <main class="shell">
       <section class="hero">
-        <h1>Operator Console v2</h1>
-        <p>Timeline explorer, policy/cost overlay, and replay diagnostics for delegation workflows.</p>
+        <article class="hero-copy">
+          <p class="eyebrow">Operator Surface</p>
+          <h1>Operator Console v2</h1>
+          <p>Timeline explorer, policy/cost overlay, replay diagnostics, and startup readiness checks.</p>
+        </article>
+        <article class="hero-quick">
+          <h2>Workflow quick path</h2>
+          <ul>
+            <li>Load dashboard by agent id to inspect trust/eval/delegation state.</li>
+            <li>Replay delegation outcomes for incident triage.</li>
+            <li>Run startup diagnostics in all/failing mode for release readiness.</li>
+          </ul>
+        </article>
       </section>
 
       <section class="controls">

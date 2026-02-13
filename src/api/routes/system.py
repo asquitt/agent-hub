@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 
 from src.api.auth import require_api_key
 from src.api.startup_diagnostics import build_startup_diagnostics
@@ -11,6 +12,12 @@ from src.api.startup_diagnostics import build_startup_diagnostics
 ROOT = Path(__file__).resolve().parents[3]
 
 router = APIRouter()
+
+
+@router.get("/", response_class=HTMLResponse)
+def marketing_home() -> str:
+    ui_path = ROOT / "src" / "ui" / "marketing_home.html"
+    return ui_path.read_text(encoding="utf-8")
 
 
 @router.get("/healthz")

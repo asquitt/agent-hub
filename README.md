@@ -21,6 +21,7 @@ AgentHub is organized as two connected layers:
 ## Implemented Platform Domains
 | Domain | Primary Endpoints | Notes |
 |---|---|---|
+| Marketing Site | `GET /` | Public-facing value proposition, product positioning, and primary CTA navigation |
 | Registry + Versioning | `POST /v1/agents`, `GET /v1/agents/{agent_id}/versions`, `GET /v1/agents/{agent_id}/compare/{base_version}/{target_version}` | Canonical manifest registration and behavioral diffing |
 | Capability Search + Discovery | `POST /v1/capabilities/search`, `POST /v1/discovery/search`, `GET /v1/discovery/mcp-tools` | Policy-aware discovery, contract matching, MCP tool declaration export |
 | Delegation Runtime | `POST /v1/delegations`, `GET /v1/delegations/{delegation_id}/status`, `GET /v1/delegations/contract` | Durable delegation contract with lifecycle/audit state |

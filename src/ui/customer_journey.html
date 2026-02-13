@@ -6,12 +6,13 @@
     <title>AgentHub Customer Journey</title>
     <style>
       :root {
-        --bg-ink: #091520;
-        --bg-steel: #10354b;
+        --bg-ink: #06111d;
+        --bg-steel: #0d2b3f;
         --bg-sun: #f97316;
+        --bg-sky: #1f5f86;
         --panel: rgba(248, 250, 252, 0.94);
         --ink: #0f172a;
-        --soft: #334155;
+        --soft: #334e68;
         --ok: #166534;
         --warn: #9a3412;
       }
@@ -26,9 +27,9 @@
         font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
         color: var(--ink);
         background:
-          radial-gradient(circle at 12% 18%, rgba(249, 115, 22, 0.3) 0%, transparent 35%),
-          radial-gradient(circle at 86% 0%, rgba(14, 165, 233, 0.24) 0%, transparent 28%),
-          linear-gradient(155deg, var(--bg-ink) 0%, var(--bg-steel) 56%, #1d4f6c 100%);
+          radial-gradient(circle at 12% 18%, rgba(249, 115, 22, 0.28) 0%, transparent 36%),
+          radial-gradient(circle at 86% 0%, rgba(14, 165, 233, 0.2) 0%, transparent 30%),
+          linear-gradient(155deg, var(--bg-ink) 0%, var(--bg-steel) 53%, var(--bg-sky) 100%);
       }
 
       main {
@@ -40,22 +41,54 @@
       .hero {
         color: #f8fafc;
         margin-bottom: 14px;
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 1.15fr 0.85fr;
       }
 
-      .hero h1 {
+      .hero-copy {
+        background: var(--panel);
+        border-radius: 16px;
+        padding: 14px;
+        box-shadow: 0 12px 24px rgba(2, 6, 23, 0.22);
+      }
+
+      .hero-copy h1 {
         margin: 0;
         font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
         font-size: 2rem;
+        color: #0f172a;
       }
 
-      .hero p {
+      .hero-copy p {
         margin: 6px 0 0;
-        color: #dbeafe;
+        color: var(--soft);
+      }
+
+      .hero-note {
+        border-radius: 16px;
+        border: 1px solid rgba(226, 232, 240, 0.16);
+        background: rgba(10, 24, 38, 0.72);
+        padding: 14px;
+        color: #e2e8f0;
+      }
+
+      .hero-note h2 {
+        margin: 0 0 8px;
+        font-size: 0.95rem;
+      }
+
+      .hero-note ul {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 5px;
+        font-size: 0.86rem;
       }
 
       .panel {
         background: var(--panel);
-        border-radius: 14px;
+        border-radius: 16px;
         padding: 14px;
         box-shadow: 0 12px 24px rgba(2, 6, 23, 0.24);
         margin-bottom: 12px;
@@ -183,7 +216,11 @@
           padding: 14px;
         }
 
-        .hero h1 {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-copy h1 {
           font-size: 1.7rem;
         }
       }
@@ -192,11 +229,21 @@
   <body>
     <main>
       <section class="hero">
-        <h1>Customer Journey Console</h1>
-        <p>
-          End-to-end demo runner for onboarding, discovery, delegation, procurement, marketplace settlement, and billing
-          reconciliation.
-        </p>
+        <article class="hero-copy">
+          <h1>Customer Journey Console</h1>
+          <p>
+            End-to-end demo runner for onboarding, discovery, delegation, procurement, marketplace settlement, and
+            billing reconciliation.
+          </p>
+        </article>
+        <article class="hero-note">
+          <h2>Runbook focus</h2>
+          <ul>
+            <li>Explicit API-key roles for seller, buyer, and admin flows.</li>
+            <li>Deterministic step logs and JSON output for evidence capture.</li>
+            <li>Replay-safe write paths with idempotency headers on mutating calls.</li>
+          </ul>
+        </article>
       </section>
 
       <section class="panel">

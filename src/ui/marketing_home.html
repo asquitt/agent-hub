@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgentHub | Trusted Agent Infrastructure</title>
+    <style>
+      :root {
+        --bg-night: #06111d;
+        --bg-ocean: #0c2f46;
+        --bg-sky: #1f5f86;
+        --surface: rgba(248, 250, 252, 0.94);
+        --surface-dark: rgba(10, 24, 38, 0.72);
+        --ink: #102a43;
+        --muted: #486581;
+        --accent: #ff7b00;
+        --accent-alt: #0ea5e9;
+        --ok: #0f766e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 12% 10%, rgba(255, 123, 0, 0.24) 0%, transparent 30%),
+          radial-gradient(circle at 88% 0%, rgba(14, 165, 233, 0.2) 0%, transparent 26%),
+          linear-gradient(160deg, var(--bg-night) 0%, var(--bg-ocean) 56%, var(--bg-sky) 100%);
+      }
+
+      .shell {
+        max-width: 1160px;
+        margin: 0 auto;
+        padding: 22px;
+      }
+
+      .nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+
+      .brand {
+        color: #f8fafc;
+        text-decoration: none;
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        font-size: 1.08rem;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .nav-links a {
+        text-decoration: none;
+        color: #dbeafe;
+        border: 1px solid rgba(219, 234, 254, 0.28);
+        padding: 7px 11px;
+        border-radius: 999px;
+        font-size: 0.82rem;
+      }
+
+      .hero {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 1.1fr 0.9fr;
+        margin-bottom: 16px;
+      }
+
+      .hero-copy {
+        background: var(--surface);
+        border-radius: 18px;
+        padding: 20px;
+        box-shadow: 0 16px 32px rgba(3, 12, 22, 0.26);
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--muted);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+        font-size: clamp(2rem, 5vw, 3rem);
+        line-height: 1.05;
+      }
+
+      .lead {
+        margin: 0;
+        color: var(--muted);
+        font-size: 1rem;
+        line-height: 1.45;
+      }
+
+      .hero-actions {
+        margin-top: 16px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        text-decoration: none;
+        border-radius: 10px;
+        padding: 10px 13px;
+        font-weight: 700;
+        font-size: 0.9rem;
+      }
+
+      .btn-primary {
+        color: #fff;
+        background: linear-gradient(120deg, #ef5b0c, var(--accent));
+      }
+
+      .btn-secondary {
+        color: #f0f9ff;
+        background: linear-gradient(120deg, #0f766e, var(--accent-alt));
+      }
+
+      .hero-proof {
+        background: var(--surface-dark);
+        color: #e2e8f0;
+        border: 1px solid rgba(226, 232, 240, 0.16);
+        border-radius: 18px;
+        padding: 18px;
+      }
+
+      .hero-proof h2 {
+        margin: 0 0 8px;
+        font-size: 0.98rem;
+      }
+
+      .hero-proof ul {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+        font-size: 0.9rem;
+      }
+
+      .metrics {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .metric {
+        border-radius: 10px;
+        background: rgba(15, 118, 110, 0.16);
+        border: 1px solid rgba(153, 246, 228, 0.2);
+        padding: 8px;
+      }
+
+      .metric strong {
+        display: block;
+        font-size: 1.2rem;
+        color: #d1fae5;
+      }
+
+      .metric span {
+        font-size: 0.74rem;
+        color: #ccfbf1;
+      }
+
+      .sections {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      }
+
+      .card {
+        background: var(--surface);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: 0 10px 24px rgba(3, 12, 22, 0.2);
+      }
+
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 1rem;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+
+      footer {
+        margin-top: 14px;
+        color: #dbeafe;
+        font-size: 0.8rem;
+      }
+
+      @media (max-width: 860px) {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .metrics {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .shell {
+          padding: 14px;
+        }
+
+        .metrics {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <nav class="nav">
+        <a href="/" class="brand">AgentHub</a>
+        <div class="nav-links">
+          <a href="/docs">API Docs</a>
+          <a href="/operator">Operator</a>
+          <a href="/customer">Customer Console</a>
+        </div>
+      </nav>
+
+      <section class="hero">
+        <article class="hero-copy">
+          <p class="eyebrow">Agent Runtime + DevHub</p>
+          <h1>Build, Trust, and Run Autonomous Agents with Confidence</h1>
+          <p class="lead">
+            AgentHub gives teams one place to publish agent capabilities, enforce policy guardrails, track cost/reliability,
+            and orchestrate delegation safely across domains.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="/operator">Open Operator Console</a>
+            <a class="btn btn-secondary" href="/docs">Explore API</a>
+          </div>
+        </article>
+        <aside class="hero-proof">
+          <h2>What the platform emphasizes</h2>
+          <ul>
+            <li>Simple, composable workflows before complex autonomy.</li>
+            <li>Policy-first routing, explicit approvals, replay-safe writes.</li>
+            <li>Evidence-backed operations with diagnostics and auditability.</li>
+          </ul>
+          <div class="metrics">
+            <div class="metric">
+              <strong>204</strong>
+              <span>pytest checks passing</span>
+            </div>
+            <div class="metric">
+              <strong>9</strong>
+              <span>Playwright flows passing</span>
+            </div>
+            <div class="metric">
+              <strong>68</strong>
+              <span>segments completed</span>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section class="sections">
+        <article class="card">
+          <h3>Agent DevHub</h3>
+          <p>Publish manifests, compare versions, track behavioral impact, and promote through review gates.</p>
+        </article>
+        <article class="card">
+          <h3>Runtime Exchange</h3>
+          <p>Discover capabilities, delegate with idempotency guarantees, and enforce budget + policy constraints.</p>
+        </article>
+        <article class="card">
+          <h3>Trust & Operations</h3>
+          <p>Use startup diagnostics, reliability overlays, and federation/compliance evidence to stay production-ready.</p>
+        </article>
+      </section>
+
+      <footer>AgentHub is a reliability-first platform for interoperable autonomous systems.</footer>
+    </main>
+  </body>
+</html>
