@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from src.billing.service import verify_double_entry, verify_ledger_chain
+from src.common.time import utc_now_iso
 from src.compliance import storage
 from src.cost_governance import storage as cost_storage
 from src.federation import storage as federation_storage
@@ -89,11 +89,6 @@ CONTROL_CATALOG = [
         "check_key": "provenance_signature_verification",
     },
 ]
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
 
 def _check_billing_ledger_integrity() -> dict[str, Any]:
     chain = verify_ledger_chain()
@@ -277,7 +272,7 @@ def export_evidence_pack(*, actor: str, framework: str, control_ids: list[str] |
                 "description": control["description"],
                 "check_key": check_key,
                 "status": "pass" if bool(result["passed"]) else "fail",
-                "checked_at": _utc_now(),
+                "checked_at": utc_now_iso(),
                 "evidence": result["evidence"],
             }
         )
@@ -287,7 +282,7 @@ def export_evidence_pack(*, actor: str, framework: str, control_ids: list[str] |
     report = {
         "report_id": str(uuid.uuid4()),
         "framework": normalized_framework,
-        "generated_at": _utc_now(),
+        "generated_at": utc_now_iso(),
         "generated_by": actor,
         "summary": {
             "control_count": len(evaluated_controls),

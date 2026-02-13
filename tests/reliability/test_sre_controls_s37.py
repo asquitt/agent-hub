@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.app import DELEGATION_IDEMPOTENCY_CACHE, app
+from src.api.app import app
 from src.delegation import storage as delegation_storage
 from src.reliability.service import build_slo_dashboard
 
@@ -22,7 +22,6 @@ def isolate_reliability_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
             "@demo:support-orchestrator": 1000.0,
         }
     )
-    DELEGATION_IDEMPOTENCY_CACHE.clear()
 
 
 def _seed_delegation_record(idx: int, status: str, latency_ms: float) -> None:

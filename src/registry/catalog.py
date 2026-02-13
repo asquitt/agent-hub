@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from src.api.store import STORE
-from src.api.store import AgentRecord
+from src.registry.store import STORE
+from src.registry.store import AgentRecord
 
 
 def list_tenant_ids() -> list[str]:

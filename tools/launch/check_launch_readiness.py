@@ -34,7 +34,6 @@ def main() -> int:
 
     STORE.namespaces.clear()
     STORE.agents.clear()
-    STORE.idempotency_cache.clear()
 
     with TestClient(app) as client:
         demo = run_demo_smoke(client=client, manifest=manifest)

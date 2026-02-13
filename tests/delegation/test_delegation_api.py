@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.app import DELEGATION_IDEMPOTENCY_CACHE, app
+from src.api.app import app
 from src.delegation import storage as delegation_storage
 
 
@@ -23,7 +23,6 @@ def isolate_delegation_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         }
     )
     monkeypatch.setenv("AGENTHUB_TRUST_USAGE_EVENTS_PATH", str(tmp_path / "usage_events.json"))
-    DELEGATION_IDEMPOTENCY_CACHE.clear()
 
 
 def client() -> TestClient:
@@ -172,7 +171,6 @@ def test_delegation_idempotency_replay_survives_runtime_reconfigure() -> None:
         first = c.post("/v1/delegations", json=payload, headers=headers)
         assert first.status_code == 200
 
-    DELEGATION_IDEMPOTENCY_CACHE.clear()
     delegation_db_path = os.environ["AGENTHUB_DELEGATION_DB_PATH"]
     delegation_storage.reconfigure(db_path=delegation_db_path)
 

@@ -5,10 +5,10 @@ import hashlib
 import hmac
 import json
 import os
-from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Header, HTTPException
+from src.common.time import iso_from_epoch, utc_now_epoch
 
 LEGACY_API_KEYS = {
     "dev-owner-key": "owner-dev",
@@ -19,11 +19,6 @@ LEGACY_TOKEN_SECRET = "agenthub-dev-token-secret"
 
 DEFAULT_TOKEN_TTL_SECONDS = 1800
 MAX_TOKEN_TTL_SECONDS = 86400
-
-
-def _now_epoch() -> int:
-    return int(datetime.now(UTC).timestamp())
-
 
 def _enforce_mode_enabled() -> bool:
     return str(os.getenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "warn")).strip().lower() == "enforce"
@@ -78,7 +73,7 @@ def _sign(body: str) -> str:
 
 def issue_scoped_token(owner: str, scopes: list[str], ttl_seconds: int = DEFAULT_TOKEN_TTL_SECONDS) -> dict[str, Any]:
     ttl = max(1, min(int(ttl_seconds), MAX_TOKEN_TTL_SECONDS))
-    now = _now_epoch()
+    now = utc_now_epoch()
     payload = {
         "sub": owner,
         "scopes": sorted({str(scope).strip() for scope in scopes if str(scope).strip()}),
@@ -90,7 +85,7 @@ def issue_scoped_token(owner: str, scopes: list[str], ttl_seconds: int = DEFAULT
     return {
         "access_token": token,
         "token_type": "Bearer",
-        "expires_at": datetime.fromtimestamp(payload["exp"], tz=UTC).isoformat(),
+        "expires_at": iso_from_epoch(payload["exp"]),
         "scopes": payload["scopes"],
         "subject": payload["sub"],
     }
@@ -115,7 +110,7 @@ def verify_scoped_token(token: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="invalid bearer token payload")
     if "sub" not in payload or "exp" not in payload:
         raise HTTPException(status_code=401, detail="invalid bearer token claims")
-    if int(payload["exp"]) < _now_epoch():
+    if int(payload["exp"]) < utc_now_epoch():
         raise HTTPException(status_code=401, detail="bearer token expired")
     scopes = payload.get("scopes", [])
     if not isinstance(scopes, list):

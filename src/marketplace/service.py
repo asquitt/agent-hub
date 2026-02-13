@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
+from src.common.time import utc_now_iso
 from src.marketplace import storage
 from src.procurement import evaluate_purchase_policy
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _find_contract(contracts: list[dict[str, Any]], contract_id: str) -> dict[str, Any]:
@@ -48,7 +44,7 @@ def create_listing(
         "max_units_per_purchase": max_units_per_purchase,
         "policy_purchase_limit_usd": round(policy_purchase_limit_usd, 6),
         "status": "active",
-        "created_at": _utc_now(),
+        "created_at": utc_now_iso(),
     }
     rows = storage.load("listings")
     rows.append(row)
@@ -112,8 +108,8 @@ def purchase_listing(
         "amount_settled_usd": 0.0,
         "procurement_decision": procurement_decision,
         "status": "active",
-        "created_at": _utc_now(),
-        "updated_at": _utc_now(),
+        "created_at": utc_now_iso(),
+        "updated_at": utc_now_iso(),
     }
     contracts = storage.load("contracts")
     contracts.append(contract)
@@ -146,7 +142,7 @@ def settle_contract(*, contract_id: str, actor: str, units_used: int) -> dict[st
     row["units_settled"] = int(row["units_settled"]) + units_used
     row["amount_settled_usd"] = round(float(row["amount_settled_usd"]) + incremental_cost, 6)
     row["status"] = "settled" if int(row["units_settled"]) == total_units else "active"
-    row["updated_at"] = _utc_now()
+    row["updated_at"] = utc_now_iso()
 
     storage.save("contracts", contracts)
     return row
@@ -183,8 +179,8 @@ def create_dispute(*, contract_id: str, actor: str, reason: str, requested_amoun
         "status": "open",
         "resolution": None,
         "approved_amount_usd": 0.0,
-        "created_at": _utc_now(),
-        "updated_at": _utc_now(),
+        "created_at": utc_now_iso(),
+        "updated_at": utc_now_iso(),
     }
     disputes.append(row)
     storage.save("disputes", disputes)
@@ -231,8 +227,8 @@ def resolve_dispute(
     row["approved_amount_usd"] = round(approved, 6)
     row["resolved_by"] = actor
     row["status"] = status
-    row["updated_at"] = _utc_now()
-    row["resolved_at"] = _utc_now()
+    row["updated_at"] = utc_now_iso()
+    row["resolved_at"] = utc_now_iso()
     storage.save("disputes", disputes)
     return row
 
@@ -275,7 +271,7 @@ def create_payout(*, contract_id: str, actor: str) -> dict[str, Any]:
         "dispute_adjustment_usd": round(dispute_adjustment, 6),
         "net_payout_usd": round(net, 6),
         "status": "paid",
-        "created_at": _utc_now(),
+        "created_at": utc_now_iso(),
     }
     payouts.append(row)
     storage.save("payouts", payouts)

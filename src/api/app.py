@@ -59,7 +59,6 @@ from src.api.models import (
     ProvenanceManifestVerifyRequest,
     TrustUsageEventRequest,
 )
-from src.api.store import STORE
 from src.billing import (
     create_subscription,
     generate_invoice,
@@ -101,6 +100,7 @@ from src.provenance.service import (
     verify_manifest_signature,
 )
 from src.reliability.service import DEFAULT_WINDOW_SIZE, build_slo_dashboard
+from src.registry.store import STORE
 from src.trust.scoring import compute_trust_score, record_usage_event as trust_record_usage_event
 from src.versioning import compute_behavioral_diff
 from src.discovery.index import LIVE_CAPABILITY_INDEX
@@ -112,7 +112,6 @@ OPERATOR_ROLE_BY_OWNER = {
     "owner-platform": "admin",
     "owner-partner": "viewer",
 }
-DELEGATION_IDEMPOTENCY_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -158,18 +157,6 @@ def _serialize_agent(agent) -> dict[str, Any]:
         },
         "versions": [v.version for v in agent.versions],
     }
-
-
-def _cache_idempotent(owner: str, tenant_id: str, key: str, payload: dict[str, Any]) -> dict[str, Any]:
-    composite = _idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id)
-    if composite in STORE.idempotency_cache:
-        return copy.deepcopy(STORE.idempotency_cache[composite])
-    STORE.idempotency_cache[composite] = copy.deepcopy(payload)
-    return payload
-
-
-def _idempotency_cache_key(owner: str, key: str, tenant_id: str) -> tuple[str, str, str]:
-    return (owner, tenant_id, key)
 
 
 def _resolve_operator_role(owner: str, requested_role: str | None) -> str:
@@ -784,14 +771,9 @@ def operator_versioning_console() -> str:
 def register_agent(
     request: AgentRegistrationRequest,
     owner: str = Depends(require_api_key),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
-    key = _require_idempotency_key(idempotency_key)
     tenant_id = _resolve_tenant_id(x_tenant_id)
-    existing = STORE.idempotency_cache.get(_idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id))
-    if existing:
-        return copy.deepcopy(existing)
 
     errors = validate_manifest_object(request.manifest)
     if errors:
@@ -805,8 +787,7 @@ def register_agent(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    response = _serialize_agent(agent)
-    return _cache_idempotent(owner, tenant_id, key, response)
+    return _serialize_agent(agent)
 
 
 @app.get("/v1/agents")
@@ -934,14 +915,9 @@ def fork_agent(
     agent_id: str,
     request: AgentForkRequest,
     owner: str = Depends(require_api_key),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
-    key = _require_idempotency_key(idempotency_key)
     tenant_id = _resolve_tenant_id(x_tenant_id)
-    existing = STORE.idempotency_cache.get(_idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id))
-    if existing:
-        return copy.deepcopy(existing)
 
     try:
         source = STORE.get_agent(agent_id, tenant_id=tenant_id)
@@ -967,7 +943,7 @@ def fork_agent(
         "source_agent_id": agent_id,
         "forked_agent": _serialize_agent(forked),
     }
-    return _cache_idempotent(owner, tenant_id, key, response)
+    return response
 
 
 @app.get("/v1/namespaces/{namespace}")
@@ -2020,10 +1996,6 @@ def post_delegation(
         raise
 
     delegation_storage.finalize_idempotency(owner=idempotency_owner, idempotency_key=key, response=response)
-    DELEGATION_IDEMPOTENCY_CACHE[(owner, key)] = {
-        "request_hash": request_digest,
-        "response": copy.deepcopy(response),
-    }
     return response
 
 
@@ -2150,14 +2122,9 @@ def update_agent(
     agent_id: str,
     request: AgentUpdateRequest,
     owner: str = Depends(require_api_key),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
-    key = _require_idempotency_key(idempotency_key)
     tenant_id = _resolve_tenant_id(x_tenant_id)
-    existing = STORE.idempotency_cache.get(_idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id))
-    if existing:
-        return copy.deepcopy(existing)
 
     errors = validate_manifest_object(request.manifest)
     if errors:
@@ -2172,22 +2139,16 @@ def update_agent(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    response = _serialize_agent(agent)
-    return _cache_idempotent(owner, tenant_id, key, response)
+    return _serialize_agent(agent)
 
 
 @app.delete("/v1/agents/{agent_id}")
 def delete_agent(
     agent_id: str,
     owner: str = Depends(require_api_key),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> dict[str, Any]:
-    key = _require_idempotency_key(idempotency_key)
     tenant_id = _resolve_tenant_id(x_tenant_id)
-    existing = STORE.idempotency_cache.get(_idempotency_cache_key(owner=owner, key=key, tenant_id=tenant_id))
-    if existing:
-        return copy.deepcopy(existing)
 
     try:
         agent = STORE.delete_agent(agent_id, owner, tenant_id=tenant_id)
@@ -2196,5 +2157,4 @@ def delete_agent(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    response = {"id": agent.agent_id, "status": agent.status}
-    return _cache_idempotent(owner, tenant_id, key, response)
+    return {"id": agent.agent_id, "status": agent.status}

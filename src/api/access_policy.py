@@ -61,6 +61,8 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/discovery/compatibility$"),
     re.compile(r"^/v1/operator/refresh$"),
     re.compile(r"^/v1/billing/invoices/[^/]+/reconcile$"),
+    # Delegation uses its own durable idempotency store and reservation contract.
+    re.compile(r"^/v1/delegations$"),
 )
 
 

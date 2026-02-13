@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
+from src.common.time import utc_now_iso
 from src.cost_governance import storage
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def budget_state_from_ratio(ratio: float, auto_reauthorize: bool = True) -> dict[str, Any]:
@@ -40,7 +36,7 @@ def record_metering_event(
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     row = {
-        "timestamp": _utc_now(),
+        "timestamp": utc_now_iso(),
         "actor": actor,
         "operation": operation,
         "cost_usd": round(float(cost_usd), 6),

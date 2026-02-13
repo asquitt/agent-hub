@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.app import DELEGATION_IDEMPOTENCY_CACHE, app
+from src.api.app import app
 from src.cost_governance import storage as cost_storage
 from src.delegation import storage as delegation_storage
 
@@ -27,7 +27,6 @@ def isolate_cost_and_delegation_storage(tmp_path: Path, monkeypatch: pytest.Monk
         }
     )
     monkeypatch.setenv("AGENTHUB_TRUST_USAGE_EVENTS_PATH", str(tmp_path / "usage-events.json"))
-    DELEGATION_IDEMPOTENCY_CACHE.clear()
 
 
 def test_metering_records_search_delegation_and_install_operations() -> None:

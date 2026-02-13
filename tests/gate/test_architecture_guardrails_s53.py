@@ -17,7 +17,7 @@ def test_route_policy_map_snapshot_stable() -> None:
     payload = json.dumps(rows, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     assert len(rows) == 83
-    assert digest == "b2b5ccdd64c27cd7ec3f321f7c9e42052ba1d909457ec7aaec27a8694326b170"
+    assert digest == "614300228f460fc48822eccb56023c13e776c47c738fe015adc6c08c684736f2"
 
 
 def test_route_policy_map_has_no_unclassified_v1_routes() -> None:
@@ -38,6 +38,6 @@ def test_domain_modules_do_not_import_tooling_or_api_layer_directly() -> None:
         source = path.read_text(encoding="utf-8")
         if "from tools." in source or "import tools." in source:
             violations.append(f"{rel}: imports tools package")
-        if ("from src.api" in source or "import src.api" in source) and rel != "src/registry/catalog.py":
+        if "from src.api" in source or "import src.api" in source:
             violations.append(f"{rel}: imports src.api package directly")
     assert violations == []

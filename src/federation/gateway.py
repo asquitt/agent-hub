@@ -4,9 +4,9 @@ import hashlib
 import json
 import os
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
+from src.common.time import utc_now_iso
 from src.federation import storage
 
 LEGACY_DOMAIN_TOKENS = {
@@ -26,11 +26,6 @@ DOMAIN_PROFILES = {
         "network_pattern": "private-connect",
     },
 }
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
 
 def _enforce_mode_enabled() -> bool:
     return str(os.getenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "warn")).strip().lower() == "enforce"
@@ -138,12 +133,12 @@ def execute_federated(
             "domain_id": domain_id,
             "input_hash": input_hash,
             "output_hash": output_hash,
-            "timestamp": _utc_now(),
+            "timestamp": utc_now_iso(),
         }
     )
 
     audit_row = {
-        "timestamp": _utc_now(),
+        "timestamp": utc_now_iso(),
         "actor": actor,
         "domain_id": domain_id,
         "task_spec": task_spec,
@@ -214,7 +209,7 @@ def export_attestation_bundle(*, actor: str, domain_id: str | None = None, limit
     ]
     manifest = {
         "export_id": str(uuid.uuid4()),
-        "generated_at": _utc_now(),
+        "generated_at": utc_now_iso(),
         "generated_by": actor,
         "domain_id": domain_id,
         "record_count": len(records),

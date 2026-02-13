@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any
+
+from src.common.json_store import read_json_list, write_json_list
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_POLICY_PACKS = ROOT / "data" / "procurement" / "policy_packs.json"
@@ -24,20 +25,11 @@ def _path(name: str) -> Path:
     raise ValueError(f"unsupported procurement storage name: {name}")
 
 
-def _ensure(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        path.write_text("[]\n", encoding="utf-8")
-
-
 def load(name: str) -> list[dict[str, Any]]:
     path = _path(name)
-    _ensure(path)
-    rows = json.loads(path.read_text(encoding="utf-8"))
-    return rows if isinstance(rows, list) else []
+    return read_json_list(path)
 
 
 def save(name: str, rows: list[dict[str, Any]]) -> None:
     path = _path(name)
-    _ensure(path)
-    path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+    write_json_list(path, rows)

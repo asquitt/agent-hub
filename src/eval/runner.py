@@ -5,11 +5,11 @@ import re
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 import yaml
 
+from src.common.time import utc_now_iso
 from src.eval.storage import append_result
 
 DEFAULT_TIER2_CASES: list[dict[str, Any]] = [
@@ -130,11 +130,6 @@ DEFAULT_TIER3_CASES: list[dict[str, Any]] = [
     },
 ]
 
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def _required_fields(schema: dict[str, Any]) -> list[str]:
     required = schema.get("required", [])
     if not isinstance(required, list):
@@ -181,7 +176,7 @@ def run_tier1_eval(manifest: dict[str, Any], agent_id: str, version: str | None 
     seed = 42
     random.seed(seed)
 
-    started_at = _utc_now()
+    started_at = utc_now_iso()
     start = time.perf_counter()
 
     traces: list[dict[str, Any]] = []
@@ -197,7 +192,7 @@ def run_tier1_eval(manifest: dict[str, Any], agent_id: str, version: str | None 
     with tempfile.TemporaryDirectory(prefix="agenthub-eval-sandbox-") as sandbox:
         traces.append(
             {
-                "timestamp": _utc_now(),
+                "timestamp": utc_now_iso(),
                 "event": "sandbox.start",
                 "details": {
                     "path": sandbox,
@@ -222,7 +217,7 @@ def run_tier1_eval(manifest: dict[str, Any], agent_id: str, version: str | None 
 
             traces.append(
                 {
-                    "timestamp": _utc_now(),
+                    "timestamp": utc_now_iso(),
                     "event": "capability.contract_check",
                     "capability_id": capability.get("id"),
                     "category": ctype,
@@ -253,7 +248,7 @@ def run_tier1_eval(manifest: dict[str, Any], agent_id: str, version: str | None 
         "seed": seed,
         "trace": traces,
         "started_at": started_at,
-        "completed_at": _utc_now(),
+        "completed_at": utc_now_iso(),
     }
 
     append_result(result)
@@ -278,7 +273,7 @@ def run_tier2_safety_eval(
     seed = 42
     random.seed(seed)
 
-    started_at = _utc_now()
+    started_at = utc_now_iso()
     start = time.perf_counter()
     suite_cases = list(cases if cases is not None else DEFAULT_TIER2_CASES)
 
@@ -298,7 +293,7 @@ def run_tier2_safety_eval(
     with tempfile.TemporaryDirectory(prefix="agenthub-eval-sandbox-") as sandbox:
         trace.append(
             {
-                "timestamp": _utc_now(),
+                "timestamp": utc_now_iso(),
                 "event": "sandbox.start",
                 "details": {
                     "path": sandbox,
@@ -345,7 +340,7 @@ def run_tier2_safety_eval(
 
             trace.append(
                 {
-                    "timestamp": _utc_now(),
+                    "timestamp": utc_now_iso(),
                     "event": "safety.case_evaluated",
                     "case_id": case_id,
                     "passed": passed,
@@ -388,7 +383,7 @@ def run_tier2_safety_eval(
         "seed": seed,
         "trace": trace,
         "started_at": started_at,
-        "completed_at": _utc_now(),
+        "completed_at": utc_now_iso(),
     }
     append_result(result)
     return result
@@ -411,7 +406,7 @@ def run_tier3_outcome_eval(
     seed = 42
     random.seed(seed)
 
-    started_at = _utc_now()
+    started_at = utc_now_iso()
     start = time.perf_counter()
     suite_cases = list(cases if cases is not None else DEFAULT_TIER3_CASES)
 
@@ -426,7 +421,7 @@ def run_tier3_outcome_eval(
     with tempfile.TemporaryDirectory(prefix="agenthub-eval-sandbox-") as sandbox:
         trace.append(
             {
-                "timestamp": _utc_now(),
+                "timestamp": utc_now_iso(),
                 "event": "sandbox.start",
                 "details": {
                     "path": sandbox,
@@ -487,7 +482,7 @@ def run_tier3_outcome_eval(
 
             trace.append(
                 {
-                    "timestamp": _utc_now(),
+                    "timestamp": utc_now_iso(),
                     "event": "outcome.case_evaluated",
                     "case_id": case_id,
                     "passed": case_pass,
@@ -534,7 +529,7 @@ def run_tier3_outcome_eval(
         "seed": seed,
         "trace": trace,
         "started_at": started_at,
-        "completed_at": _utc_now(),
+        "completed_at": utc_now_iso(),
     }
     append_result(result)
     return result

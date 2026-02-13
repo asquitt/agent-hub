@@ -4,16 +4,12 @@ import hashlib
 import hmac
 import json
 import os
-from datetime import datetime, timezone
 from typing import Any
 
+from src.common.time import utc_now_iso
 
 PROVENANCE_VERSION = "provenance-v1"
 SIGNATURE_ALGORITHM = "hmac-sha256"
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _canonical_json(payload: dict[str, Any]) -> str:
@@ -59,7 +55,7 @@ def sign_manifest(manifest: dict[str, Any], signer: str, artifact_hashes: list[s
         subject_hash=manifest_hash(manifest),
         signer=signer,
         artifact_hashes=list(artifact_hashes or []),
-        issued_at=_utc_now(),
+        issued_at=utc_now_iso(),
     )
     signature = _sign(payload)
     return {**payload, "signature": signature}
@@ -113,7 +109,7 @@ def sign_artifact(artifact_id: str, artifact_payload: dict[str, Any], signer: st
         artifact_id=artifact_id,
         artifact_digest=artifact_hash(artifact_payload),
         signer=signer,
-        issued_at=_utc_now(),
+        issued_at=utc_now_iso(),
     )
     signature = _sign(payload)
     return {**payload, "signature": signature}

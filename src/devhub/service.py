@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from src.common.time import utc_now_iso
 from src.devhub import storage
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _hydrate_review(review: dict[str, Any]) -> dict[str, Any]:
@@ -19,7 +15,7 @@ def _hydrate_review(review: dict[str, Any]) -> dict[str, Any]:
 
 def create_release_review(agent_id: str, version: str, requested_by: str, approvals_required: int = 2) -> dict[str, Any]:
     required = max(1, int(approvals_required))
-    now = _utc_now()
+    now = utc_now_iso()
     row = {
         "review_id": str(uuid.uuid4()),
         "agent_id": agent_id,
@@ -65,7 +61,7 @@ def decide_release_review(review_id: str, actor: str, decision: str, note: str |
             "actor": actor,
             "decision": normalized,
             "note": note,
-            "created_at": _utc_now(),
+            "created_at": utc_now_iso(),
         }
     )
     decisions = storage.list_decisions(review_id=review_id)
@@ -83,7 +79,7 @@ def decide_release_review(review_id: str, actor: str, decision: str, note: str |
         "status": status,
         "approvals_count": approvals_count,
         "rejections_count": rejections_count,
-        "updated_at": _utc_now(),
+        "updated_at": utc_now_iso(),
     }
     storage.upsert_review(updated)
     return _hydrate_review(updated)
@@ -106,11 +102,11 @@ def promote_release_review(review_id: str, promoted_by: str) -> dict[str, Any]:
         "version": row["version"],
         "promoted_by": promoted_by,
         "status": "promoted",
-        "created_at": _utc_now(),
+        "created_at": utc_now_iso(),
     }
     storage.insert_promotion(promotion)
 
-    updated_review = {**row, "status": "promoted", "updated_at": _utc_now()}
+    updated_review = {**row, "status": "promoted", "updated_at": utc_now_iso()}
     storage.upsert_review(updated_review)
     return promotion
 

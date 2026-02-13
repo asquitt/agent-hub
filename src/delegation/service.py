@@ -3,9 +3,9 @@ from __future__ import annotations
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
+from src.common.time import utc_now_iso
 from src.cost_governance.service import budget_state_from_ratio, record_metering_event
 from src.delegation import storage
 from src.trust.scoring import record_usage_event
@@ -37,13 +37,8 @@ DELEGATION_CONTRACT_V2 = {
     },
 }
 
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def _stage(name: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {"stage": name, "timestamp": _utc_now(), "details": details or {}}
+    return {"stage": name, "timestamp": utc_now_iso(), "details": details or {}}
 
 
 def _apply_budget_controls(estimated: float, actual: float, auto_reauthorize: bool) -> tuple[str, dict[str, Any]]:
@@ -102,7 +97,7 @@ def create_delegation(
             for row in (metering_events or default_metering):
                 audit_trail.append(
                     {
-                        "timestamp": _utc_now(),
+                        "timestamp": utc_now_iso(),
                         "delegation_id": delegation_id,
                         "type": row.get("event", "metering"),
                         "details": row,
@@ -172,8 +167,8 @@ def create_delegation(
             "audit_trail": audit_trail,
             "budget_controls": controls,
             "queue_state": queue_state,
-            "created_at": _utc_now(),
-            "updated_at": _utc_now(),
+            "created_at": utc_now_iso(),
+            "updated_at": utc_now_iso(),
         }
 
         storage.append_record(row)

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import UTC, datetime
 from typing import Any
+
+from src.common.time import iso_from_epoch, utc_now_epoch
 
 KNOWLEDGE_ENTRIES: dict[str, dict[str, Any]] = {}
 POISON_PATTERNS = [
@@ -15,11 +16,11 @@ POISON_PATTERNS = [
 
 
 def _now_epoch() -> int:
-    return int(datetime.now(UTC).timestamp())
+    return utc_now_epoch()
 
 
 def _iso(epoch: int) -> str:
-    return datetime.fromtimestamp(epoch, tz=UTC).isoformat()
+    return iso_from_epoch(epoch)
 
 
 def _content_hash(title: str, content: str, source_uri: str) -> str:

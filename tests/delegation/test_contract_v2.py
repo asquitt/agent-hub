@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from jsonschema import validate
 
-from src.api.app import DELEGATION_IDEMPOTENCY_CACHE, app
+from src.api.app import app
 from src.delegation import storage as delegation_storage
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,7 +26,6 @@ def isolate_delegation_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         }
     )
     monkeypatch.setenv("AGENTHUB_TRUST_USAGE_EVENTS_PATH", str(tmp_path / "usage_events.json"))
-    DELEGATION_IDEMPOTENCY_CACHE.clear()
 
 
 def test_delegation_contract_endpoint_matches_schema() -> None:

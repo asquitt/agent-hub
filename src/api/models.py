@@ -84,12 +84,6 @@ class AgentForkRequest(BaseModel):
     new_slug: str = Field(min_length=2, max_length=64, pattern=r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 
 
-class AgentVersionResponse(BaseModel):
-    version: str
-    manifest: dict[str, Any]
-    eval_summary: dict[str, Any]
-
-
 class TrustUsageEventRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

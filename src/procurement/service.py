@@ -4,13 +4,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from src.common.time import utc_now_iso
 from src.procurement import storage
 
 ADMIN_ACTORS = {"owner-dev", "owner-platform"}
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _parse_utc(raw: str) -> datetime:
@@ -49,7 +46,7 @@ def _audit(
         "action": action,
         "outcome": outcome,
         "metadata": metadata or {},
-        "created_at": _utc_now(),
+        "created_at": utc_now_iso(),
     }
     rows.append(row)
     storage.save("audit", rows)
@@ -78,7 +75,7 @@ def _refresh_exception_statuses(rows: list[dict[str, Any]]) -> list[dict[str, An
         if isinstance(expires_at, str) and expires_at.strip():
             if _parse_utc(expires_at) <= now:
                 row["status"] = "expired"
-                row["updated_at"] = _utc_now()
+                row["updated_at"] = utc_now_iso()
                 changed = True
     if changed:
         storage.save("exceptions", rows)
@@ -113,7 +110,7 @@ def upsert_policy_pack(
 
     rows = storage.load("policy_packs")
     existing = next((row for row in rows if row.get("buyer") == normalized_buyer), None)
-    now = _utc_now()
+    now = utc_now_iso()
     row = {
         "pack_id": str(existing.get("pack_id")) if existing else str(uuid.uuid4()),
         "buyer": normalized_buyer,
@@ -158,7 +155,7 @@ def create_approval_request(
     if estimated_total_usd <= 0:
         raise ValueError("estimated_total_usd must be > 0")
 
-    now = _utc_now()
+    now = utc_now_iso()
     row = {
         "approval_id": str(uuid.uuid4()),
         "buyer": buyer,
@@ -236,10 +233,10 @@ def decide_approval(
         "status": "approved" if normalized == "approve" else "rejected",
         "decision": normalized,
         "decided_by": actor,
-        "decided_at": _utc_now(),
+        "decided_at": utc_now_iso(),
         "decision_note": note,
         "approved_max_total_usd": approved_limit,
-        "updated_at": _utc_now(),
+        "updated_at": utc_now_iso(),
     }
     rows[rows.index(row)] = updated
     storage.save("approvals", rows)
@@ -285,8 +282,8 @@ def create_exception(
         else None,
         "allow_seller_id": allow_seller_id.strip() if allow_seller_id else None,
         "created_by": actor,
-        "created_at": _utc_now(),
-        "updated_at": _utc_now(),
+        "created_at": utc_now_iso(),
+        "updated_at": utc_now_iso(),
         "expires_at": parsed_expiry,
     }
     rows = storage.load("exceptions")

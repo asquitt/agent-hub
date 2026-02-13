@@ -1,19 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from src.billing.storage import _STORAGE
-
-
-def _now_epoch() -> int:
-    return int(datetime.now(UTC).timestamp())
-
-
-def _iso(epoch: int) -> str:
-    return datetime.fromtimestamp(epoch, tz=UTC).isoformat()
+from src.common.time import iso_from_epoch, utc_now_epoch, utc_now_iso
 
 
 def _round(value: float) -> float:
@@ -27,7 +19,7 @@ def create_subscription(
     monthly_fee_usd: float,
     included_units: int = 0,
 ) -> dict[str, Any]:
-    now = _iso(_now_epoch())
+    now = utc_now_iso()
     row = {
         "account_id": account_id,
         "plan_id": plan_id,
@@ -55,7 +47,7 @@ def record_usage_event(
     unit_price_usd: float,
     owner: str,
 ) -> dict[str, Any]:
-    now = _now_epoch()
+    now = utc_now_epoch()
     row = {
         "event_id": str(uuid.uuid4()),
         "account_id": account_id,
@@ -64,7 +56,7 @@ def record_usage_event(
         "quantity": float(quantity),
         "unit_price_usd": float(unit_price_usd),
         "cost_usd": _round(float(quantity) * float(unit_price_usd)),
-        "timestamp": _iso(now),
+        "timestamp": iso_from_epoch(now),
         "timestamp_epoch": now,
         "invoice_id": None,
     }
@@ -140,7 +132,7 @@ def generate_invoice(account_id: str, owner: str) -> dict[str, Any]:
     subscription_fee = _round(float(subscription["monthly_fee_usd"]) if subscription else 0.0)
 
     invoice_id = str(uuid.uuid4())
-    now = _iso(_now_epoch())
+    now = utc_now_iso()
     subtotal = _round(subscription_fee + usage_total)
     invoice = {
         "invoice_id": invoice_id,
@@ -313,7 +305,7 @@ def refund_invoice(invoice_id: str, amount_usd: float, reason: str, actor: str) 
         "amount_usd": amount,
         "reason": reason,
         "actor": actor,
-        "timestamp": _iso(_now_epoch()),
+        "timestamp": utc_now_iso(),
     }
     row.setdefault("refunds", []).append(refund_event)
     row["refunded_usd"] = new_refunded

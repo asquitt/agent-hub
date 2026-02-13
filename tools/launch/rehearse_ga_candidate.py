@@ -44,7 +44,6 @@ def main() -> int:
 
     STORE.namespaces.clear()
     STORE.agents.clear()
-    STORE.idempotency_cache.clear()
     lease_service.LEASES.clear()
     lease_service.INSTALLS.clear()
 
