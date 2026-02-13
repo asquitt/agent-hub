@@ -120,6 +120,42 @@ def test_operator_role_boundaries_for_refresh_endpoint() -> None:
     assert admin.json()["status"] == "refreshed"
 
 
+def test_operator_startup_diagnostics_requires_admin_role() -> None:
+    client = TestClient(app)
+
+    viewer = client.get(
+        "/v1/operator/startup-diagnostics",
+        headers={"X-API-Key": "dev-owner-key", "X-Operator-Role": "viewer"},
+    )
+    assert viewer.status_code == 403
+
+    admin = client.get(
+        "/v1/operator/startup-diagnostics",
+        headers={"X-API-Key": "dev-owner-key", "X-Operator-Role": "admin"},
+    )
+    assert admin.status_code == 200, admin.text
+    payload = admin.json()
+    assert payload["role"] == "admin"
+    assert "checks" in payload
+    assert "probes" in payload
+    assert "overall_ready" in payload
+
+
+def test_operator_startup_diagnostics_failing_only_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTHUB_REGISTRY_DB_PATH", "/dev/null/registry.db")
+    client = TestClient(app)
+    response = client.get(
+        "/v1/operator/startup-diagnostics",
+        params={"failing_only": "true"},
+        headers={"X-API-Key": "dev-owner-key", "X-Operator-Role": "admin"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["checks"] == []
+    assert payload["probes"]
+    assert all(row["status"] == "fail" for row in payload["probes"])
+
+
 def test_operator_versioning_page_serves_compare_ui() -> None:
     client = TestClient(app)
     page = client.get("/operator/versioning")

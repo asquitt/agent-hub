@@ -26,7 +26,7 @@ AgentHub is organized as two connected layers:
 | Delegation Runtime | `POST /v1/delegations`, `GET /v1/delegations/{delegation_id}/status`, `GET /v1/delegations/contract` | Durable delegation contract with lifecycle/audit state |
 | Lease + Install Control | `POST /v1/capabilities/lease`, `POST /v1/capabilities/leases/{lease_id}/promote`, `POST /v1/capabilities/installs/{install_id}/rollback` | Lease-first capability acquisition and promotion gates |
 | Trust + Evals + Provenance | `GET /v1/agents/{agent_id}/trust`, `POST /v1/provenance/manifests/sign`, `POST /v1/provenance/artifacts/verify` | Trust scoring, tiered eval integration, signed provenance envelopes |
-| Operator + DevHub | `GET /operator`, `GET /v1/operator/dashboard`, `POST /v1/devhub/reviews/{review_id}/promote` | Operator diagnostics UI and release collaboration lifecycle |
+| Operator + DevHub | `GET /operator`, `GET /v1/operator/dashboard`, `GET /v1/operator/startup-diagnostics`, `POST /v1/devhub/reviews/{review_id}/promote` | Operator diagnostics UI, startup readiness diagnostics, and release collaboration lifecycle |
 | Marketplace + Procurement + Billing | `POST /v1/marketplace/purchase`, `POST /v1/procurement/approvals`, `POST /v1/billing/invoices/generate` | Commercial flows with policy controls and reconciliation |
 | Federation + Compliance + Reliability | `POST /v1/federation/execute`, `GET /v1/compliance/controls`, `GET /v1/reliability/slo-dashboard` | Domain federation, evidence export, SRE/SLO reporting |
 

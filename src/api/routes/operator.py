@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from src.api.auth import require_api_key, require_scope
 from src.api.operator_helpers import delegation_timeline, policy_cost_overlay, require_operator_role
+from src.api.startup_diagnostics import build_startup_diagnostics
 from src.delegation import storage as delegation_storage
 from src.discovery.service import DISCOVERY_SERVICE
 from src.eval.storage import latest_result
@@ -109,3 +110,17 @@ def operator_refresh(
 ) -> dict[str, str]:
     role = require_operator_role(owner, x_operator_role, {"admin"})
     return {"status": "refreshed", "role": role}
+
+
+@router.get("/v1/operator/startup-diagnostics")
+def operator_startup_diagnostics(
+    failing_only: bool = Query(default=False),
+    owner: str = Depends(require_api_key),
+    x_operator_role: str | None = Header(default=None, alias="X-Operator-Role"),
+) -> dict[str, Any]:
+    role = require_operator_role(owner, x_operator_role, {"admin"})
+    diagnostics = build_startup_diagnostics()
+    if failing_only:
+        diagnostics["checks"] = [row for row in diagnostics.get("checks", []) if not bool(row.get("valid"))]
+        diagnostics["probes"] = [row for row in diagnostics.get("probes", []) if row.get("status") == "fail"]
+    return {"role": role, **diagnostics}
