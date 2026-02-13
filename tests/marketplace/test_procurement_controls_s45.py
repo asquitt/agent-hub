@@ -26,6 +26,10 @@ def isolate_marketplace_and_procurement_storage(tmp_path: Path, monkeypatch: pyt
     cost_storage.reset_for_tests(db_path=billing_db)
 
 
+def _headers(api_key: str, idempotency_key: str) -> dict[str, str]:
+    return {"X-API-Key": api_key, "Idempotency-Key": idempotency_key}
+
+
 def _create_listing(client: TestClient, *, unit_price_usd: float = 1.0) -> str:
     response = client.post(
         "/v1/marketplace/listings",
@@ -35,7 +39,7 @@ def _create_listing(client: TestClient, *, unit_price_usd: float = 1.0) -> str:
             "max_units_per_purchase": 10,
             "policy_purchase_limit_usd": 10.0,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers=_headers("dev-owner-key", f"s60-proc-listing-{unit_price_usd}"),
     )
     assert response.status_code == 200, response.text
     return response.json()["listing_id"]
@@ -53,7 +57,7 @@ def test_procurement_policy_boundary_requires_approval_and_admin_decision() -> N
             "hard_stop_limit_usd": 5.0,
             "allowed_sellers": ["owner-dev"],
         },
-        headers={"X-API-Key": "platform-owner-key"},
+        headers=_headers("platform-owner-key", "s60-proc-pack-1"),
     )
     assert pack.status_code == 200, pack.text
 
@@ -65,7 +69,7 @@ def test_procurement_policy_boundary_requires_approval_and_admin_decision() -> N
             "max_total_usd": 10.0,
             "policy_approved": True,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers=_headers("partner-owner-key", "s60-proc-purchase-deny-1"),
     )
     assert denied_without_approval.status_code == 403
     assert "approval required" in denied_without_approval.json()["detail"]
@@ -79,7 +83,7 @@ def test_procurement_policy_boundary_requires_approval_and_admin_decision() -> N
             "estimated_total_usd": 3.0,
             "note": "procurement review needed",
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers=_headers("partner-owner-key", "s60-proc-approval-request-1"),
     )
     assert approval_request.status_code == 200, approval_request.text
     approval_id = approval_request.json()["approval_id"]
@@ -87,14 +91,14 @@ def test_procurement_policy_boundary_requires_approval_and_admin_decision() -> N
     denied_decision = client.post(
         f"/v1/procurement/approvals/{approval_id}/decision",
         json={"decision": "approve"},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers=_headers("partner-owner-key", "s60-proc-approval-decision-deny-1"),
     )
     assert denied_decision.status_code == 403
 
     approve = client.post(
         f"/v1/procurement/approvals/{approval_id}/decision",
         json={"decision": "approve", "approved_max_total_usd": 3.0, "note": "approved"},
-        headers={"X-API-Key": "platform-owner-key"},
+        headers=_headers("platform-owner-key", "s60-proc-approval-decision-1"),
     )
     assert approve.status_code == 200, approve.text
     assert approve.json()["status"] == "approved"
@@ -108,7 +112,7 @@ def test_procurement_policy_boundary_requires_approval_and_admin_decision() -> N
             "policy_approved": True,
             "procurement_approval_id": approval_id,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers=_headers("partner-owner-key", "s60-proc-purchase-allow-1"),
     )
     assert purchase.status_code == 200, purchase.text
     procurement = purchase.json()["procurement_decision"]
@@ -128,7 +132,7 @@ def test_procurement_hard_stop_requires_exception_path() -> None:
             "hard_stop_limit_usd": 2.0,
             "allowed_sellers": ["owner-dev"],
         },
-        headers={"X-API-Key": "platform-owner-key"},
+        headers=_headers("platform-owner-key", "s60-proc-pack-2"),
     )
     assert pack.status_code == 200
 
@@ -140,13 +144,13 @@ def test_procurement_hard_stop_requires_exception_path() -> None:
             "units": 3,
             "estimated_total_usd": 3.0,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers=_headers("partner-owner-key", "s60-proc-approval-request-2"),
     )
     approval_id = approval_request.json()["approval_id"]
     approve = client.post(
         f"/v1/procurement/approvals/{approval_id}/decision",
         json={"decision": "approve", "approved_max_total_usd": 4.0},
-        headers={"X-API-Key": "platform-owner-key"},
+        headers=_headers("platform-owner-key", "s60-proc-approval-decision-2"),
     )
     assert approve.status_code == 200
 
@@ -159,7 +163,7 @@ def test_procurement_hard_stop_requires_exception_path() -> None:
             "policy_approved": True,
             "procurement_approval_id": approval_id,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers=_headers("partner-owner-key", "s60-proc-purchase-deny-2"),
     )
     assert denied_without_exception.status_code == 403
     assert "hard stop limit" in denied_without_exception.json()["detail"]
@@ -171,7 +175,7 @@ def test_procurement_hard_stop_requires_exception_path() -> None:
             "reason": "temporary budget extension",
             "override_hard_stop_limit_usd": 3.5,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers=_headers("partner-owner-key", "s60-proc-exception-deny-2"),
     )
     assert denied_exception_create.status_code == 403
 
@@ -182,7 +186,7 @@ def test_procurement_hard_stop_requires_exception_path() -> None:
             "reason": "temporary budget extension",
             "override_hard_stop_limit_usd": 3.5,
         },
-        headers={"X-API-Key": "platform-owner-key"},
+        headers=_headers("platform-owner-key", "s60-proc-exception-create-2"),
     )
     assert exception.status_code == 200, exception.text
     exception_id = exception.json()["exception_id"]
@@ -197,7 +201,7 @@ def test_procurement_hard_stop_requires_exception_path() -> None:
             "procurement_approval_id": approval_id,
             "procurement_exception_id": exception_id,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers=_headers("partner-owner-key", "s60-proc-purchase-allow-2"),
     )
     assert purchase.status_code == 200, purchase.text
     procurement = purchase.json()["procurement_decision"]
@@ -217,7 +221,7 @@ def test_procurement_audit_visibility_and_scope_boundaries() -> None:
             "hard_stop_limit_usd": 4.0,
             "allowed_sellers": ["owner-dev"],
         },
-        headers={"X-API-Key": "platform-owner-key"},
+        headers=_headers("platform-owner-key", "s60-proc-pack-3"),
     )
     assert pack.status_code == 200
 
@@ -229,7 +233,7 @@ def test_procurement_audit_visibility_and_scope_boundaries() -> None:
             "max_total_usd": 2.0,
             "policy_approved": True,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers=_headers("partner-owner-key", "s60-proc-purchase-allow-3"),
     )
     assert purchase.status_code == 200
 

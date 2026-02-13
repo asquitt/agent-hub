@@ -10,51 +10,34 @@ from typing import Any
 from fastapi import Header, HTTPException
 from src.common.time import iso_from_epoch, utc_now_epoch
 
-LEGACY_API_KEYS = {
-    "dev-owner-key": "owner-dev",
-    "partner-owner-key": "owner-partner",
-    "platform-owner-key": "owner-platform",
-}
-LEGACY_TOKEN_SECRET = "agenthub-dev-token-secret"
-
 DEFAULT_TOKEN_TTL_SECONDS = 1800
 MAX_TOKEN_TTL_SECONDS = 86400
 
-def _enforce_mode_enabled() -> bool:
-    return str(os.getenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "warn")).strip().lower() == "enforce"
-
-
 def _api_key_map() -> dict[str, str]:
     raw = os.getenv("AGENTHUB_API_KEYS_JSON")
-    if raw:
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            if _enforce_mode_enabled():
-                raise RuntimeError("AGENTHUB_API_KEYS_JSON must be valid JSON in enforce mode") from exc
-            parsed = None
-        if isinstance(parsed, dict):
-            normalized: dict[str, str] = {}
-            for key, owner in parsed.items():
-                key_str = str(key).strip()
-                owner_str = str(owner).strip()
-                if key_str and owner_str:
-                    normalized[key_str] = owner_str
-            if normalized:
-                return normalized
-            if _enforce_mode_enabled():
-                raise RuntimeError("AGENTHUB_API_KEYS_JSON must define at least one API key in enforce mode")
-    if _enforce_mode_enabled():
-        raise RuntimeError("AGENTHUB_API_KEYS_JSON is required in enforce mode")
-    return dict(LEGACY_API_KEYS)
+    if raw is None or not raw.strip():
+        raise RuntimeError("AGENTHUB_API_KEYS_JSON is required")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("AGENTHUB_API_KEYS_JSON must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError("AGENTHUB_API_KEYS_JSON must be a JSON object")
+    normalized: dict[str, str] = {}
+    for key, owner in parsed.items():
+        key_str = str(key).strip()
+        owner_str = str(owner).strip()
+        if key_str and owner_str:
+            normalized[key_str] = owner_str
+    if not normalized:
+        raise RuntimeError("AGENTHUB_API_KEYS_JSON must define at least one API key")
+    return normalized
 
 
 def _token_secret() -> bytes:
     secret = os.getenv("AGENTHUB_AUTH_TOKEN_SECRET")
     if secret is None or not secret.strip():
-        if _enforce_mode_enabled():
-            raise RuntimeError("AGENTHUB_AUTH_TOKEN_SECRET is required in enforce mode")
-        secret = LEGACY_TOKEN_SECRET
+        raise RuntimeError("AGENTHUB_AUTH_TOKEN_SECRET is required")
     return secret.encode("utf-8")
 
 

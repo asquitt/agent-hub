@@ -51,7 +51,7 @@ def test_full_delegation_lifecycle_and_audit_trail() -> None:
         assert stages == ["discovery", "negotiation", "execution", "delivery", "settlement", "feedback"]
 
         delegation_id = payload["delegation_id"]
-        status = c.get(f"/v1/delegations/{delegation_id}/status")
+        status = c.get(f"/v1/delegations/{delegation_id}/status", headers={"X-API-Key": "dev-owner-key"})
         assert status.status_code == 200
         status_payload = status.json()
         assert status_payload["budget_controls"]["soft_alert"] is True

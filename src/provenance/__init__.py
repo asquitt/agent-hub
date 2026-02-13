@@ -5,6 +5,7 @@ from .service import (
     manifest_hash,
     sign_artifact,
     sign_manifest,
+    validate_provenance_configuration,
     verify_artifact_signature,
     verify_manifest_signature,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "manifest_hash",
     "sign_artifact",
     "sign_manifest",
+    "validate_provenance_configuration",
     "verify_artifact_signature",
     "verify_manifest_signature",
 ]

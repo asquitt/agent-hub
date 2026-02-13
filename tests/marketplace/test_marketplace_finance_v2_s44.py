@@ -35,15 +35,26 @@ def _create_settled_contract(client: TestClient) -> str:
             "max_units_per_purchase": 10,
             "policy_purchase_limit_usd": 3.0,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s60-fin-listing"},
     )
     assert listing.status_code == 200
     listing_id = listing.json()["listing_id"]
+    pack = client.post(
+        "/v1/procurement/policy-packs",
+        json={
+            "buyer": "owner-partner",
+            "auto_approve_limit_usd": 5.0,
+            "hard_stop_limit_usd": 10.0,
+            "allowed_sellers": ["owner-dev"],
+        },
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s60-fin-pack"},
+    )
+    assert pack.status_code == 200, pack.text
 
     purchase = client.post(
         "/v1/marketplace/purchase",
         json={"listing_id": listing_id, "units": 4, "max_total_usd": 2.5, "policy_approved": True},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-fin-purchase"},
     )
     assert purchase.status_code == 200
     contract_id = purchase.json()["contract_id"]
@@ -51,7 +62,7 @@ def _create_settled_contract(client: TestClient) -> str:
     settle = client.post(
         f"/v1/marketplace/contracts/{contract_id}/settle",
         json={"units_used": 4},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-fin-settle"},
     )
     assert settle.status_code == 200
     assert settle.json()["status"] == "settled"
@@ -65,7 +76,7 @@ def test_marketplace_dispute_resolution_and_payout_integrity() -> None:
     dispute = client.post(
         f"/v1/marketplace/contracts/{contract_id}/disputes",
         json={"reason": "Incorrect completion quality", "requested_amount_usd": 0.6},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-fin-dispute-1"},
     )
     assert dispute.status_code == 200
     dispute_id = dispute.json()["dispute_id"]
@@ -73,7 +84,7 @@ def test_marketplace_dispute_resolution_and_payout_integrity() -> None:
     resolved = client.post(
         f"/v1/marketplace/disputes/{dispute_id}/resolve",
         json={"resolution": "approved_partial", "approved_amount_usd": 0.3},
-        headers={"X-API-Key": "platform-owner-key"},
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s60-fin-resolve-1"},
     )
     assert resolved.status_code == 200
     assert resolved.json()["status"] == "resolved_approved_partial"
@@ -81,7 +92,7 @@ def test_marketplace_dispute_resolution_and_payout_integrity() -> None:
 
     payout = client.post(
         f"/v1/marketplace/contracts/{contract_id}/payout",
-        headers={"X-API-Key": "platform-owner-key"},
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s60-fin-payout-1"},
     )
     assert payout.status_code == 200
     payload = payout.json()
@@ -104,13 +115,13 @@ def test_open_dispute_blocks_payout_until_resolved() -> None:
     dispute = client.post(
         f"/v1/marketplace/contracts/{contract_id}/disputes",
         json={"reason": "Pending investigation", "requested_amount_usd": 0.4},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-fin-dispute-2"},
     )
     assert dispute.status_code == 200
 
     blocked = client.post(
         f"/v1/marketplace/contracts/{contract_id}/payout",
-        headers={"X-API-Key": "platform-owner-key"},
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s60-fin-payout-2"},
     )
     assert blocked.status_code == 400
 
@@ -122,19 +133,19 @@ def test_dispute_and_payout_permission_boundaries() -> None:
     dispute = client.post(
         f"/v1/marketplace/contracts/{contract_id}/disputes",
         json={"reason": "Need credit", "requested_amount_usd": 0.2},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-fin-dispute-3"},
     )
     dispute_id = dispute.json()["dispute_id"]
 
     denied_resolve = client.post(
         f"/v1/marketplace/disputes/{dispute_id}/resolve",
         json={"resolution": "rejected"},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-fin-resolve-3"},
     )
     assert denied_resolve.status_code == 403
 
     denied_payout = client.post(
         f"/v1/marketplace/contracts/{contract_id}/payout",
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-fin-payout-3"},
     )
     assert denied_payout.status_code == 403

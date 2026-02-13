@@ -201,7 +201,7 @@ def test_lifespan_startup_fails_without_required_enforce_auth_envs(monkeypatch: 
     monkeypatch.delenv("AGENTHUB_API_KEYS_JSON", raising=False)
     monkeypatch.delenv("AGENTHUB_AUTH_TOKEN_SECRET", raising=False)
 
-    with pytest.raises(RuntimeError, match="AGENTHUB_API_KEYS_JSON is required in enforce mode"):
+    with pytest.raises(RuntimeError, match="AGENTHUB_API_KEYS_JSON is required"):
         with TestClient(app):
             pass
 

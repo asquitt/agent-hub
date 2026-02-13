@@ -62,13 +62,13 @@ def test_healthz() -> None:
 def test_registration_and_listing_flow(client: TestClient) -> None:
     agent_id = register_default_agent(client)
 
-    list_response = client.get("/v1/agents")
+    list_response = client.get("/v1/agents", headers={"X-API-Key": "dev-owner-key"})
     assert list_response.status_code == 200
     data = list_response.json()["data"]
     assert len(data) == 1
     assert data[0]["id"] == agent_id
 
-    get_response = client.get(f"/v1/agents/{agent_id}")
+    get_response = client.get(f"/v1/agents/{agent_id}", headers={"X-API-Key": "dev-owner-key"})
     assert get_response.status_code == 200
     assert get_response.json()["latest_version"] == "1.0.0"
 
@@ -119,19 +119,19 @@ def test_versioning_endpoints(client: TestClient) -> None:
     )
     assert put_response.status_code == 200
 
-    versions_response = client.get(f"/v1/agents/{agent_id}/versions")
+    versions_response = client.get(f"/v1/agents/{agent_id}/versions", headers={"X-API-Key": "dev-owner-key"})
     assert versions_response.status_code == 200
     versions = [v["version"] for v in versions_response.json()["versions"]]
     assert versions == ["1.0.0", "1.1.0"]
 
-    get_version_response = client.get(f"/v1/agents/{agent_id}/versions/1.1.0")
+    get_version_response = client.get(f"/v1/agents/{agent_id}/versions/1.1.0", headers={"X-API-Key": "dev-owner-key"})
     assert get_version_response.status_code == 200
     assert get_version_response.json()["manifest"]["identity"]["version"] == "1.1.0"
 
 
 def test_namespace_listing(client: TestClient) -> None:
     agent_id = register_default_agent(client)
-    ns_response = client.get("/v1/namespaces/@demo")
+    ns_response = client.get("/v1/namespaces/@demo", headers={"X-API-Key": "dev-owner-key"})
     assert ns_response.status_code == 200
     assert ns_response.json()["data"][0]["id"] == agent_id
 
@@ -145,6 +145,7 @@ def test_d02_query_scenarios_relevance(client: TestClient) -> None:
             "filters": {"min_trust_score": 0.8, "max_cost_usd": 0.02, "allowed_protocols": ["MCP"]},
             "pagination": {"mode": "offset", "offset": 0, "limit": 10},
         },
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert q01.status_code == 200
     assert q01.json()["data"][0]["capability_id"] == "summarize-invoice"
@@ -157,6 +158,7 @@ def test_d02_query_scenarios_relevance(client: TestClient) -> None:
             "filters": {"max_latency_ms": 100, "min_trust_score": 0.8},
             "pagination": {"mode": "offset", "offset": 0, "limit": 10},
         },
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert q02.status_code == 200
     assert any(item["capability_id"] == "classify-ticket" for item in q02.json()["data"])
@@ -169,6 +171,7 @@ def test_d02_query_scenarios_relevance(client: TestClient) -> None:
             "filters": {"required_permissions": ["payments.execute"], "min_trust_score": 0.9},
             "pagination": {"mode": "offset", "offset": 0, "limit": 10},
         },
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert q03.status_code == 200
     assert q03.json()["data"][0]["capability_id"] == "execute-payment"
@@ -181,6 +184,7 @@ def test_d02_query_scenarios_relevance(client: TestClient) -> None:
             "output_schema": {"type": "object", "required": ["vendor", "total", "due_date"]},
             "filters": {"compatibility_mode": "exact"},
         },
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert q04.status_code == 200
     assert q04.json()["data"][0]["compatibility"] == "exact"
@@ -193,12 +197,13 @@ def test_d02_query_scenarios_relevance(client: TestClient) -> None:
             "output_schema": {"type": "object", "required": ["vendor", "total"]},
             "filters": {"compatibility_mode": "backward_compatible"},
         },
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert q05.status_code == 200
     assert any(item["capability_id"] == "summarize-invoice" for item in q05.json()["data"])
 
     # Q06
-    q06 = client.get("/v1/agents/support-orchestrator/capabilities")
+    q06 = client.get("/v1/agents/support-orchestrator/capabilities", headers={"X-API-Key": "dev-owner-key"})
     assert q06.status_code == 200
     assert {c["capability_id"] for c in q06.json()["capabilities"]} == {"classify-ticket", "apply-remediation"}
 
@@ -210,6 +215,7 @@ def test_d02_query_scenarios_relevance(client: TestClient) -> None:
             "current_capability_ids": ["validate-identity", "run-policy-screening"],
             "pagination": {"mode": "offset", "offset": 0, "limit": 10},
         },
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert q07.status_code == 200
     assert q07.json()["data"][0]["capability_id"] == "provision-billing"
@@ -223,6 +229,7 @@ def test_d02_query_scenarios_relevance(client: TestClient) -> None:
             "filters": {"min_trust_score": 0.8},
             "pagination": {"mode": "offset", "offset": 0, "limit": 10},
         },
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert q08.status_code == 200
     assert any(item["capability_id"] == "apply-remediation" for item in q08.json()["data"])
@@ -231,6 +238,7 @@ def test_d02_query_scenarios_relevance(client: TestClient) -> None:
     q09 = client.post(
         "/v1/capabilities/search",
         json={"query": "anything", "filters": {"max_latency_ms": -5}},
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert q09.status_code in (400, 422)
 
@@ -238,6 +246,7 @@ def test_d02_query_scenarios_relevance(client: TestClient) -> None:
     q10 = client.post(
         "/v1/capabilities/search",
         json={"query": "provision billing", "filters": {"min_trust_score": 0.95, "max_cost_usd": 0.01}},
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert q10.status_code == 200
     assert q10.json()["data"] == []
@@ -266,7 +275,11 @@ def test_latency_p95_thresholds(client: TestClient) -> None:
     read_latencies = []
     for _ in range(60):
         start = time.perf_counter()
-        response = client.get("/v1/agents", params={"namespace": "@perf", "offset": 0, "limit": 20})
+        response = client.get(
+            "/v1/agents",
+            params={"namespace": "@perf", "offset": 0, "limit": 20},
+            headers={"X-API-Key": "dev-owner-key"},
+        )
         elapsed_ms = (time.perf_counter() - start) * 1000
         read_latencies.append(elapsed_ms)
         assert response.status_code == 200
@@ -283,7 +296,7 @@ def test_eval_results_visible_on_agent_detail(client: TestClient) -> None:
     manifest = load_yaml(VALID_MANIFEST_PATH)
     run_tier1_eval(manifest=manifest, agent_id=agent_id, version="1.0.0")
 
-    response = client.get(f"/v1/agents/{agent_id}")
+    response = client.get(f"/v1/agents/{agent_id}", headers={"X-API-Key": "dev-owner-key"})
     assert response.status_code == 200
     eval_summary = response.json()["eval_summary"]
     assert "accuracy" in eval_summary
@@ -293,14 +306,14 @@ def test_eval_results_visible_on_agent_detail(client: TestClient) -> None:
 def test_trust_endpoint_recalculates_on_usage_and_eval(client: TestClient) -> None:
     agent_id = register_default_agent(client, version="1.0.0")
 
-    initial = client.get(f"/v1/agents/{agent_id}/trust")
+    initial = client.get(f"/v1/agents/{agent_id}/trust", headers={"X-API-Key": "dev-owner-key"})
     assert initial.status_code == 200
     initial_score = initial.json()["score"]
 
     usage = client.post(
         f"/v1/agents/{agent_id}/trust/usage",
         json={"success": True, "cost_usd": 0.02, "latency_ms": 120},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s23-trust-usage"},
     )
     assert usage.status_code == 200
     after_usage_score = usage.json()["score"]
@@ -309,7 +322,7 @@ def test_trust_endpoint_recalculates_on_usage_and_eval(client: TestClient) -> No
     manifest = load_yaml(VALID_MANIFEST_PATH)
     run_tier1_eval(manifest=manifest, agent_id=agent_id, version="1.0.0")
 
-    after_eval = client.get(f"/v1/agents/{agent_id}/trust")
+    after_eval = client.get(f"/v1/agents/{agent_id}/trust", headers={"X-API-Key": "dev-owner-key"})
     assert after_eval.status_code == 200
     assert after_eval.json()["breakdown"]["eval_pass_rate"] >= 0.9
 

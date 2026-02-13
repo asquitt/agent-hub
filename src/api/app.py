@@ -76,7 +76,13 @@ from src.delegation import storage as delegation_storage
 from src.devhub import service as devhub_service
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
 from src.eval.storage import latest_result
-from src.federation import execute_federated, export_attestation_bundle, list_domain_profiles, list_federation_audit
+from src.federation import (
+    execute_federated,
+    export_attestation_bundle,
+    list_domain_profiles,
+    list_federation_audit,
+    validate_federation_configuration,
+)
 from src.idempotency import storage as idempotency_storage
 from src.knowledge import contribute_entry, query_entries, validate_entry
 from src.lease import create_lease, get_lease, promote_lease, rollback_install
@@ -98,6 +104,7 @@ from src.provenance.service import (
     manifest_hash,
     sign_artifact,
     sign_manifest,
+    validate_provenance_configuration,
     verify_artifact_signature,
     verify_manifest_signature,
 )
@@ -111,6 +118,8 @@ from src.discovery.index import LIVE_CAPABILITY_INDEX
 @asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
     validate_auth_configuration()
+    validate_federation_configuration()
+    validate_provenance_configuration()
     yield
 
 
@@ -457,7 +466,7 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
         violation_message = None
 
     if violation_code is not None and mode == "enforce":
-        status_code = 401 if violation_code.startswith("auth.") else 403
+        status_code = 401 if violation_code in {"auth.required", "auth.invalid"} else 403
         return _stable_error(status_code, violation_code, violation_message or "request not permitted")
 
     response = await call_next(request)

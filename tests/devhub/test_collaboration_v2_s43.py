@@ -64,7 +64,7 @@ def test_devhub_collaboration_review_gate_and_promotion_flow() -> None:
     created_review = client.post(
         "/v1/devhub/reviews",
         json={"agent_id": agent_id, "version": "1.1.0", "approvals_required": 2},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s43-review-create-1"},
     )
     assert created_review.status_code == 200, created_review.text
     review = created_review.json()
@@ -78,14 +78,22 @@ def test_devhub_collaboration_review_gate_and_promotion_flow() -> None:
     blocked_decision = client.post(
         f"/v1/devhub/reviews/{review_id}/decision",
         json={"decision": "approve", "note": "viewer should be blocked"},
-        headers={"X-API-Key": "partner-owner-key", "X-Operator-Role": "viewer"},
+        headers={
+            "X-API-Key": "partner-owner-key",
+            "X-Operator-Role": "viewer",
+            "Idempotency-Key": "s43-review-decision-blocked-1",
+        },
     )
     assert blocked_decision.status_code == 403
 
     approve_one = client.post(
         f"/v1/devhub/reviews/{review_id}/decision",
         json={"decision": "approve", "note": "first approval"},
-        headers={"X-API-Key": "dev-owner-key", "X-Operator-Role": "admin"},
+        headers={
+            "X-API-Key": "dev-owner-key",
+            "X-Operator-Role": "admin",
+            "Idempotency-Key": "s43-review-approve-1",
+        },
     )
     assert approve_one.status_code == 200
     assert approve_one.json()["status"] == "pending"
@@ -93,14 +101,22 @@ def test_devhub_collaboration_review_gate_and_promotion_flow() -> None:
     approve_two = client.post(
         f"/v1/devhub/reviews/{review_id}/decision",
         json={"decision": "approve", "note": "second approval"},
-        headers={"X-API-Key": "platform-owner-key", "X-Operator-Role": "admin"},
+        headers={
+            "X-API-Key": "platform-owner-key",
+            "X-Operator-Role": "admin",
+            "Idempotency-Key": "s43-review-approve-2",
+        },
     )
     assert approve_two.status_code == 200
     assert approve_two.json()["status"] == "approved"
 
     promotion = client.post(
         f"/v1/devhub/reviews/{review_id}/promote",
-        headers={"X-API-Key": "dev-owner-key", "X-Operator-Role": "admin"},
+        headers={
+            "X-API-Key": "dev-owner-key",
+            "X-Operator-Role": "admin",
+            "Idempotency-Key": "s43-review-promote-1",
+        },
     )
     assert promotion.status_code == 200
     assert promotion.json()["status"] == "promoted"
@@ -117,7 +133,7 @@ def test_devhub_review_rejection_blocks_promotion_and_duplicate_votes() -> None:
     review = client.post(
         "/v1/devhub/reviews",
         json={"agent_id": agent_id, "version": "1.1.0", "approvals_required": 2},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s43-review-create-2"},
     )
     assert review.status_code == 200
     review_id = review.json()["review_id"]
@@ -125,7 +141,11 @@ def test_devhub_review_rejection_blocks_promotion_and_duplicate_votes() -> None:
     reject = client.post(
         f"/v1/devhub/reviews/{review_id}/decision",
         json={"decision": "reject", "note": "security signoff missing"},
-        headers={"X-API-Key": "platform-owner-key", "X-Operator-Role": "admin"},
+        headers={
+            "X-API-Key": "platform-owner-key",
+            "X-Operator-Role": "admin",
+            "Idempotency-Key": "s43-review-reject-1",
+        },
     )
     assert reject.status_code == 200
     assert reject.json()["status"] == "rejected"
@@ -133,12 +153,20 @@ def test_devhub_review_rejection_blocks_promotion_and_duplicate_votes() -> None:
     duplicate_reject = client.post(
         f"/v1/devhub/reviews/{review_id}/decision",
         json={"decision": "reject", "note": "duplicate decision"},
-        headers={"X-API-Key": "platform-owner-key", "X-Operator-Role": "admin"},
+        headers={
+            "X-API-Key": "platform-owner-key",
+            "X-Operator-Role": "admin",
+            "Idempotency-Key": "s43-review-reject-2",
+        },
     )
     assert duplicate_reject.status_code == 400
 
     promote = client.post(
         f"/v1/devhub/reviews/{review_id}/promote",
-        headers={"X-API-Key": "dev-owner-key", "X-Operator-Role": "admin"},
+        headers={
+            "X-API-Key": "dev-owner-key",
+            "X-Operator-Role": "admin",
+            "Idempotency-Key": "s43-review-promote-2",
+        },
     )
     assert promote.status_code == 400

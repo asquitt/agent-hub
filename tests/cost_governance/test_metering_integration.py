@@ -35,6 +35,7 @@ def test_metering_records_search_delegation_and_install_operations() -> None:
     search = client.post(
         "/v1/capabilities/search",
         json={"query": "extract invoice totals"},
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert search.status_code == 200
 
@@ -58,7 +59,7 @@ def test_metering_records_search_delegation_and_install_operations() -> None:
             "capability_ref": "@seed:data-normalizer/normalize-records",
             "ttl_seconds": 600,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s20-lease-1"},
     )
     assert lease.status_code == 200
     lease_payload = lease.json()
@@ -72,7 +73,7 @@ def test_metering_records_search_delegation_and_install_operations() -> None:
             "approval_ticket": "APR-2001",
             "compatibility_verified": True,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s20-promote-1"},
     )
     assert promote.status_code == 200
 

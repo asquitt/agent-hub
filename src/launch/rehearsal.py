@@ -67,11 +67,11 @@ def run_incident_drills(client: Any) -> dict[str, Any]:
             "capability_ref": "@seed:data-normalizer/normalize-records",
             "ttl_seconds": 600,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s52-incident-lease-a"},
     )
     lease_a_payload = _safe_json(lease_a)
     approval_promote = None
-    if isinstance(lease_a_payload, dict):
+    if isinstance(lease_a_payload, dict) and lease_a_payload.get("lease_id") and lease_a_payload.get("attestation_hash"):
         approval_promote = client.post(
             f"/v1/capabilities/leases/{lease_a_payload['lease_id']}/promote",
             json={
@@ -81,7 +81,7 @@ def run_incident_drills(client: Any) -> dict[str, Any]:
                 "approval_ticket": "APR-5201",
                 "compatibility_verified": True,
             },
-            headers={"X-API-Key": "dev-owner-key"},
+            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s52-incident-promote-a"},
         )
 
     approval_status = approval_promote.status_code if approval_promote is not None else 500
@@ -109,11 +109,11 @@ def run_incident_drills(client: Any) -> dict[str, Any]:
             "capability_ref": "@seed:data-normalizer/normalize-records",
             "ttl_seconds": 600,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s52-incident-lease-b"},
     )
     lease_b_payload = _safe_json(lease_b)
     boundary_promote = None
-    if isinstance(lease_b_payload, dict):
+    if isinstance(lease_b_payload, dict) and lease_b_payload.get("lease_id") and lease_b_payload.get("attestation_hash"):
         boundary_promote = client.post(
             f"/v1/capabilities/leases/{lease_b_payload['lease_id']}/promote",
             json={
@@ -123,7 +123,7 @@ def run_incident_drills(client: Any) -> dict[str, Any]:
                 "approval_ticket": "APR-5202",
                 "compatibility_verified": True,
             },
-            headers={"X-API-Key": "partner-owner-key"},
+            headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s52-incident-promote-b"},
         )
 
     boundary_status = boundary_promote.status_code if boundary_promote is not None else 500
@@ -153,11 +153,11 @@ def run_incident_drills(client: Any) -> dict[str, Any]:
             "capability_ref": "@seed:data-normalizer/normalize-records",
             "ttl_seconds": 600,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s52-incident-lease-c"},
     )
     lease_c_payload = _safe_json(lease_c)
     attestation_promote = None
-    if isinstance(lease_c_payload, dict):
+    if isinstance(lease_c_payload, dict) and lease_c_payload.get("lease_id") and lease_c_payload.get("attestation_hash"):
         original_hash = str(lease_c_payload["attestation_hash"])
         invalid_hash = ("0" if original_hash[0] != "0" else "1") + original_hash[1:]
         attestation_promote = client.post(
@@ -169,7 +169,7 @@ def run_incident_drills(client: Any) -> dict[str, Any]:
                 "approval_ticket": "APR-5203",
                 "compatibility_verified": True,
             },
-            headers={"X-API-Key": "dev-owner-key"},
+            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s52-incident-promote-c"},
         )
 
     attestation_status = attestation_promote.status_code if attestation_promote is not None else 500
@@ -210,13 +210,15 @@ def run_rollback_simulation(client: Any, *, reason: str = "launch rehearsal roll
             "capability_ref": "@seed:data-normalizer/normalize-records",
             "ttl_seconds": 600,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s52-rollback-lease"},
     )
     lease_payload = _safe_json(lease_response)
     lease_passed = bool(
         lease_response.status_code == 200
         and isinstance(lease_payload, dict)
         and lease_payload.get("status") == "active"
+        and lease_payload.get("lease_id")
+        and lease_payload.get("attestation_hash")
     )
     steps.append(
         {
@@ -237,7 +239,7 @@ def run_rollback_simulation(client: Any, *, reason: str = "launch rehearsal roll
             "approval_ticket": "APR-5204",
             "compatibility_verified": True,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s52-rollback-promote"},
     )
     promote_payload = _safe_json(promote_response)
     install_id = (
@@ -264,7 +266,7 @@ def run_rollback_simulation(client: Any, *, reason: str = "launch rehearsal roll
     rollback_response = client.post(
         f"/v1/capabilities/installs/{install_id}/rollback",
         json={"reason": reason},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s52-rollback-install"},
     )
     rollback_payload = _safe_json(rollback_response)
     rollback_passed = bool(
@@ -284,7 +286,7 @@ def run_rollback_simulation(client: Any, *, reason: str = "launch rehearsal roll
     rollback_repeat = client.post(
         f"/v1/capabilities/installs/{install_id}/rollback",
         json={"reason": reason},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s52-rollback-install"},
     )
     rollback_repeat_payload = _safe_json(rollback_repeat)
     rollback_repeat_passed = bool(

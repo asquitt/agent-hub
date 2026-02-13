@@ -22,7 +22,7 @@ def _issue_token(client: TestClient, api_key: str, scopes: list[str]) -> str:
     response = client.post(
         "/v1/auth/tokens",
         json={"scopes": scopes, "ttl_seconds": 1200},
-        headers={"X-API-Key": api_key},
+        headers={"X-API-Key": api_key, "Idempotency-Key": f"s32-token-{api_key}-{'-'.join(scopes)}"},
     )
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
@@ -37,7 +37,7 @@ def _seed_invoice(client: TestClient) -> str:
             "monthly_fee_usd": 20.0,
             "included_units": 500,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s32-subscription"},
     )
     assert create_subscription.status_code == 200
 
@@ -49,14 +49,14 @@ def _seed_invoice(client: TestClient) -> str:
             "quantity": 100,
             "unit_price_usd": 0.02,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s32-usage"},
     )
     assert usage.status_code == 200
 
     invoice = client.post(
         "/v1/billing/invoices/generate",
         json={"account_id": "acct-s32"},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s32-generate"},
     )
     assert invoice.status_code == 200, invoice.text
     return invoice.json()["invoice_id"]
@@ -90,13 +90,13 @@ def test_billing_refund_scope_matrix_for_bearer_tokens() -> None:
     denied = client.post(
         f"/v1/billing/invoices/{invoice_id}/refund",
         json={"amount_usd": 1.0, "reason": "scope-check"},
-        headers={"Authorization": f"Bearer {missing_scope}"},
+        headers={"Authorization": f"Bearer {missing_scope}", "Idempotency-Key": "s32-refund-denied"},
     )
     assert denied.status_code == 403
 
     allowed = client.post(
         f"/v1/billing/invoices/{invoice_id}/refund",
         json={"amount_usd": 1.0, "reason": "scope-check"},
-        headers={"Authorization": f"Bearer {with_scope}"},
+        headers={"Authorization": f"Bearer {with_scope}", "Idempotency-Key": "s32-refund-allowed"},
     )
     assert allowed.status_code == 200, allowed.text

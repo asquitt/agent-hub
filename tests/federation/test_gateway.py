@@ -12,6 +12,15 @@ from src.cost_governance import storage as cost_storage
 @pytest.fixture(autouse=True)
 def isolate_federation_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     billing_db = tmp_path / "billing.db"
+    monkeypatch.setenv(
+        "AGENTHUB_API_KEYS_JSON",
+        '{"dev-owner-key":"owner-dev","partner-owner-key":"owner-partner","platform-owner-key":"owner-platform"}',
+    )
+    monkeypatch.setenv("AGENTHUB_AUTH_TOKEN_SECRET", "test-federation-auth-secret")
+    monkeypatch.setenv(
+        "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON",
+        '{"partner-east":"fed-partner-east-token","partner-west":"fed-partner-west-token"}',
+    )
     monkeypatch.setenv("AGENTHUB_FEDERATION_AUDIT_PATH", str(tmp_path / "federation-audit.json"))
     monkeypatch.setenv("AGENTHUB_COST_EVENTS_PATH", str(tmp_path / "cost-events.json"))
     monkeypatch.setenv("AGENTHUB_COST_DB_PATH", str(billing_db))
@@ -32,7 +41,7 @@ def test_federated_execution_requires_cross_boundary_auth() -> None:
             "estimated_cost_usd": 1.2,
             "max_budget_usd": 5.0,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s60-fed-denied-auth"},
     )
     assert denied.status_code == 403
 
@@ -50,7 +59,7 @@ def test_federated_execution_blocks_inline_secrets() -> None:
             "estimated_cost_usd": 1.2,
             "max_budget_usd": 5.0,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s60-fed-inline-secret"},
     )
     assert denied.status_code == 400
     assert "inline secrets" in denied.json()["detail"]
@@ -69,7 +78,7 @@ def test_federated_execution_attestation_and_audit_completeness() -> None:
             "estimated_cost_usd": 1.2,
             "max_budget_usd": 5.0,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s60-fed-success"},
     )
     assert execute.status_code == 200
     attestation = execute.json()["attestation"]

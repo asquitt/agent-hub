@@ -73,10 +73,20 @@ def run_demo_smoke(client: Any, manifest: dict[str, Any]) -> dict[str, Any]:
     steps = [
         {"step": "healthz", "status_code": client.get("/healthz").status_code},
         {"step": "register_agent", "status_code": create.status_code},
-        {"step": "get_agent", "status_code": client.get(f"/v1/agents/{namespace}:{local['identity']['id']}").status_code},
+        {
+            "step": "get_agent",
+            "status_code": client.get(
+                f"/v1/agents/{namespace}:{local['identity']['id']}",
+                headers={"X-API-Key": "dev-owner-key"},
+            ).status_code,
+        },
         {
             "step": "search_capabilities",
-            "status_code": client.post("/v1/capabilities/search", json={"query": "invoice"}).status_code,
+            "status_code": client.post(
+                "/v1/capabilities/search",
+                json={"query": "invoice"},
+                headers={"X-API-Key": "dev-owner-key"},
+            ).status_code,
         },
         {
             "step": "operator_dashboard",

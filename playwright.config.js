@@ -33,6 +33,11 @@ module.exports = defineConfig({
         "platform-owner-key": "owner-platform",
       }),
       AGENTHUB_AUTH_TOKEN_SECRET: "playwright-e2e-secret",
+      AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON: JSON.stringify({
+        "partner-east": "fed-partner-east-token",
+        "partner-west": "fed-partner-west-token",
+      }),
+      AGENTHUB_PROVENANCE_SIGNING_SECRET: "playwright-provenance-secret",
       AGENTHUB_CUSTOMER_UI_ENABLED: "true",
       AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH: "true",
       AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON: JSON.stringify(["owner-dev", "owner-platform"]),

@@ -74,10 +74,10 @@ class AccessViolation:
 
 
 def access_mode() -> AccessMode:
-    mode = str(os.getenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "warn")).strip().lower()
-    if mode == "enforce":
-        return "enforce"
-    return "warn"
+    mode = str(os.getenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "enforce")).strip().lower()
+    if mode == "warn":
+        return "warn"
+    return "enforce"
 
 
 def classify_route(method: str, path: str) -> AccessClassification:

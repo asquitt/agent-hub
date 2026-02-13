@@ -9,11 +9,6 @@ from typing import Any
 from src.common.time import utc_now_iso
 from src.federation import storage
 
-LEGACY_DOMAIN_TOKENS = {
-    "partner-east": "fed-partner-east-token",
-    "partner-west": "fed-partner-west-token",
-}
-
 DOMAIN_PROFILES = {
     "partner-east": {
         "residency_region": "us-east",
@@ -27,33 +22,30 @@ DOMAIN_PROFILES = {
     },
 }
 
-def _enforce_mode_enabled() -> bool:
-    return str(os.getenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "warn")).strip().lower() == "enforce"
-
 
 def _domain_tokens() -> dict[str, str]:
     raw = os.getenv("AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON")
-    if raw:
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            if _enforce_mode_enabled():
-                raise PermissionError("invalid AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON configuration") from exc
-            parsed = None
-        if isinstance(parsed, dict):
-            normalized: dict[str, str] = {}
-            for domain_id, token in parsed.items():
-                domain = str(domain_id).strip()
-                value = str(token).strip()
-                if domain and value:
-                    normalized[domain] = value
-            if normalized:
-                return normalized
-            if _enforce_mode_enabled():
-                raise PermissionError("federation tokens must be configured in enforce mode")
-    if _enforce_mode_enabled():
-        raise PermissionError("federation tokens must be configured in enforce mode")
-    return dict(LEGACY_DOMAIN_TOKENS)
+    if raw is None or not raw.strip():
+        raise PermissionError("AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON is required")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise PermissionError("invalid AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON configuration") from exc
+    if not isinstance(parsed, dict):
+        raise PermissionError("AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON must be a JSON object")
+    normalized: dict[str, str] = {}
+    for domain_id, token in parsed.items():
+        domain = str(domain_id).strip()
+        value = str(token).strip()
+        if domain and value:
+            normalized[domain] = value
+    if not normalized:
+        raise PermissionError("AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON must define at least one domain token")
+    return normalized
+
+
+def validate_federation_configuration() -> None:
+    _ = _domain_tokens()
 
 
 def _stable_hash(value: Any) -> str:

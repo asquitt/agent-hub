@@ -30,21 +30,21 @@ def _seed_control_artifacts(client: TestClient) -> None:
     subscription = client.post(
         "/v1/billing/subscriptions",
         json={"account_id": "acct-enterprise", "plan_id": "pro", "monthly_fee_usd": 99.0, "included_units": 1000},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s47-subscription"},
     )
     assert subscription.status_code == 200
 
     usage = client.post(
         "/v1/billing/usage",
         json={"account_id": "acct-enterprise", "meter": "delegation.compute", "quantity": 12, "unit_price_usd": 0.25},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s47-usage"},
     )
     assert usage.status_code == 200
 
     invoice = client.post(
         "/v1/billing/invoices/generate",
         json={"account_id": "acct-enterprise"},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s47-generate"},
     )
     assert invoice.status_code == 200
 
@@ -56,7 +56,7 @@ def _seed_control_artifacts(client: TestClient) -> None:
             "hard_stop_limit_usd": 5.0,
             "allowed_sellers": ["owner-dev"],
         },
-        headers={"X-API-Key": "platform-owner-key"},
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s47-policy-pack"},
     )
     assert procurement.status_code == 200
 
@@ -73,7 +73,7 @@ def _seed_control_artifacts(client: TestClient) -> None:
             "connection_mode": "public_internet",
             "requested_residency_region": "us-east",
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s47-federation"},
     )
     assert federation.status_code == 200
 
@@ -89,7 +89,7 @@ def test_compliance_export_generates_soc2_control_evidence_bundle() -> None:
     exported = client.post(
         "/v1/compliance/evidence/export",
         json={"framework": "SOC2"},
-        headers={"X-API-Key": "platform-owner-key"},
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s47-export-soc2"},
     )
     assert exported.status_code == 200, exported.text
     payload = exported.json()
@@ -112,7 +112,7 @@ def test_compliance_evidence_endpoints_enforce_admin_boundary() -> None:
     denied_export = client.post(
         "/v1/compliance/evidence/export",
         json={"framework": "SOC2"},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s47-export-denied"},
     )
     assert denied_export.status_code == 403
 
@@ -129,7 +129,7 @@ def test_compliance_export_surfaces_control_failures_for_malformed_evidence() ->
     exported = client.post(
         "/v1/compliance/evidence/export",
         json={"framework": "ISO27001"},
-        headers={"X-API-Key": "platform-owner-key"},
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s47-export-iso"},
     )
     assert exported.status_code == 200
     payload = exported.json()

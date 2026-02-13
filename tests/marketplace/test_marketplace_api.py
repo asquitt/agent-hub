@@ -37,10 +37,21 @@ def test_marketplace_purchase_and_settlement_integrity() -> None:
             "max_units_per_purchase": 10,
             "policy_purchase_limit_usd": 3.0,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s60-mkt-listing-1"},
     )
     assert listing.status_code == 200
     listing_id = listing.json()["listing_id"]
+    pack = client.post(
+        "/v1/procurement/policy-packs",
+        json={
+            "buyer": "owner-partner",
+            "auto_approve_limit_usd": 5.0,
+            "hard_stop_limit_usd": 10.0,
+            "allowed_sellers": ["owner-dev"],
+        },
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s60-mkt-pack-1"},
+    )
+    assert pack.status_code == 200, pack.text
 
     purchase = client.post(
         "/v1/marketplace/purchase",
@@ -50,7 +61,7 @@ def test_marketplace_purchase_and_settlement_integrity() -> None:
             "max_total_usd": 2.5,
             "policy_approved": True,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-mkt-purchase-1"},
     )
     assert purchase.status_code == 200
     contract_id = purchase.json()["contract_id"]
@@ -58,7 +69,7 @@ def test_marketplace_purchase_and_settlement_integrity() -> None:
     settle = client.post(
         f"/v1/marketplace/contracts/{contract_id}/settle",
         json={"units_used": 4},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-mkt-settle-1"},
     )
     assert settle.status_code == 200
     assert settle.json()["status"] == "settled"
@@ -75,9 +86,20 @@ def test_marketplace_policy_scoped_purchase_limit_enforced() -> None:
             "max_units_per_purchase": 10,
             "policy_purchase_limit_usd": 2.0,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s60-mkt-listing-2"},
     )
     listing_id = listing.json()["listing_id"]
+    pack = client.post(
+        "/v1/procurement/policy-packs",
+        json={
+            "buyer": "owner-partner",
+            "auto_approve_limit_usd": 5.0,
+            "hard_stop_limit_usd": 10.0,
+            "allowed_sellers": ["owner-dev"],
+        },
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s60-mkt-pack-2"},
+    )
+    assert pack.status_code == 200, pack.text
 
     denied = client.post(
         "/v1/marketplace/purchase",
@@ -87,7 +109,7 @@ def test_marketplace_policy_scoped_purchase_limit_enforced() -> None:
             "max_total_usd": 10.0,
             "policy_approved": True,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-mkt-purchase-2"},
     )
     assert denied.status_code == 403
 
@@ -102,9 +124,20 @@ def test_marketplace_abuse_smoke_over_settlement_blocked() -> None:
             "max_units_per_purchase": 5,
             "policy_purchase_limit_usd": 2.0,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s60-mkt-listing-3"},
     )
     listing_id = listing.json()["listing_id"]
+    pack = client.post(
+        "/v1/procurement/policy-packs",
+        json={
+            "buyer": "owner-partner",
+            "auto_approve_limit_usd": 5.0,
+            "hard_stop_limit_usd": 10.0,
+            "allowed_sellers": ["owner-dev"],
+        },
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s60-mkt-pack-3"},
+    )
+    assert pack.status_code == 200, pack.text
 
     purchase = client.post(
         "/v1/marketplace/purchase",
@@ -114,13 +147,13 @@ def test_marketplace_abuse_smoke_over_settlement_blocked() -> None:
             "max_total_usd": 1.0,
             "policy_approved": True,
         },
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-mkt-purchase-3"},
     )
     contract_id = purchase.json()["contract_id"]
 
     denied = client.post(
         f"/v1/marketplace/contracts/{contract_id}/settle",
         json={"units_used": 3},
-        headers={"X-API-Key": "partner-owner-key"},
+        headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s60-mkt-settle-3"},
     )
     assert denied.status_code == 400

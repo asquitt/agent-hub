@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,15 @@ from src.cost_governance import storage as cost_storage
 @pytest.fixture(autouse=True)
 def isolate_federation_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     billing_db = tmp_path / "billing.db"
+    monkeypatch.setenv(
+        "AGENTHUB_API_KEYS_JSON",
+        '{"dev-owner-key":"owner-dev","partner-owner-key":"owner-partner","platform-owner-key":"owner-platform"}',
+    )
+    monkeypatch.setenv("AGENTHUB_AUTH_TOKEN_SECRET", "test-federation-auth-secret")
+    monkeypatch.setenv(
+        "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON",
+        '{"partner-east":"fed-partner-east-token","partner-west":"fed-partner-west-token"}',
+    )
     monkeypatch.setenv("AGENTHUB_FEDERATION_AUDIT_PATH", str(tmp_path / "federation-audit.json"))
     monkeypatch.setenv("AGENTHUB_COST_EVENTS_PATH", str(tmp_path / "cost-events.json"))
     monkeypatch.setenv("AGENTHUB_COST_DB_PATH", str(billing_db))
@@ -30,8 +40,14 @@ def _execute_federated(client: TestClient, **overrides: object):
         "max_budget_usd": 5.0,
         "connection_mode": "public_internet",
     }
-    payload.update(overrides)
-    return client.post("/v1/federation/execute", json=payload, headers={"X-API-Key": "dev-owner-key"})
+    request_payload = dict(overrides)
+    idempotency_key = str(request_payload.pop("idempotency_key", f"s60-fed-{uuid.uuid4()}"))
+    payload.update(request_payload)
+    return client.post(
+        "/v1/federation/execute",
+        json=payload,
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": idempotency_key},
+    )
 
 
 def test_federation_enterprise_boundary_private_connect_and_residency() -> None:

@@ -9,6 +9,7 @@ from src.api.app import app
 
 
 client = TestClient(app)
+HEADERS = {"X-API-Key": "dev-owner-key"}
 
 
 def test_discovery_search_cost_constraint_optimization() -> None:
@@ -18,6 +19,7 @@ def test_discovery_search_cost_constraint_optimization() -> None:
             "query": "extract invoice totals",
             "constraints": {"max_cost_usd": 0.02, "min_trust_score": 0.8},
         },
+        headers=HEADERS,
     )
     assert response.status_code == 200
     data = response.json()["data"]
@@ -41,6 +43,7 @@ def test_contract_match_and_compatibility_cached_sla() -> None:
                 "output_schema": {"type": "object", "required": ["vendor", "total"]},
                 "constraints": {"max_cost_usd": 0.03},
             },
+            headers=HEADERS,
         )
         contract_lat.append((time.perf_counter() - t) * 1000)
         assert r1.status_code == 200
@@ -54,6 +57,7 @@ def test_contract_match_and_compatibility_cached_sla() -> None:
                 "my_schema": {"type": "object", "required": ["ticket_text", "account_id", "action"]},
                 "agent_id": "support-orchestrator",
             },
+            headers=HEADERS,
         )
         compat_lat.append((time.perf_counter() - t) * 1000)
         assert r2.status_code == 200
@@ -74,6 +78,7 @@ def test_semantic_discovery_sla() -> None:
         response = client.post(
             "/v1/discovery/search",
             json={"query": "classify support incidents", "constraints": {"min_trust_score": 0.8}},
+            headers=HEADERS,
         )
         latencies.append((time.perf_counter() - t) * 1000)
         assert response.status_code == 200
@@ -84,7 +89,7 @@ def test_semantic_discovery_sla() -> None:
 
 
 def test_mcp_tools_and_a2a_agent_card() -> None:
-    tools = client.get("/v1/discovery/mcp-tools")
+    tools = client.get("/v1/discovery/mcp-tools", headers=HEADERS)
     assert tools.status_code == 200
     names = {tool["name"] for tool in tools.json()["tools"]}
     assert names == {"search_capabilities", "get_agent_manifest", "check_compatibility"}
@@ -103,6 +108,7 @@ def test_discovery_policy_denies_malformed_constraints() -> None:
             "query": "invoice",
             "constraints": {"allowed_protocols": ["SOAP"], "required_permissions": ["payments.*"]},
         },
+        headers=HEADERS,
     )
     assert response.status_code == 200
     payload = response.json()

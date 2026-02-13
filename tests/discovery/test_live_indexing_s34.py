@@ -61,6 +61,7 @@ def test_registry_manifest_is_indexed_for_semantic_discovery() -> None:
     result = client.post(
         "/v1/discovery/search",
         json={"query": "ultra live indexed capability", "constraints": {"max_cost_usd": 1.0}},
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert result.status_code == 200
     payload = result.json()
@@ -96,6 +97,7 @@ def test_refresh_index_brings_new_registry_capability_into_contract_match() -> N
             "output_schema": {"type": "object", "required": ["live_result"]},
             "constraints": {"max_cost_usd": 1.0},
         },
+        headers={"X-API-Key": "dev-owner-key"},
     )
     assert match.status_code == 200
     rows = match.json()["data"]

@@ -45,7 +45,7 @@ def test_search_v2_policy_rejection_reasons_are_exposed() -> None:
 
 def test_search_api_rejects_malformed_query_payload() -> None:
     client = TestClient(app)
-    response = client.post("/v1/capabilities/search", json={"query": "x"})
+    response = client.post("/v1/capabilities/search", json={"query": "x"}, headers={"X-API-Key": "dev-owner-key"})
     assert response.status_code == 422
 
 

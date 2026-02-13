@@ -73,13 +73,16 @@ def test_behavioral_diff_endpoint_and_version_impact_summary() -> None:
     )
     assert update.status_code == 200, update.text
 
-    diff = client.get(f"/v1/agents/{agent_id}/versions/1.0.0/behavioral-diff/1.1.0")
+    diff = client.get(
+        f"/v1/agents/{agent_id}/versions/1.0.0/behavioral-diff/1.1.0",
+        headers={"X-API-Key": "dev-owner-key"},
+    )
     assert diff.status_code == 200, diff.text
     payload = diff.json()
     assert payload["diff"]["compatibility"] == "breaking"
     assert any(change["type"] == "input_required_added" for change in payload["diff"]["breaking_changes"])
 
-    versions = client.get(f"/v1/agents/{agent_id}/versions")
+    versions = client.get(f"/v1/agents/{agent_id}/versions", headers={"X-API-Key": "dev-owner-key"})
     assert versions.status_code == 200
     version_rows = versions.json()["versions"]
     assert version_rows[0]["behavioral_impact_from_previous"] is None

@@ -20,7 +20,7 @@ def _contribute(client: TestClient, content: str) -> dict:
             "contributor": "ops-team",
             "base_confidence": 0.8,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": f"s41-contrib-{hash(content) & 0xffff:x}"},
     )
     assert response.status_code == 200, response.text
     return response.json()
@@ -61,7 +61,7 @@ def test_poisoning_defense_rejects_prompt_injection_patterns() -> None:
             "contributor": "unknown",
             "base_confidence": 0.7,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s41-contrib-malicious"},
     )
     assert response.status_code == 400
     assert "suspicious pattern" in response.json()["detail"]
@@ -86,7 +86,7 @@ def test_confidence_decay_and_cross_validation_feedback() -> None:
         validate = client.post(
             f"/v1/knowledge/validate/{row['entry_id']}",
             json={"verdict": True, "rationale": "Validated against production incident runbook."},
-            headers={"X-API-Key": "partner-owner-key"},
+            headers={"X-API-Key": "partner-owner-key", "Idempotency-Key": "s41-validate-1"},
         )
         assert validate.status_code == 200
 

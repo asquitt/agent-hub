@@ -352,16 +352,14 @@ def evaluate_purchase_policy(
 
     pack = _active_policy_pack(buyer)
     if pack is None:
-        decision = {
-            "decision": "allow",
-            "reason_codes": ["procurement.policy_pack_not_configured"],
-            "policy_pack_id": None,
-            "approval_id": None,
-            "exception_id": None,
-            "effective_hard_stop_limit_usd": None,
+        metadata = {
+            "reason_codes": ["procurement.policy_pack_required"],
+            "buyer": buyer,
+            "listing_id": listing_id,
+            "estimated_total_usd": round(float(estimated_total_usd), 6),
         }
-        _audit(actor=actor, buyer=buyer, action="purchase.evaluate", outcome="allow", metadata=decision)
-        return decision
+        _audit(actor=actor, buyer=buyer, action="purchase.evaluate", outcome="deny", metadata=metadata)
+        raise PermissionError("procurement policy pack required")
 
     allowed_sellers = [str(seller_id) for seller_id in pack.get("allowed_sellers", [])]
     exc: dict[str, Any] | None = None

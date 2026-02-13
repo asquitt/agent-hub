@@ -44,12 +44,15 @@ def test_cross_tenant_access_denied_for_get_update_delete() -> None:
     assert create.status_code == 200, create.text
     agent_id = create.json()["id"]
 
-    list_a = client.get("/v1/agents", headers={"X-Tenant-ID": "tenant-a"})
-    list_b = client.get("/v1/agents", headers={"X-Tenant-ID": "tenant-b"})
+    list_a = client.get("/v1/agents", headers={"X-API-Key": "dev-owner-key", "X-Tenant-ID": "tenant-a"})
+    list_b = client.get("/v1/agents", headers={"X-API-Key": "dev-owner-key", "X-Tenant-ID": "tenant-b"})
     assert any(row["id"] == agent_id for row in list_a.json()["data"])
     assert all(row["id"] != agent_id for row in list_b.json()["data"])
 
-    get_wrong_tenant = client.get(f"/v1/agents/{agent_id}", headers={"X-Tenant-ID": "tenant-b"})
+    get_wrong_tenant = client.get(
+        f"/v1/agents/{agent_id}",
+        headers={"X-API-Key": "dev-owner-key", "X-Tenant-ID": "tenant-b"},
+    )
     assert get_wrong_tenant.status_code == 404
 
     update_wrong_tenant = client.put(
@@ -99,8 +102,8 @@ def test_namespace_listing_is_tenant_scoped() -> None:
     )
     assert create_b.status_code == 200
 
-    ns_a_as_a = client.get("/v1/namespaces/@scopea", headers={"X-Tenant-ID": "tenant-a"})
-    ns_a_as_b = client.get("/v1/namespaces/@scopea", headers={"X-Tenant-ID": "tenant-b"})
+    ns_a_as_a = client.get("/v1/namespaces/@scopea", headers={"X-API-Key": "dev-owner-key", "X-Tenant-ID": "tenant-a"})
+    ns_a_as_b = client.get("/v1/namespaces/@scopea", headers={"X-API-Key": "dev-owner-key", "X-Tenant-ID": "tenant-b"})
     assert ns_a_as_a.status_code == 200
     assert len(ns_a_as_a.json()["data"]) == 1
     assert ns_a_as_b.status_code == 200

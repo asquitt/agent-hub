@@ -26,7 +26,7 @@ def _seed_invoice(client: TestClient) -> dict:
             "monthly_fee_usd": 50.0,
             "included_units": 1000,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s39-subscription"},
     )
     assert create_subscription.status_code == 200
 
@@ -38,7 +38,7 @@ def _seed_invoice(client: TestClient) -> dict:
             "quantity": 100,
             "unit_price_usd": 0.02,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s39-usage-1"},
     )
     assert usage_1.status_code == 200
 
@@ -50,14 +50,14 @@ def _seed_invoice(client: TestClient) -> dict:
             "quantity": 50,
             "unit_price_usd": 0.05,
         },
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s39-usage-2"},
     )
     assert usage_2.status_code == 200
 
     invoice = client.post(
         "/v1/billing/invoices/generate",
         json={"account_id": "acct-alpha"},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s39-generate"},
     )
     assert invoice.status_code == 200, invoice.text
     return invoice.json()
@@ -91,14 +91,14 @@ def test_billing_refund_admin_flow() -> None:
     non_admin = client.post(
         f"/v1/billing/invoices/{invoice['invoice_id']}/refund",
         json={"amount_usd": 4.5, "reason": "service outage credit"},
-        headers={"X-API-Key": "dev-owner-key"},
+        headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "s39-refund-non-admin"},
     )
     assert non_admin.status_code == 403
 
     admin = client.post(
         f"/v1/billing/invoices/{invoice['invoice_id']}/refund",
         json={"amount_usd": 4.5, "reason": "service outage credit"},
-        headers={"X-API-Key": "platform-owner-key"},
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s39-refund-admin"},
     )
     assert admin.status_code == 200, admin.text
     refunded = admin.json()
@@ -108,7 +108,7 @@ def test_billing_refund_admin_flow() -> None:
     over_refund = client.post(
         f"/v1/billing/invoices/{invoice['invoice_id']}/refund",
         json={"amount_usd": 999, "reason": "invalid"},
-        headers={"X-API-Key": "platform-owner-key"},
+        headers={"X-API-Key": "platform-owner-key", "Idempotency-Key": "s39-refund-over"},
     )
     assert over_refund.status_code == 400
 

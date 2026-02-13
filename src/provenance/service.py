@@ -21,13 +21,19 @@ def _hash_payload(payload: dict[str, Any]) -> str:
 
 
 def _signing_secret() -> bytes:
-    secret = os.getenv("AGENTHUB_PROVENANCE_SIGNING_SECRET", "agenthub-provenance-secret")
+    secret = os.getenv("AGENTHUB_PROVENANCE_SIGNING_SECRET")
+    if secret is None or not secret.strip():
+        raise RuntimeError("AGENTHUB_PROVENANCE_SIGNING_SECRET is required")
     return secret.encode("utf-8")
 
 
 def _sign(payload: dict[str, Any]) -> str:
     body = _canonical_json(payload).encode("utf-8")
     return hmac.new(_signing_secret(), body, hashlib.sha256).hexdigest()
+
+
+def validate_provenance_configuration() -> None:
+    _ = _signing_secret()
 
 
 def manifest_hash(manifest: dict[str, Any]) -> str:
