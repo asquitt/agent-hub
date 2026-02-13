@@ -78,3 +78,4 @@
 | S59 | Runtime persistence unification wave | DONE | 2026-02-13 04:38 UTC | Platform | Yes | docs/evidence/S59.md |
 | S60 | Security fail-closed hardening wave | DONE | 2026-02-13 05:02 UTC | Platform | Yes | docs/evidence/S60.md |
 | S61 | Startup configuration diagnostics + strict-mode docs alignment | DONE | 2026-02-13 05:20 UTC | Platform | Yes | docs/evidence/S61.md |
+| S62 | CLI deployment preflight (`agenthub doctor`) | DONE | 2026-02-13 05:24 UTC | Platform | Yes | docs/evidence/S62.md |

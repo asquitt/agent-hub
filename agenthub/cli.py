@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.api.manifest_validation import validate_manifest_object
+from src.api.startup_diagnostics import build_startup_diagnostics
 from src.eval.runner import run_eval_from_manifest_path
 from tools.capability_search.mock_engine import search_capabilities as local_search
 
@@ -292,6 +293,42 @@ def cmd_whoami(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    if args.local:
+        payload = build_startup_diagnostics()
+        payload["mode"] = "local"
+        _emit(payload, args.json)
+        return 0 if payload.get("startup_ready") else 1
+
+    cfg = _config()
+    api_url = args.api_url or cfg.get("api_url") or "http://127.0.0.1:8000"
+    headers = _auth_headers(cfg)
+    if args.api_key:
+        headers["X-API-Key"] = args.api_key
+    if not headers.get("X-API-Key"):
+        _emit({"ok": False, "error": "missing API key (run login or pass --api-key)", "mode": "remote"}, args.json)
+        return 1
+
+    response = httpx.get(f"{api_url}/v1/system/startup-diagnostics", headers=headers, timeout=10)
+    if response.status_code >= 400:
+        _emit(
+            {
+                "ok": False,
+                "status_code": response.status_code,
+                "error": response.text,
+                "mode": "remote",
+                "api_url": api_url,
+            },
+            args.json,
+        )
+        return 1
+    payload = response.json()
+    payload["mode"] = "remote"
+    payload["api_url"] = api_url
+    _emit(payload, args.json)
+    return 0 if payload.get("startup_ready") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agenthub")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -360,6 +397,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_whoami = sub.add_parser("whoami")
     p_whoami.add_argument("--json", action="store_true")
     p_whoami.set_defaults(func=cmd_whoami)
+
+    p_doctor = sub.add_parser("doctor")
+    p_doctor.add_argument("--local", action="store_true")
+    p_doctor.add_argument("--api-url")
+    p_doctor.add_argument("--api-key")
+    p_doctor.add_argument("--json", action="store_true")
+    p_doctor.set_defaults(func=cmd_doctor)
 
     return parser
 

@@ -9,10 +9,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def run_cli(args: list[str], cwd: Path, state_home: Path) -> subprocess.CompletedProcess[str]:
+def run_cli(
+    args: list[str],
+    cwd: Path,
+    state_home: Path,
+    *,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["AGENTHUB_HOME"] = str(state_home)
     env["PYTHONPATH"] = str(ROOT)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, "-m", "agenthub.cli", *args],
         cwd=cwd,
@@ -27,7 +35,7 @@ def parse_json_stdout(result: subprocess.CompletedProcess[str]) -> dict:
     return json.loads(result.stdout)
 
 
-def test_all_ten_commands_with_json_support(tmp_path: Path) -> None:
+def test_all_commands_with_json_support(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
 
@@ -88,3 +96,16 @@ def test_all_ten_commands_with_json_support(tmp_path: Path) -> None:
     versions_payload = parse_json_stdout(versions_res)
     assert versions_payload["agent_id"] == "@seed:pipeline-planner"
     assert versions_payload["versions"]
+
+    # 11) doctor (local)
+    doctor_env = {
+        "AGENTHUB_API_KEYS_JSON": '{"dev-owner-key":"owner-dev"}',
+        "AGENTHUB_AUTH_TOKEN_SECRET": "doctor-secret",
+        "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON": '{"partner-east":"token"}',
+        "AGENTHUB_PROVENANCE_SIGNING_SECRET": "doctor-provenance-secret",
+    }
+    doctor_res = run_cli(["doctor", "--local", "--json"], cwd=workspace, state_home=state_home, extra_env=doctor_env)
+    assert doctor_res.returncode == 0
+    doctor_payload = parse_json_stdout(doctor_res)
+    assert doctor_payload["mode"] == "local"
+    assert doctor_payload["startup_ready"] is True
