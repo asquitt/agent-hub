@@ -264,6 +264,16 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/activity/alerts/[^/]+$"),
     re.compile(r"^/v1/activity/alerts/[^/]+/acknowledge$"),
     re.compile(r"^/v1/activity/[^/]+$"),
+    # Environment access control endpoints
+    re.compile(r"^/v1/environments$"),
+    re.compile(r"^/v1/environments/stats$"),
+    re.compile(r"^/v1/environments/promotions$"),
+    re.compile(r"^/v1/environments/policies$"),
+    re.compile(r"^/v1/environments/check$"),
+    re.compile(r"^/v1/environments/promote$"),
+    re.compile(r"^/v1/environments/[^/]+$"),
+    re.compile(r"^/v1/environments/[^/]+/register$"),
+    re.compile(r"^/v1/environments/[^/]+/unregister$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -467,6 +477,13 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/activity$"),
     re.compile(r"^/v1/activity/alerts$"),
     re.compile(r"^/v1/activity/alerts/[^/]+/acknowledge$"),
+    # Environment access uses registration/promotion model.
+    re.compile(r"^/v1/environments$"),
+    re.compile(r"^/v1/environments/policies$"),
+    re.compile(r"^/v1/environments/check$"),
+    re.compile(r"^/v1/environments/promote$"),
+    re.compile(r"^/v1/environments/[^/]+/register$"),
+    re.compile(r"^/v1/environments/[^/]+/unregister$"),
 )
 
 

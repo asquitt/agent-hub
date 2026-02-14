@@ -18,6 +18,7 @@ from src.api.routes import (
     a2a_router,
     access_review_router,
     activity_monitor_router,
+    env_access_router,
     agent_groups_router,
     agents_router,
     approval_router,
@@ -143,6 +144,7 @@ app.include_router(agent_groups_router)
 app.include_router(rate_policies_router)
 app.include_router(credential_binding_router)
 app.include_router(activity_monitor_router)
+app.include_router(env_access_router)
 
 # --- Production middleware ---
 
