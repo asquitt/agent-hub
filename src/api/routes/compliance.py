@@ -1,4 +1,4 @@
-"""Compliance controls, evidence export, evidence listing routes."""
+"""Compliance controls, evidence export, evidence listing, FIDES routes."""
 from __future__ import annotations
 
 from typing import Any
@@ -10,6 +10,16 @@ from src.api.models import ComplianceEvidenceExportRequest
 from src.compliance import export_evidence_pack, list_controls as list_compliance_controls, list_evidence_reports
 from pydantic import BaseModel, ConfigDict, Field
 from src.compliance.dashboard import get_dashboard
+from src.policy.fides import (
+    assign_agent_clearance,
+    assign_resource_label,
+    check_read_access,
+    check_write_access,
+    get_flow_violations,
+    get_label_summary,
+    get_taint_history,
+    record_taint,
+)
 from src.compliance.owasp_agentic import get_gap_analysis, get_owasp_mapping
 from src.policy.decision_graph import (
     build_decision_graph,
@@ -275,3 +285,135 @@ def get_request_decision_graph(
 ) -> dict[str, Any]:
     """Build the decision graph for a specific request."""
     return build_decision_graph(request_id)
+
+
+# ── FIDES Information-Flow Control ────────────────────────────────
+
+
+class AssignResourceLabelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    resource_id: str = Field(min_length=1, max_length=256)
+    confidentiality: str = Field(default="public", max_length=32)
+    integrity: str = Field(default="medium", max_length=32)
+    owner_agent_id: str | None = Field(default=None, max_length=256)
+    metadata: dict[str, str] | None = None
+
+
+class AssignClearanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_id: str = Field(min_length=1, max_length=256)
+    max_confidentiality: str = Field(default="confidential", max_length=32)
+    min_integrity: str = Field(default="medium", max_length=32)
+
+
+class CheckFlowRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_id: str = Field(min_length=1, max_length=256)
+    resource_id: str = Field(min_length=1, max_length=256)
+
+
+class RecordTaintRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_resource_id: str = Field(min_length=1, max_length=256)
+    target_resource_id: str = Field(min_length=1, max_length=256)
+    agent_id: str = Field(min_length=1, max_length=256)
+    operation: str = Field(default="copy", max_length=64)
+
+
+@router.post("/v1/policy/fides/labels")
+def post_assign_label(
+    request: AssignResourceLabelRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Assign a confidentiality/integrity label to a resource."""
+    try:
+        return assign_resource_label(
+            resource_id=request.resource_id,
+            confidentiality=request.confidentiality,
+            integrity=request.integrity,
+            owner_agent_id=request.owner_agent_id,
+            metadata=request.metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/v1/policy/fides/clearances")
+def post_assign_clearance(
+    request: AssignClearanceRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Assign clearance levels to an agent."""
+    try:
+        return assign_agent_clearance(
+            agent_id=request.agent_id,
+            max_confidentiality=request.max_confidentiality,
+            min_integrity=request.min_integrity,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/v1/policy/fides/check-read")
+def post_check_read(
+    request: CheckFlowRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Check if an agent can read a resource."""
+    return check_read_access(agent_id=request.agent_id, resource_id=request.resource_id)
+
+
+@router.post("/v1/policy/fides/check-write")
+def post_check_write(
+    request: CheckFlowRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Check if an agent can write to a resource."""
+    return check_write_access(agent_id=request.agent_id, resource_id=request.resource_id)
+
+
+@router.post("/v1/policy/fides/taint")
+def post_record_taint(
+    request: RecordTaintRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Record information flow (taint propagation) between resources."""
+    try:
+        return record_taint(
+            source_resource_id=request.source_resource_id,
+            target_resource_id=request.target_resource_id,
+            agent_id=request.agent_id,
+            operation=request.operation,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/v1/policy/fides/taint-history")
+def get_taint_history_endpoint(
+    resource_id: str | None = None,
+    agent_id: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get taint propagation history."""
+    history = get_taint_history(resource_id=resource_id, agent_id=agent_id, limit=limit)
+    return {"count": len(history), "taint_records": history}
+
+
+@router.get("/v1/policy/fides/violations")
+def get_flow_violations_endpoint(
+    limit: int = Query(default=50, ge=1, le=200),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get recent flow violations."""
+    violations = get_flow_violations(limit=limit)
+    return {"count": len(violations), "violations": violations}
+
+
+@router.get("/v1/policy/fides/summary")
+def get_fides_summary(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get FIDES label and flow summary."""
+    return get_label_summary()
