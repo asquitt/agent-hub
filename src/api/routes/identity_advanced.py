@@ -1,4 +1,4 @@
-"""Identity advanced routes — SPIFFE/SPIRE, capability tokens.
+"""Identity advanced routes — SPIFFE/SPIRE, capability tokens, lifecycle.
 
 Split from identity.py to keep under 800-line limit.
 """
@@ -10,6 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import require_api_key
+from src.identity.lifecycle import (
+    check_expiry_alerts,
+    check_rotation_due,
+    deprovision_agent,
+    get_lifecycle_status,
+    provision_agent,
+    rotate_credential as lifecycle_rotate,
+)
 from src.identity.capability_tokens import (
     add_third_party_block,
     attenuate_token,
@@ -189,3 +197,112 @@ def post_add_third_party_block(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ── Lifecycle Orchestration ─────────────────────────────────────────
+
+
+class ProvisionAgentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_id: str = Field(min_length=1, max_length=256)
+    credential_type: str = Field(default="api_key", max_length=32)
+    scopes: list[str] | None = None
+    ttl_seconds: int = Field(default=86400, ge=300, le=2592000)
+    metadata: dict[str, str] | None = None
+    auto_rotate: bool = False
+    rotation_interval_seconds: int = Field(default=86400, ge=300, le=2592000)
+
+
+class RotateCredentialRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_scopes: list[str] | None = None
+    new_ttl_seconds: int = Field(default=86400, ge=300, le=2592000)
+    reason: str = Field(default="scheduled_rotation", max_length=256)
+
+
+class DeprovisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(default="manual", max_length=256)
+
+
+@router.post("/lifecycle/provision")
+def post_provision_agent(
+    request: ProvisionAgentRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Full provisioning workflow: register identity + issue credential."""
+    try:
+        return provision_agent(
+            agent_id=request.agent_id,
+            owner=owner,
+            credential_type=request.credential_type,
+            scopes=request.scopes,
+            ttl_seconds=request.ttl_seconds,
+            metadata=request.metadata,
+            auto_rotate=request.auto_rotate,
+            rotation_interval_seconds=request.rotation_interval_seconds,
+        )
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/lifecycle/agents/{agent_id}/rotate")
+def post_rotate_credential(
+    agent_id: str,
+    request: RotateCredentialRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Rotate an agent's credential."""
+    try:
+        return lifecycle_rotate(
+            agent_id=agent_id,
+            owner=owner,
+            new_scopes=request.new_scopes,
+            new_ttl_seconds=request.new_ttl_seconds,
+            reason=request.reason,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/lifecycle/alerts/expiry")
+def get_expiry_alerts(
+    agent_id: str | None = None,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Check for credential expiry alerts."""
+    return {"alerts": check_expiry_alerts(agent_id)}
+
+
+@router.get("/lifecycle/alerts/rotation")
+def get_rotation_due(
+    agent_id: str | None = None,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Check for credentials due for rotation."""
+    return {"due": check_rotation_due(agent_id)}
+
+
+@router.get("/lifecycle/agents/{agent_id}/status")
+def get_agent_lifecycle_status(
+    agent_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get lifecycle status for an agent."""
+    try:
+        return get_lifecycle_status(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/lifecycle/agents/{agent_id}/deprovision")
+def post_deprovision_agent(
+    agent_id: str,
+    request: DeprovisionRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Deprovision an agent: revoke credentials and mark inactive."""
+    try:
+        return deprovision_agent(agent_id=agent_id, owner=owner, reason=request.reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

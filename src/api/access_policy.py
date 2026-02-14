@@ -95,6 +95,12 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/identity/capability-tokens/attenuate$"),
     re.compile(r"^/v1/identity/capability-tokens/verify$"),
     re.compile(r"^/v1/identity/capability-tokens/third-party-block$"),
+    re.compile(r"^/v1/identity/lifecycle/provision$"),
+    re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/rotate$"),
+    re.compile(r"^/v1/identity/lifecycle/alerts/expiry$"),
+    re.compile(r"^/v1/identity/lifecycle/alerts/rotation$"),
+    re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/status$"),
+    re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/deprovision$"),
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),
     re.compile(r"^/v1/identity/tokens/jwt/jwks$"),
@@ -151,6 +157,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/identity/capability-tokens/attenuate$"),
     re.compile(r"^/v1/identity/capability-tokens/verify$"),
     re.compile(r"^/v1/identity/capability-tokens/third-party-block$"),
+    # Lifecycle endpoints manage provisioning workflows.
+    re.compile(r"^/v1/identity/lifecycle/provision$"),
+    re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/rotate$"),
+    re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/deprovision$"),
     # JWT token endpoints are stateless.
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),
