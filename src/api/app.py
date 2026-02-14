@@ -27,6 +27,7 @@ from src.api.routes import (
     billing_router,
     capabilities_router,
     capability_quotas_router,
+    chain_viz_router,
     compliance_router,
     consent_router,
     credential_binding_router,
@@ -151,6 +152,7 @@ app.include_router(env_access_router)
 app.include_router(scope_narrowing_router)
 app.include_router(ip_allowlist_router)
 app.include_router(capability_quotas_router)
+app.include_router(chain_viz_router)
 
 # --- Production middleware ---
 

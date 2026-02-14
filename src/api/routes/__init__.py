@@ -9,6 +9,7 @@ from src.api.routes.auth_routes import router as auth_routes_router
 from src.api.routes.billing import router as billing_router
 from src.api.routes.capabilities import router as capabilities_router
 from src.api.routes.capability_quotas import router as capability_quotas_router
+from src.api.routes.chain_viz import router as chain_viz_router
 from src.api.routes.compliance import router as compliance_router
 from src.api.routes.consent import router as consent_router
 from src.api.routes.credential_binding import router as credential_binding_router
@@ -54,6 +55,7 @@ __all__ = [
     "billing_router",
     "capabilities_router",
     "capability_quotas_router",
+    "chain_viz_router",
     "compliance_router",
     "consent_router",
     "credential_binding_router",

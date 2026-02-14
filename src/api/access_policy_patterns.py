@@ -282,6 +282,13 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/quotas/check$"),
     re.compile(r"^/v1/quotas/usage/[^/]+$"),
     re.compile(r"^/v1/quotas/[^/]+$"),
+    # Chain visualization endpoints
+    re.compile(r"^/v1/chain-viz/trees$"),
+    re.compile(r"^/v1/chain-viz/tokens/[^/]+/tree$"),
+    re.compile(r"^/v1/chain-viz/tokens/[^/]+/risk$"),
+    re.compile(r"^/v1/chain-viz/tokens/[^/]+/snapshot$"),
+    re.compile(r"^/v1/chain-viz/snapshots$"),
+    re.compile(r"^/v1/chain-viz/snapshots/[^/]+$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -457,4 +464,6 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/quotas$"),
     re.compile(r"^/v1/quotas/check$"),
     re.compile(r"^/v1/quotas/[^/]+$"),
+    # Chain visualization endpoints use read-only queries and snapshot model.
+    re.compile(r"^/v1/chain-viz/tokens/[^/]+/snapshot$"),
 )
