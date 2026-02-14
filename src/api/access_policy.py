@@ -122,6 +122,11 @@ IDENTITY_PATTERNS = (
     # OAuth endpoints
     re.compile(r"^/v1/oauth/register$"),
     re.compile(r"^/v1/oauth/token$"),
+    # PQC endpoints
+    re.compile(r"^/v1/identity/pqc/keypairs$"),
+    re.compile(r"^/v1/identity/pqc/keypairs/[^/]+$"),
+    re.compile(r"^/v1/identity/pqc/sign$"),
+    re.compile(r"^/v1/identity/pqc/verify$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -227,6 +232,19 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/threat-intel/indicators$"),
     re.compile(r"^/v1/threat-intel/check$"),
     re.compile(r"^/v1/threat-intel/feeds$"),
+    # Zero-trust mesh networking endpoints.
+    re.compile(r"^/v1/federation/mesh/nodes$"),
+    re.compile(r"^/v1/federation/mesh/nodes/[^/]+/heartbeat$"),
+    re.compile(r"^/v1/federation/mesh/nodes/[^/]+/deregister$"),
+    re.compile(r"^/v1/federation/mesh/policies$"),
+    re.compile(r"^/v1/federation/mesh/check$"),
+    # K8s sandbox operator endpoints.
+    re.compile(r"^/v1/runtime/k8s/pod-spec$"),
+    re.compile(r"^/v1/runtime/k8s/network-policy$"),
+    # PQC endpoints are stateless crypto operations.
+    re.compile(r"^/v1/identity/pqc/keypairs$"),
+    re.compile(r"^/v1/identity/pqc/sign$"),
+    re.compile(r"^/v1/identity/pqc/verify$"),
 )
 
 

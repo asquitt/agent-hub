@@ -22,6 +22,12 @@ from src.runtime.integrity import (
     get_integrity_alerts,
     register_baseline,
 )
+from src.runtime.k8s_operator import (
+    generate_crd,
+    generate_network_policy,
+    generate_pod_spec,
+    list_generated_manifests,
+)
 from src.runtime.integration import create_delegated_sandbox, create_leased_sandbox
 from src.runtime.sandbox import (
     complete_execution,
@@ -480,3 +486,80 @@ def get_integrity_report(
         return generate_attestation_report(sandbox_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# ── K8s Sandbox Operator Endpoints ───────────────────────────────
+
+
+class GeneratePodSpecRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sandbox_id: str = Field(..., min_length=1)
+    agent_id: str = Field(..., min_length=1)
+    image: str = Field(default="agenthub/sandbox:latest")
+    cpu_limit: str = Field(default="500m")
+    memory_limit: str = Field(default="256Mi")
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    network_mode: str = Field(default="none")
+
+
+class GenerateNetworkPolicyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sandbox_id: str = Field(..., min_length=1)
+    agent_id: str = Field(..., min_length=1)
+    allow_egress: bool = False
+    allowed_egress_cidrs: list[str] = Field(default_factory=list)
+
+
+@router.post("/v1/runtime/k8s/pod-spec")
+def post_k8s_pod_spec(
+    request: GeneratePodSpecRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Generate a K8s Pod specification for a sandbox."""
+    return generate_pod_spec(
+        sandbox_id=request.sandbox_id,
+        agent_id=request.agent_id,
+        image=request.image,
+        cpu_limit=request.cpu_limit,
+        memory_limit=request.memory_limit,
+        env_vars=request.env_vars,
+        network_mode=request.network_mode,
+    )
+
+
+@router.post("/v1/runtime/k8s/network-policy")
+def post_k8s_network_policy(
+    request: GenerateNetworkPolicyRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Generate a K8s NetworkPolicy for sandbox isolation."""
+    return generate_network_policy(
+        sandbox_id=request.sandbox_id,
+        agent_id=request.agent_id,
+        allow_egress=request.allow_egress,
+        allowed_egress_cidrs=request.allowed_egress_cidrs,
+    )
+
+
+@router.get("/v1/runtime/k8s/crd")
+def get_k8s_crd(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get the AgentSandbox CRD definition."""
+    return generate_crd()
+
+
+@router.get("/v1/runtime/k8s/manifests")
+def get_k8s_manifests(
+    sandbox_id: str | None = None,
+    manifest_type: str | None = None,
+    limit: int = 50,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """List generated K8s manifests."""
+    manifests = list_generated_manifests(
+        sandbox_id=sandbox_id,
+        manifest_type=manifest_type,
+        limit=limit,
+    )
+    return {"count": len(manifests), "manifests": manifests}

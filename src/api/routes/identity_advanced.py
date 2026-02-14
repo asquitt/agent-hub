@@ -46,6 +46,13 @@ from src.identity.spiffe import (
     generate_svid,
     verify_spiffe_id,
 )
+from src.identity.pqc import (
+    generate_keypair as pqc_generate_keypair,
+    get_keypair_info,
+    list_keypairs,
+    sign_data as pqc_sign_data,
+    verify_signature as pqc_verify_signature,
+)
 
 router = APIRouter(prefix="/v1/identity", tags=["identity"])
 
@@ -497,3 +504,91 @@ def get_list_vcs(
         active_only=active_only,
     )
     return {"count": len(vcs), "credentials": vcs}
+
+
+# ── PQC (Post-Quantum Cryptography) Endpoints ───────────────────
+
+
+class PqcGenerateKeypairRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_id: str = Field(..., min_length=1)
+    algorithm: str = Field(default="hybrid-hmac-dilithium3")
+
+
+class PqcSignRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_id: str = Field(..., min_length=1)
+    data: dict[str, Any] = Field(...)
+
+
+class PqcVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_id: str = Field(..., min_length=1)
+    data: dict[str, Any] = Field(...)
+    classical_signature: str = Field(..., min_length=1)
+    pq_signature: str = Field(..., min_length=1)
+
+
+@router.post("/pqc/keypairs")
+def post_pqc_generate_keypair(
+    request: PqcGenerateKeypairRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Generate a hybrid classical+PQ key pair."""
+    try:
+        return pqc_generate_keypair(
+            agent_id=request.agent_id,
+            algorithm=request.algorithm,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/pqc/keypairs/{agent_id}")
+def get_pqc_keypair(
+    agent_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get PQC keypair public info for an agent."""
+    try:
+        return get_keypair_info(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/pqc/keypairs")
+def get_pqc_keypairs(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """List all PQC keypairs."""
+    kps = list_keypairs()
+    return {"count": len(kps), "keypairs": kps}
+
+
+@router.post("/pqc/sign")
+def post_pqc_sign(
+    request: PqcSignRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Sign data with hybrid classical+PQ signature."""
+    try:
+        return pqc_sign_data(agent_id=request.agent_id, data=request.data)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/pqc/verify")
+def post_pqc_verify(
+    request: PqcVerifyRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Verify a hybrid classical+PQ signature."""
+    try:
+        return pqc_verify_signature(
+            agent_id=request.agent_id,
+            data=request.data,
+            classical_signature=request.classical_signature,
+            pq_signature=request.pq_signature,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
