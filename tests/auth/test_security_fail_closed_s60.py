@@ -72,3 +72,11 @@ def test_provenance_configuration_is_fail_closed(monkeypatch: pytest.MonkeyPatch
     monkeypatch.delenv("AGENTHUB_PROVENANCE_SIGNING_SECRET", raising=False)
     with pytest.raises(RuntimeError, match="AGENTHUB_PROVENANCE_SIGNING_SECRET is required"):
         validate_provenance_configuration()
+
+
+def test_policy_signing_configuration_is_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AGENTHUB_POLICY_SIGNING_SECRET", raising=False)
+    from src.policy.helpers import policy_signing_secret
+
+    with pytest.raises(RuntimeError, match="AGENTHUB_POLICY_SIGNING_SECRET env var is required"):
+        policy_signing_secret()

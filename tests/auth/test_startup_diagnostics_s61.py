@@ -40,6 +40,7 @@ def test_startup_diagnostics_endpoint_admin_access() -> None:
             "AGENTHUB_API_KEYS_JSON",
             "AGENTHUB_AUTH_TOKEN_SECRET",
             "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON",
+            "AGENTHUB_POLICY_SIGNING_SECRET",
             "AGENTHUB_PROVENANCE_SIGNING_SECRET",
         ]
     )
@@ -52,6 +53,7 @@ def test_startup_diagnostics_reports_probe_failures() -> None:
             "AGENTHUB_API_KEYS_JSON": '{"dev-owner-key":"owner-dev"}',
             "AGENTHUB_AUTH_TOKEN_SECRET": "ok-secret",
             "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON": '{"partner-east":"token"}',
+            "AGENTHUB_POLICY_SIGNING_SECRET": "ok-policy-secret",
             "AGENTHUB_PROVENANCE_SIGNING_SECRET": "ok-provenance-secret",
             "AGENTHUB_REGISTRY_DB_PATH": "/dev/null/registry.db",
         }

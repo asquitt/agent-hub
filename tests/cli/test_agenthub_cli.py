@@ -102,6 +102,7 @@ def test_all_commands_with_json_support(tmp_path: Path) -> None:
         "AGENTHUB_API_KEYS_JSON": '{"dev-owner-key":"owner-dev"}',
         "AGENTHUB_AUTH_TOKEN_SECRET": "doctor-secret",
         "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON": '{"partner-east":"token"}',
+        "AGENTHUB_POLICY_SIGNING_SECRET": "doctor-policy-secret",
         "AGENTHUB_PROVENANCE_SIGNING_SECRET": "doctor-provenance-secret",
     }
     doctor_res = run_cli(["doctor", "--local", "--json"], cwd=workspace, state_home=state_home, extra_env=doctor_env)
@@ -120,6 +121,7 @@ def test_doctor_local_returns_nonzero_for_invalid_startup_env(tmp_path: Path) ->
         "AGENTHUB_API_KEYS_JSON": "{bad-json",
         "AGENTHUB_AUTH_TOKEN_SECRET": "",
         "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON": "{}",
+        "AGENTHUB_POLICY_SIGNING_SECRET": "",
         "AGENTHUB_PROVENANCE_SIGNING_SECRET": "",
     }
     doctor_res = run_cli(["doctor", "--local", "--json"], cwd=workspace, state_home=state_home, extra_env=bad_env)

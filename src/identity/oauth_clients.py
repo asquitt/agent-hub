@@ -9,6 +9,9 @@ from typing import Any
 from src.common.time import utc_now_epoch
 
 
+_MAX_CLIENTS = 10_000
+
+
 class OAuthClientStore:
     """In-memory OAuth client registry. Production would use SQLite."""
 
@@ -41,6 +44,10 @@ class OAuthClientStore:
 
         with self._lock:
             self._clients[client_id] = record
+            if len(self._clients) > _MAX_CLIENTS:
+                oldest = sorted(self._clients, key=lambda k: self._clients[k]["created_at"])
+                for k in oldest[: len(oldest) - _MAX_CLIENTS]:
+                    del self._clients[k]
 
         return {
             "client_id": client_id,

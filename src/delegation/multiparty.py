@@ -25,7 +25,8 @@ STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
 STATUS_EXPIRED = "expired"
 
-# In-memory store
+# In-memory store (capped for production safety)
+_MAX_CEREMONIES = 10_000
 _ceremonies: dict[str, dict[str, Any]] = {}
 
 
@@ -81,6 +82,10 @@ def create_ceremony(
     }
 
     _ceremonies[ceremony_id] = ceremony
+    if len(_ceremonies) > _MAX_CEREMONIES:
+        oldest = sorted(_ceremonies, key=lambda k: _ceremonies[k]["created_at"])
+        for k in oldest[: len(oldest) - _MAX_CEREMONIES]:
+            del _ceremonies[k]
     _log.info(
         "ceremony created: id=%s initiator=%s subject=%s quorum=%d/%d",
         ceremony_id, initiator_agent_id, subject_agent_id, required_approvals, len(approvers),

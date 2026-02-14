@@ -21,7 +21,9 @@ DEFAULT_MAX_CONCURRENT_EXECUTIONS = 10
 
 
 def _sign_decision(payload: str) -> str:
-    secret = os.getenv("AGENTHUB_IDENTITY_SIGNING_SECRET", "unsigned")
+    secret = os.getenv("AGENTHUB_IDENTITY_SIGNING_SECRET", "")
+    if not secret:
+        raise RuntimeError("AGENTHUB_IDENTITY_SIGNING_SECRET env var is required")
     return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 

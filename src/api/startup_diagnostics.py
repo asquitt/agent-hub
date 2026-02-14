@@ -13,6 +13,7 @@ REQUIRED_ENV_VARS = (
     "AGENTHUB_API_KEYS_JSON",
     "AGENTHUB_AUTH_TOKEN_SECRET",
     "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON",
+    "AGENTHUB_POLICY_SIGNING_SECRET",
     "AGENTHUB_PROVENANCE_SIGNING_SECRET",
 )
 
@@ -152,6 +153,7 @@ def build_startup_diagnostics(environ: Mapping[str, str] | None = None) -> dict[
         {"component": "auth", **_check_non_empty_json_object(env, "AGENTHUB_API_KEYS_JSON")},
         {"component": "auth", **_check_non_empty(env, "AGENTHUB_AUTH_TOKEN_SECRET")},
         {"component": "federation", **_check_non_empty_json_object(env, "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON")},
+        {"component": "policy", **_check_non_empty(env, "AGENTHUB_POLICY_SIGNING_SECRET")},
         {"component": "provenance", **_check_non_empty(env, "AGENTHUB_PROVENANCE_SIGNING_SECRET")},
     ]
     probes = [_path_probe(env, key) for key in PATH_PROBES]

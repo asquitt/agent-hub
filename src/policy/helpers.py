@@ -16,7 +16,9 @@ def stable_hash(payload: dict[str, Any]) -> str:
 
 
 def policy_signing_secret() -> bytes:
-    secret = os.getenv("AGENTHUB_POLICY_SIGNING_SECRET", "agenthub-policy-signing-secret")
+    secret = os.getenv("AGENTHUB_POLICY_SIGNING_SECRET", "")
+    if not secret:
+        raise RuntimeError("AGENTHUB_POLICY_SIGNING_SECRET env var is required")
     return secret.encode("utf-8")
 
 
