@@ -1,3 +1,4 @@
+from src.api.routes.a2a import router as a2a_router
 from src.api.routes.agents import router as agents_router
 from src.api.routes.auth_routes import router as auth_routes_router
 from src.api.routes.billing import router as billing_router
@@ -20,6 +21,7 @@ from src.api.routes.system import router as system_router
 from src.api.routes.tokens import router as tokens_router
 
 __all__ = [
+    "a2a_router",
     "agents_router",
     "auth_routes_router",
     "billing_router",

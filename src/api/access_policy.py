@@ -24,6 +24,7 @@ DEFAULT_OWNER_TENANTS = {
 PUBLIC_ROUTES = {
     ("GET", "/healthz"),
     ("GET", "/.well-known/agent-card.json"),
+    ("GET", "/.well-known/agent.json"),
     ("GET", "/.well-known/oauth-protected-resource"),
     ("GET", "/.well-known/oauth-authorization-server"),
     ("GET", "/operator"),

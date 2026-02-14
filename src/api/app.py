@@ -14,6 +14,7 @@ from src.api.access_policy import access_mode, classify_route, evaluate_access, 
 from src.api.auth import resolve_owner_from_headers
 from src.api.route_helpers import append_warning_header, meter_warn, resolve_tenant_id, stable_error
 from src.api.routes import (
+    a2a_router,
     agents_router,
     auth_routes_router,
     billing_router,
@@ -55,6 +56,7 @@ async def _app_lifespan(_app: FastAPI):
 app = FastAPI(title="AgentHub Registry Service", version="0.1.0", lifespan=_app_lifespan)
 
 # --- Router registration ---
+app.include_router(a2a_router)
 app.include_router(system_router)
 app.include_router(customer_router)
 app.include_router(operator_router)
