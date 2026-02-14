@@ -5,6 +5,7 @@ import copy
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import require_api_key
 from src.api.manifest_validation import validate_manifest_object
@@ -12,6 +13,10 @@ from src.api.models import AgentForkRequest, AgentRegistrationRequest, AgentUpda
 from src.api.route_helpers import list_agent_capabilities, resolve_tenant_id, serialize_agent
 from src.registry.store import STORE
 from src.trust.scoring import compute_trust_score, record_usage_event as trust_record_usage_event
+from src.trust.signals import (
+    compute_composite_trust_score,
+    record_peer_attestation,
+)
 from src.versioning import compute_behavioral_diff
 from src.eval.storage import latest_result
 
@@ -299,3 +304,42 @@ def post_usage_event(
         latency_ms=request.latency_ms,
     )
     return compute_trust_score(agent_id=agent.agent_id, owner=agent.owner)
+
+
+# ── Trust Signals v2 ──────────────────────────────────────────────
+
+
+class PeerAttestationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    attester_agent_id: str = Field(min_length=1, max_length=256)
+    attestation_type: str = Field(default="positive", pattern="^(positive|negative|neutral)$")
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    context: str = Field(default="", max_length=512)
+
+
+@router.get("/v1/agents/{agent_id}/trust/v2")
+def get_agent_trust_v2(
+    agent_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get v2 composite trust score with multi-signal analysis."""
+    return compute_composite_trust_score(agent_id)
+
+
+@router.post("/v1/agents/{agent_id}/trust/attestation")
+def post_peer_attestation(
+    agent_id: str,
+    request: PeerAttestationRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Record a peer attestation for an agent."""
+    try:
+        return record_peer_attestation(
+            attester_agent_id=request.attester_agent_id,
+            subject_agent_id=agent_id,
+            attestation_type=request.attestation_type,
+            confidence=request.confidence,
+            context=request.context,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -45,6 +45,8 @@ TENANT_SCOPED_PATTERNS = (
     re.compile(r"^/v1/agents/[^/]+/capabilities$"),
     re.compile(r"^/v1/agents/[^/]+/trust$"),
     re.compile(r"^/v1/agents/[^/]+/trust/usage$"),
+    re.compile(r"^/v1/agents/[^/]+/trust/v2$"),
+    re.compile(r"^/v1/agents/[^/]+/trust/attestation$"),
     re.compile(r"^/v1/namespaces/[^/]+$"),
     re.compile(r"^/v1/discovery/agent-manifest$"),
     re.compile(r"^/v1/delegations/[^/]+/status$"),
@@ -206,6 +208,8 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/eval/adversarial/run$"),
     re.compile(r"^/v1/eval/adversarial/prompt-injection$"),
     re.compile(r"^/v1/eval/adversarial/scope-escalation$"),
+    # Trust signals v2 attestation is append-only.
+    re.compile(r"^/v1/agents/[^/]+/trust/attestation$"),
 )
 
 
