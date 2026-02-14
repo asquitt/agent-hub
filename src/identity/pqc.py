@@ -36,7 +36,9 @@ _pqc_signatures: list[dict[str, Any]] = []  # signature records
 
 def _signing_secret() -> bytes:
     secret = os.getenv("AGENTHUB_IDENTITY_SIGNING_SECRET", "")
-    return secret.encode("utf-8") if secret else b"default-test-key"
+    if not secret:
+        raise PermissionError("AGENTHUB_IDENTITY_SIGNING_SECRET is required")
+    return secret.encode("utf-8")
 
 
 def _hmac_sign(data: bytes) -> str:

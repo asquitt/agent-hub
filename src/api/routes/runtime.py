@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import require_api_key
@@ -199,7 +199,7 @@ def get_list_sandboxes(
     owner: str = Depends(require_api_key),
     agent_id: str | None = None,
     status: str | None = None,
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=500),
 ) -> dict[str, Any]:
     sandboxes = list_sandboxes(owner=owner, agent_id=agent_id, status=status, limit=limit)
     return {"sandboxes": [dict(s) for s in sandboxes], "total": len(sandboxes)}
@@ -380,7 +380,7 @@ def get_audit_evidence(
     owner: str = Depends(require_api_key),
     sandbox_id: str | None = None,
     agent_id: str | None = None,
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=500),
 ) -> dict[str, Any]:
     return export_sandbox_evidence(
         actor=owner,
@@ -553,7 +553,7 @@ def get_k8s_crd(
 def get_k8s_manifests(
     sandbox_id: str | None = None,
     manifest_type: str | None = None,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=500),
     _owner: str = Depends(require_api_key),
 ) -> dict[str, Any]:
     """List generated K8s manifests."""

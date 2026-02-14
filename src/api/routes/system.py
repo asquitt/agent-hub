@@ -61,6 +61,18 @@ def healthz() -> JSONResponse:
     except (ImportError, RuntimeError):
         checks["runtime_db"] = {"status": "not_configured"}
 
+    try:
+        from src.delegation.storage import DelegationStorage
+        checks["delegation_db"] = _check_db(DelegationStorage())
+    except (ImportError, RuntimeError):
+        checks["delegation_db"] = {"status": "not_configured"}
+
+    try:
+        from src.idempotency.storage import IdempotencyStorage
+        checks["idempotency_db"] = _check_db(IdempotencyStorage())
+    except (ImportError, RuntimeError):
+        checks["idempotency_db"] = {"status": "not_configured"}
+
     # Required env vars
     missing_vars = [v for v in _REQUIRED_ENV_VARS if not os.environ.get(v)]
     checks["required_env_vars"] = {

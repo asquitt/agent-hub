@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Any
@@ -39,6 +40,33 @@ from src.api.routes import (
 )
 from src.idempotency import storage as idempotency_storage
 
+_log = logging.getLogger("agenthub.app")
+
+
+def _close_storage_connections() -> None:
+    """Close all SQLite storage connections on shutdown."""
+    closers = [
+        ("identity", "src.identity.storage", "IdentityStorage"),
+        ("runtime", "src.runtime.storage", "RuntimeStorage"),
+        ("delegation", "src.delegation.storage", "DelegationStorage"),
+        ("idempotency", "src.idempotency.storage", "IdempotencyStorage"),
+    ]
+    for name, module_path, class_name in closers:
+        try:
+            mod = __import__(module_path, fromlist=[class_name])
+            cls = getattr(mod, class_name, None)
+            if cls is None:
+                continue
+            instance = getattr(cls, "_instance", None)
+            if instance is None:
+                continue
+            conn = getattr(instance, "_conn", None)
+            if conn is not None:
+                conn.close()
+                _log.info("closed %s storage connection", name)
+        except Exception:
+            _log.warning("failed to close %s storage", name, exc_info=True)
+
 
 @asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
@@ -52,6 +80,8 @@ async def _app_lifespan(_app: FastAPI):
     validate_federation_configuration()
     validate_provenance_configuration()
     yield
+    # Graceful shutdown: close all SQLite connections
+    _close_storage_connections()
 
 
 app = FastAPI(title="AgentHub Registry Service", version="0.1.0", lifespan=_app_lifespan)
@@ -85,10 +115,10 @@ app.include_router(oauth_router)
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("AGENTHUB_CORS_ORIGINS", "*").split(","),
+    allow_origins=os.environ.get("AGENTHUB_CORS_ORIGINS", "").split(",") if os.environ.get("AGENTHUB_CORS_ORIGINS") else [],
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["X-API-Key", "Authorization", "Content-Type", "Idempotency-Key", "X-Delegation-Token"],
-    expose_headers=["X-Request-ID"],
+    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 )
 
 # Rate limiting
