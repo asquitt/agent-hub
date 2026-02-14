@@ -1,0 +1,14 @@
+.git
+.github
+tests/
+docs/
+data/
+node_modules/
+*.md
+.pytest_cache
+__pycache__
+*.pyc
+.env*
+artifacts/
+playwright-report/
+test-results/

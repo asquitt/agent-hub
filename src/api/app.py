@@ -3,11 +3,15 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from src.api.access_policy import access_mode, classify_route, evaluate_access, requires_idempotency
 from src.api.auth import (
@@ -117,6 +121,9 @@ from src.discovery.index import LIVE_CAPABILITY_INDEX
 
 @asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
+    from src.api.logging import setup_logging
+
+    setup_logging()
     validate_auth_configuration()
     validate_federation_configuration()
     validate_provenance_configuration()
@@ -129,6 +136,28 @@ app.include_router(customer_router)
 app.include_router(operator_router)
 app.include_router(identity_router)
 app.include_router(runtime_router)
+
+# --- Production middleware ---
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.environ.get("AGENTHUB_CORS_ORIGINS", "*").split(","),
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["X-API-Key", "Authorization", "Content-Type", "Idempotency-Key", "X-Delegation-Token"],
+    expose_headers=["X-Request-ID"],
+)
+
+# Rate limiting
+from src.api.middleware import limiter, rate_limit_exceeded_handler as _rl_handler  # noqa: E402
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rl_handler)
+
+# Request logging + X-Request-ID
+from src.api.middleware import RequestLoggingMiddleware  # noqa: E402
+
+app.add_middleware(RequestLoggingMiddleware)
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -436,6 +465,10 @@ def _meter_warn(
 
 @app.middleware("http")
 async def _agenthub_access_policy_middleware(request: Request, call_next):
+    # CORS preflight (OPTIONS) never carries auth headers — let it through
+    if request.method.upper() == "OPTIONS":
+        return await call_next(request)
+
     method = request.method.upper()
     path = request.url.path
     tenant_id = _resolve_tenant_id(request.headers.get("X-Tenant-ID"))

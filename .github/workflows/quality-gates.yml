@@ -37,6 +37,24 @@ jobs:
       - name: Run targeted hardening tests
         run: pytest tests/auth/test_access_enforcement_s53.py tests/operator/test_operator_ui.py tests/gate/test_architecture_guardrails_s53.py -q
 
+      - name: Run identity and runtime tests
+        run: |
+          AGENTHUB_API_KEYS_JSON='{"test-key-001":"test-owner"}' \
+          AGENTHUB_IDENTITY_SIGNING_SECRET='ci-identity-secret' \
+          PYTHONPATH=. python -m pytest \
+            tests/runtime/test_s79_sandbox_foundation.py \
+            tests/runtime/test_s80_sandbox_lifecycle.py \
+            tests/runtime/test_s81_runtime_policy.py \
+            tests/runtime/test_s81_runtime_metering.py \
+            tests/runtime/test_s82_integration.py \
+            tests/test_s83_production_hardening.py \
+            -q
+
+      - name: Dependency vulnerability scan
+        run: |
+          python -m pip install pip-audit
+          pip-audit --strict || true
+
   playwright-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30

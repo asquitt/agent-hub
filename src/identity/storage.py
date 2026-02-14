@@ -70,7 +70,7 @@ class IdentityStorage:
                 ]:
                     try:
                         self._conn.execute(f"DELETE FROM {table}")  # noqa: S608
-                    except Exception:
+                    except sqlite3.Error:
                         pass  # Table may not exist if migrations haven't run yet
 
     # --- Agent Identity CRUD ---

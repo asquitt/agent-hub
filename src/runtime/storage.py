@@ -78,7 +78,7 @@ class RuntimeStorage:
                 ]:
                     try:
                         self._conn.execute(f"DELETE FROM {table}")  # noqa: S608
-                    except Exception:
+                    except sqlite3.Error:
                         pass
             self._seeded = False
 

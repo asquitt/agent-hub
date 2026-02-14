@@ -87,7 +87,7 @@ def verify_scoped_token(token: str) -> dict[str, Any]:
 
     try:
         payload = json.loads(_b64url_decode(body).decode("utf-8"))
-    except Exception as exc:  # pragma: no cover - defensive parse guard
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
         raise HTTPException(status_code=401, detail="invalid bearer token payload") from exc
 
     if not isinstance(payload, dict):
