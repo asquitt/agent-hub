@@ -249,6 +249,13 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/rate-policies/check$"),
     re.compile(r"^/v1/rate-policies/violations$"),
     re.compile(r"^/v1/rate-policies/[^/]+$"),
+    # Credential binding endpoints
+    re.compile(r"^/v1/credential-bindings$"),
+    re.compile(r"^/v1/credential-bindings/stats$"),
+    re.compile(r"^/v1/credential-bindings/validate$"),
+    re.compile(r"^/v1/credential-bindings/validations$"),
+    re.compile(r"^/v1/credential-bindings/[^/]+$"),
+    re.compile(r"^/v1/credential-bindings/[^/]+/deactivate$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -444,6 +451,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/rate-policies$"),
     re.compile(r"^/v1/rate-policies/check$"),
     re.compile(r"^/v1/rate-policies/[^/]+$"),
+    # Credential binding uses context-based validation.
+    re.compile(r"^/v1/credential-bindings$"),
+    re.compile(r"^/v1/credential-bindings/validate$"),
+    re.compile(r"^/v1/credential-bindings/[^/]+/deactivate$"),
 )
 
 

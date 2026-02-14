@@ -26,6 +26,7 @@ from src.api.routes import (
     capabilities_router,
     compliance_router,
     consent_router,
+    credential_binding_router,
     customer_router,
     delegation_router,
     discovery_router,
@@ -139,6 +140,7 @@ app.include_router(key_management_router)
 app.include_router(consent_router)
 app.include_router(agent_groups_router)
 app.include_router(rate_policies_router)
+app.include_router(credential_binding_router)
 
 # --- Production middleware ---
 
