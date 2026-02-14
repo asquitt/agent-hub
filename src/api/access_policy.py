@@ -161,6 +161,9 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/identity/lifecycle/provision$"),
     re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/rotate$"),
     re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/deprovision$"),
+    # SOC2 evidence endpoints are append-only or read operations.
+    re.compile(r"^/v1/compliance/soc2/evidence$"),
+    re.compile(r"^/v1/compliance/soc2/evidence-package$"),
     # JWT token endpoints are stateless.
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),

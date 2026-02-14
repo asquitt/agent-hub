@@ -8,7 +8,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from src.api.auth import require_api_key
 from src.api.models import ComplianceEvidenceExportRequest
 from src.compliance import export_evidence_pack, list_controls as list_compliance_controls, list_evidence_reports
+from pydantic import BaseModel, ConfigDict, Field
 from src.compliance.owasp_agentic import get_gap_analysis, get_owasp_mapping
+from src.compliance.soc2_evidence import (
+    collect_evidence_for_criteria,
+    generate_evidence_package,
+    get_compliance_summary,
+    record_evidence,
+    verify_evidence_integrity,
+)
 from src.cost_governance.service import record_metering_event
 
 router = APIRouter(tags=["compliance"])
@@ -67,3 +75,93 @@ def get_owasp_agentic_gaps(
 ) -> dict[str, Any]:
     """Get OWASP Agentic Top 10 gap analysis."""
     return get_gap_analysis()
+
+
+# ── SOC2 Evidence Automation ────────────────────────────────────────
+
+
+class RecordEvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    criteria: str = Field(min_length=2, max_length=10)
+    evidence_type: str = Field(min_length=1, max_length=64)
+    description: str = Field(min_length=1, max_length=512)
+    actor: str = Field(min_length=1, max_length=256)
+    details: dict[str, Any] | None = None
+    agent_id: str | None = Field(default=None, max_length=256)
+
+
+class GeneratePackageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    criteria: list[str] | None = None
+    start_time: float | None = None
+    end_time: float | None = None
+    auditor_name: str = Field(default="", max_length=256)
+
+
+@router.post("/v1/compliance/soc2/evidence")
+def post_record_evidence(
+    request: RecordEvidenceRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Record a SOC2 evidence item."""
+    try:
+        return record_evidence(
+            criteria=request.criteria,
+            evidence_type=request.evidence_type,
+            description=request.description,
+            actor=request.actor,
+            details=request.details,
+            agent_id=request.agent_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/v1/compliance/soc2/evidence/{criteria}")
+def get_evidence_by_criteria(
+    criteria: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get all evidence for a SOC2 criteria."""
+    try:
+        items = collect_evidence_for_criteria(criteria)
+        return {"criteria": criteria, "count": len(items), "evidence": items}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/v1/compliance/soc2/evidence-package")
+def post_generate_evidence_package(
+    request: GeneratePackageRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Generate a structured evidence package for auditor review."""
+    try:
+        return generate_evidence_package(
+            criteria=request.criteria,
+            start_time=request.start_time,
+            end_time=request.end_time,
+            auditor_name=request.auditor_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/v1/compliance/soc2/summary")
+def get_soc2_summary(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get SOC2 compliance evidence summary."""
+    return get_compliance_summary()
+
+
+@router.get("/v1/compliance/soc2/evidence/{evidence_id}/verify")
+def get_verify_evidence(
+    evidence_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Verify integrity of a specific evidence record."""
+    try:
+        return verify_evidence_integrity(evidence_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
