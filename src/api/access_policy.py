@@ -256,6 +256,14 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/credential-bindings/validations$"),
     re.compile(r"^/v1/credential-bindings/[^/]+$"),
     re.compile(r"^/v1/credential-bindings/[^/]+/deactivate$"),
+    # Activity monitoring endpoints
+    re.compile(r"^/v1/activity$"),
+    re.compile(r"^/v1/activity/stats$"),
+    re.compile(r"^/v1/activity/summary/[^/]+$"),
+    re.compile(r"^/v1/activity/alerts$"),
+    re.compile(r"^/v1/activity/alerts/[^/]+$"),
+    re.compile(r"^/v1/activity/alerts/[^/]+/acknowledge$"),
+    re.compile(r"^/v1/activity/[^/]+$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -455,6 +463,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/credential-bindings$"),
     re.compile(r"^/v1/credential-bindings/validate$"),
     re.compile(r"^/v1/credential-bindings/[^/]+/deactivate$"),
+    # Activity monitoring uses append-only event model.
+    re.compile(r"^/v1/activity$"),
+    re.compile(r"^/v1/activity/alerts$"),
+    re.compile(r"^/v1/activity/alerts/[^/]+/acknowledge$"),
 )
 
 

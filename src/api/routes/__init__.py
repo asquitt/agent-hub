@@ -1,4 +1,5 @@
 from src.api.routes.a2a import router as a2a_router
+from src.api.routes.activity_monitor import router as activity_monitor_router
 from src.api.routes.access_review import router as access_review_router
 from src.api.routes.agent_groups import router as agent_groups_router
 from src.api.routes.agents import router as agents_router
@@ -39,6 +40,7 @@ from src.api.routes.vault import router as vault_router
 
 __all__ = [
     "a2a_router",
+    "activity_monitor_router",
     "access_review_router",
     "agent_groups_router",
     "agents_router",
