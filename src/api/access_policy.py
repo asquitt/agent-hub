@@ -274,6 +274,13 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/environments/[^/]+$"),
     re.compile(r"^/v1/environments/[^/]+/register$"),
     re.compile(r"^/v1/environments/[^/]+/unregister$"),
+    # Scope narrowing endpoints
+    re.compile(r"^/v1/scope-narrowing$"),
+    re.compile(r"^/v1/scope-narrowing/stats$"),
+    re.compile(r"^/v1/scope-narrowing/log$"),
+    re.compile(r"^/v1/scope-narrowing/validate$"),
+    re.compile(r"^/v1/scope-narrowing/[^/]+$"),
+    re.compile(r"^/v1/scope-narrowing/[^/]+/revoke$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -484,6 +491,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/environments/promote$"),
     re.compile(r"^/v1/environments/[^/]+/register$"),
     re.compile(r"^/v1/environments/[^/]+/unregister$"),
+    # Scope narrowing uses token derivation model.
+    re.compile(r"^/v1/scope-narrowing$"),
+    re.compile(r"^/v1/scope-narrowing/validate$"),
+    re.compile(r"^/v1/scope-narrowing/[^/]+/revoke$"),
 )
 
 

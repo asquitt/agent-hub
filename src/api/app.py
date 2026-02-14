@@ -51,6 +51,7 @@ from src.api.routes import (
     runtime_router,
     oauth_router,
     scim_router,
+    scope_narrowing_router,
     sessions_router,
     system_router,
     tokens_router,
@@ -145,6 +146,7 @@ app.include_router(rate_policies_router)
 app.include_router(credential_binding_router)
 app.include_router(activity_monitor_router)
 app.include_router(env_access_router)
+app.include_router(scope_narrowing_router)
 
 # --- Production middleware ---
 

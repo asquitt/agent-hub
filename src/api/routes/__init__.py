@@ -34,6 +34,7 @@ from src.api.routes.rbac import router as rbac_router
 from src.api.routes.runtime import router as runtime_router
 from src.api.routes.oauth import router as oauth_router
 from src.api.routes.scim import router as scim_router
+from src.api.routes.scope_narrowing import router as scope_narrowing_router
 from src.api.routes.sessions import router as sessions_router
 from src.api.routes.system import router as system_router
 from src.api.routes.tokens import router as tokens_router
@@ -76,6 +77,7 @@ __all__ = [
     "runtime_router",
     "oauth_router",
     "scim_router",
+    "scope_narrowing_router",
     "sessions_router",
     "system_router",
     "tokens_router",
