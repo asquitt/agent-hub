@@ -209,6 +209,16 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/entitlements/roles/[^/]+$"),
     re.compile(r"^/v1/entitlements/roles/[^/]+/members$"),
     re.compile(r"^/v1/entitlements/roles/[^/]+/members/remove$"),
+    # RBAC endpoints
+    re.compile(r"^/v1/rbac/roles$"),
+    re.compile(r"^/v1/rbac/roles/[^/]+$"),
+    re.compile(r"^/v1/rbac/stats$"),
+    re.compile(r"^/v1/rbac/assignments$"),
+    re.compile(r"^/v1/rbac/assignments/remove$"),
+    re.compile(r"^/v1/rbac/check$"),
+    re.compile(r"^/v1/rbac/agents/[^/]+/roles$"),
+    re.compile(r"^/v1/rbac/check-log$"),
+    re.compile(r"^/v1/rbac/sod-constraints$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -380,6 +390,12 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/entitlements/roles$"),
     re.compile(r"^/v1/entitlements/roles/[^/]+/members$"),
     re.compile(r"^/v1/entitlements/roles/[^/]+/members/remove$"),
+    # RBAC uses its own role/permission model.
+    re.compile(r"^/v1/rbac/roles$"),
+    re.compile(r"^/v1/rbac/assignments$"),
+    re.compile(r"^/v1/rbac/assignments/remove$"),
+    re.compile(r"^/v1/rbac/check$"),
+    re.compile(r"^/v1/rbac/sod-constraints$"),
 )
 
 

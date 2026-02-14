@@ -40,6 +40,7 @@ from src.api.routes import (
     policy_code_router,
     procurement_router,
     provenance_router,
+    rbac_router,
     runtime_router,
     oauth_router,
     scim_router,
@@ -129,6 +130,7 @@ app.include_router(policy_code_router)
 app.include_router(sessions_router)
 app.include_router(vault_router)
 app.include_router(entitlements_router)
+app.include_router(rbac_router)
 
 # --- Production middleware ---
 
