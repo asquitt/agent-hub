@@ -198,6 +198,17 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/vault/secrets/[^/]+/rotate$"),
     re.compile(r"^/v1/vault/secrets/[^/]+/revoke$"),
     re.compile(r"^/v1/vault/rotation-history$"),
+    # Entitlement catalog endpoints
+    re.compile(r"^/v1/entitlements$"),
+    re.compile(r"^/v1/entitlements/stats$"),
+    re.compile(r"^/v1/entitlements/[^/]+$"),
+    re.compile(r"^/v1/entitlements/assignments$"),
+    re.compile(r"^/v1/entitlements/assignments/[^/]+/revoke$"),
+    re.compile(r"^/v1/entitlements/agents/[^/]+$"),
+    re.compile(r"^/v1/entitlements/roles$"),
+    re.compile(r"^/v1/entitlements/roles/[^/]+$"),
+    re.compile(r"^/v1/entitlements/roles/[^/]+/members$"),
+    re.compile(r"^/v1/entitlements/roles/[^/]+/members/remove$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -362,6 +373,13 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/vault/secrets/[^/]+/access$"),
     re.compile(r"^/v1/vault/secrets/[^/]+/rotate$"),
     re.compile(r"^/v1/vault/secrets/[^/]+/revoke$"),
+    # Entitlement catalog uses its own assignment model.
+    re.compile(r"^/v1/entitlements$"),
+    re.compile(r"^/v1/entitlements/assignments$"),
+    re.compile(r"^/v1/entitlements/assignments/[^/]+/revoke$"),
+    re.compile(r"^/v1/entitlements/roles$"),
+    re.compile(r"^/v1/entitlements/roles/[^/]+/members$"),
+    re.compile(r"^/v1/entitlements/roles/[^/]+/members/remove$"),
 )
 
 

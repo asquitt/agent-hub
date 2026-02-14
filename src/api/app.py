@@ -27,6 +27,7 @@ from src.api.routes import (
     customer_router,
     delegation_router,
     discovery_router,
+    entitlements_router,
     federation_router,
     grants_router,
     identity_router,
@@ -127,6 +128,7 @@ app.include_router(access_review_router)
 app.include_router(policy_code_router)
 app.include_router(sessions_router)
 app.include_router(vault_router)
+app.include_router(entitlements_router)
 
 # --- Production middleware ---
 
