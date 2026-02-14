@@ -48,28 +48,13 @@ def get_chain_risk(token_id: str, x_api_key: str = Header(...)):
 @router.post("/tokens/{token_id}/snapshot")
 def create_chain_snapshot(
     token_id: str,
-    request: Request,
+    body: dict | None = None,
     x_api_key: str = Header(...),
 ):
     """Take a point-in-time snapshot of a delegation chain."""
-    body: dict = {}
-    try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Sync context in FastAPI
-            pass
-    except RuntimeError:
-        pass
-    # Parse body if present
     label = ""
-    if hasattr(request, "_body"):
-        import json as _json
-        try:
-            body = _json.loads(request._body)
-            label = body.get("label", "")
-        except (ValueError, AttributeError):
-            pass
+    if body and isinstance(body, dict):
+        label = body.get("label", "")
 
     try:
         snap = snapshot_chain(token_id, label=label)

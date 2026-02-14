@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from src.common.time import utc_now_epoch
-from src.identity.constants import MAX_DELEGATION_CHAIN_DEPTH, STATUS_ACTIVE
+from src.identity.constants import MAX_DELEGATION_CHAIN_DEPTH
 from src.identity.storage import IDENTITY_STORAGE
 
 _log = logging.getLogger("agenthub.chain_viz")
