@@ -50,6 +50,7 @@ TENANT_SCOPED_PATTERNS = (
     re.compile(r"^/v1/namespaces/[^/]+$"),
     re.compile(r"^/v1/discovery/agent-manifest$"),
     re.compile(r"^/v1/delegations/[^/]+/status$"),
+    re.compile(r"^/v1/delegations/ceremonies"),
     # Runtime routes require tenant scoping
     re.compile(r"^/v1/runtime/profiles"),
     re.compile(r"^/v1/runtime/sandboxes"),
@@ -219,6 +220,9 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/policy/fides/check-read$"),
     re.compile(r"^/v1/policy/fides/check-write$"),
     re.compile(r"^/v1/policy/fides/taint$"),
+    # Multi-party delegation ceremony endpoints.
+    re.compile(r"^/v1/delegations/ceremonies$"),
+    re.compile(r"^/v1/delegations/ceremonies/[^/]+/vote$"),
     # Threat intelligence endpoints.
     re.compile(r"^/v1/threat-intel/indicators$"),
     re.compile(r"^/v1/threat-intel/check$"),

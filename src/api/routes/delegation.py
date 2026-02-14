@@ -1,12 +1,20 @@
-"""Delegation create, status, contract routes."""
+"""Delegation create, status, contract, multi-party ceremony routes."""
 from __future__ import annotations
 
 import copy
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import require_api_key, require_api_key_owner
+from src.delegation.multiparty import (
+    cast_vote,
+    create_ceremony,
+    get_ceremony,
+    list_ceremonies,
+    verify_ceremony_signatures,
+)
 from src.api.models import DelegationRequest
 from src.api.route_helpers import (
     delegate_policy_signals,
@@ -163,3 +171,97 @@ def get_delegation_status_endpoint(delegation_id: str) -> dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail="delegation not found")
     return row
+
+
+# ── Multi-Party Delegation Ceremonies ─────────────────────────────
+
+
+class CreateCeremonyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    initiator_agent_id: str = Field(min_length=1, max_length=256)
+    subject_agent_id: str = Field(min_length=1, max_length=256)
+    scopes: list[str] = Field(min_length=1, max_length=50)
+    approvers: list[str] = Field(min_length=1, max_length=20)
+    required_approvals: int = Field(ge=1, le=20)
+    ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+    metadata: dict[str, str] | None = None
+
+
+class CastVoteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    voter_id: str = Field(min_length=1, max_length=256)
+    decision: str = Field(pattern="^(approve|reject)$")
+
+
+@router.post("/v1/delegations/ceremonies")
+def post_create_ceremony(
+    request: CreateCeremonyRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Create a multi-party delegation ceremony."""
+    try:
+        return create_ceremony(
+            initiator_agent_id=request.initiator_agent_id,
+            subject_agent_id=request.subject_agent_id,
+            scopes=request.scopes,
+            approvers=request.approvers,
+            required_approvals=request.required_approvals,
+            ttl_seconds=request.ttl_seconds,
+            metadata=request.metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/v1/delegations/ceremonies/{ceremony_id}")
+def get_ceremony_endpoint(
+    ceremony_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get a ceremony by ID."""
+    try:
+        return get_ceremony(ceremony_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/v1/delegations/ceremonies/{ceremony_id}/vote")
+def post_cast_vote(
+    ceremony_id: str,
+    request: CastVoteRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Cast a vote on a ceremony."""
+    try:
+        return cast_vote(
+            ceremony_id=ceremony_id,
+            voter_id=request.voter_id,
+            decision=request.decision,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/v1/delegations/ceremonies")
+def get_list_ceremonies(
+    initiator: str | None = None,
+    status: str | None = None,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """List delegation ceremonies."""
+    ceremonies = list_ceremonies(initiator=initiator, status=status)
+    return {"count": len(ceremonies), "ceremonies": ceremonies}
+
+
+@router.get("/v1/delegations/ceremonies/{ceremony_id}/verify")
+def get_verify_ceremony(
+    ceremony_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Verify all vote signatures in a ceremony."""
+    try:
+        return verify_ceremony_signatures(ceremony_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
