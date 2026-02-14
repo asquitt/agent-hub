@@ -1,4 +1,5 @@
 from src.api.routes.a2a import router as a2a_router
+from src.api.routes.access_review import router as access_review_router
 from src.api.routes.agents import router as agents_router
 from src.api.routes.approval import router as approval_router
 from src.api.routes.audit import router as audit_router
@@ -28,6 +29,7 @@ from src.api.routes.tokens import router as tokens_router
 
 __all__ = [
     "a2a_router",
+    "access_review_router",
     "agents_router",
     "approval_router",
     "audit_router",

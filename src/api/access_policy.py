@@ -167,6 +167,13 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/audit/dead-letters$"),
     re.compile(r"^/v1/audit/dead-letters/retry$"),
     re.compile(r"^/v1/audit/simulate-failure$"),
+    # Access review / certification campaign endpoints
+    re.compile(r"^/v1/access-review/campaigns$"),
+    re.compile(r"^/v1/access-review/campaigns/[^/]+$"),
+    re.compile(r"^/v1/access-review/campaigns/[^/]+/progress$"),
+    re.compile(r"^/v1/access-review/campaigns/[^/]+/items$"),
+    re.compile(r"^/v1/access-review/items/[^/]+/decide$"),
+    re.compile(r"^/v1/access-review/compliance$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -312,6 +319,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/audit/webhooks/[^/]+/test$"),
     re.compile(r"^/v1/audit/dead-letters/retry$"),
     re.compile(r"^/v1/audit/simulate-failure$"),
+    # Access review campaigns use their own lifecycle model.
+    re.compile(r"^/v1/access-review/campaigns$"),
+    re.compile(r"^/v1/access-review/campaigns/[^/]+/items$"),
+    re.compile(r"^/v1/access-review/items/[^/]+/decide$"),
 )
 
 

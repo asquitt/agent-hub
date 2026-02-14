@@ -16,6 +16,7 @@ from src.api.auth import resolve_owner_from_headers
 from src.api.route_helpers import append_warning_header, meter_warn, resolve_tenant_id, stable_error
 from src.api.routes import (
     a2a_router,
+    access_review_router,
     agents_router,
     approval_router,
     audit_router,
@@ -119,6 +120,7 @@ app.include_router(intent_router)
 app.include_router(grants_router)
 app.include_router(scim_router)
 app.include_router(audit_router)
+app.include_router(access_review_router)
 
 # --- Production middleware ---
 
