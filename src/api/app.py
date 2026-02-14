@@ -42,6 +42,7 @@ from src.api.routes import (
     runtime_router,
     oauth_router,
     scim_router,
+    sessions_router,
     system_router,
     tokens_router,
 )
@@ -123,6 +124,7 @@ app.include_router(scim_router)
 app.include_router(audit_router)
 app.include_router(access_review_router)
 app.include_router(policy_code_router)
+app.include_router(sessions_router)
 
 # --- Production middleware ---
 

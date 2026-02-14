@@ -180,6 +180,15 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/policy/rules/[^/]+/versions$"),
     re.compile(r"^/v1/policy/evaluate$"),
     re.compile(r"^/v1/policy/evaluations$"),
+    # Agent session management endpoints
+    re.compile(r"^/v1/sessions$"),
+    re.compile(r"^/v1/sessions/stats$"),
+    re.compile(r"^/v1/sessions/[^/]+$"),
+    re.compile(r"^/v1/sessions/[^/]+/touch$"),
+    re.compile(r"^/v1/sessions/[^/]+/terminate$"),
+    re.compile(r"^/v1/sessions/force-logout$"),
+    re.compile(r"^/v1/sessions/policies$"),
+    re.compile(r"^/v1/sessions/policies/[^/]+$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -333,6 +342,12 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/policy/rules$"),
     re.compile(r"^/v1/policy/rules/[^/]+$"),
     re.compile(r"^/v1/policy/evaluate$"),
+    # Session management uses its own lifecycle model.
+    re.compile(r"^/v1/sessions$"),
+    re.compile(r"^/v1/sessions/[^/]+/touch$"),
+    re.compile(r"^/v1/sessions/[^/]+/terminate$"),
+    re.compile(r"^/v1/sessions/force-logout$"),
+    re.compile(r"^/v1/sessions/policies$"),
 )
 
 
