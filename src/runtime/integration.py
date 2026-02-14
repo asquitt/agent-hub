@@ -20,7 +20,7 @@ def create_delegated_sandbox(
     record = delegation_storage.get_record(delegation_id)
     if record is None:
         raise KeyError(f"delegation not found: {delegation_id}")
-    if record.get("status") not in ("queued", "running", "completed"):
+    if record.get("status") not in ("queued", "running"):
         raise ValueError(f"delegation not in valid state: {record.get('status')}")
 
     return create_sandbox(
@@ -74,7 +74,12 @@ def create_federated_sandbox(
         if agent_attestation_id:
             verify_agent_attestation(agent_attestation_id)
     except (ImportError, RuntimeError):
-        pass  # Federation/identity module not available
+        import logging
+
+        logging.getLogger("agenthub.runtime").warning(
+            "federation module unavailable, skipping trust verification for domain=%s",
+            domain_id,
+        )
 
     return create_sandbox(
         agent_id=agent_id,

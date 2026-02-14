@@ -287,7 +287,10 @@ def export_evidence_pack(*, actor: str, framework: str, control_ids: list[str] |
     evaluated_controls: list[dict[str, Any]] = []
     for control in controls:
         check_key = str(control["check_key"])
-        result = CHECKS[check_key]()
+        check_fn = CHECKS.get(check_key)
+        if check_fn is None:
+            raise ValueError(f"unknown check_key: {check_key}")
+        result = check_fn()
         evaluated_controls.append(
             {
                 "control_id": control["control_id"],

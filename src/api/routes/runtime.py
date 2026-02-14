@@ -180,6 +180,17 @@ def post_create_sandbox(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/v1/runtime/sandboxes")
+def get_list_sandboxes(
+    owner: str = Depends(require_api_key),
+    agent_id: str | None = None,
+    status: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    sandboxes = list_sandboxes(owner=owner, agent_id=agent_id, status=status, limit=limit)
+    return {"sandboxes": [dict(s) for s in sandboxes], "total": len(sandboxes)}
+
+
 @router.get("/v1/runtime/sandboxes/{sandbox_id}")
 def get_sandbox_status(
     sandbox_id: str,
@@ -288,7 +299,9 @@ def get_list_executions(
     executions = list_executions(
         sandbox_id=sandbox_id, agent_id=agent_id, status=status,
     )
-    return {"executions": [dict(e) for e in executions], "total": len(executions)}
+    # Filter to only show executions owned by the authenticated user
+    owned = [e for e in executions if e["owner"] == owner]
+    return {"executions": [dict(e) for e in owned], "total": len(owned)}
 
 
 @router.get("/v1/runtime/executions/{execution_id}")

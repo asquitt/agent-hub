@@ -61,31 +61,60 @@ def test_delegated_sandbox_missing_delegation_404():
 
 
 def test_delegated_sandbox_success():
-    """Create a sandbox linked to a delegation."""
+    """Create a sandbox linked to a running delegation."""
+    import uuid
+
+    from src.common.time import utc_now_iso
     from src.delegation import storage as delegation_storage
 
-    delegation_storage.save_balances({"agent-d1": 1000.0})
-
-    from src.delegation.service import create_delegation
-
-    d = create_delegation(
-        requester_agent_id="agent-d1",
-        delegate_agent_id="agent-d2",
-        task_spec="sandboxed",
-        estimated_cost_usd=5.0,
-        max_budget_usd=50.0,
-    )
+    delegation_id = str(uuid.uuid4())
+    now = utc_now_iso()
+    delegation_storage.append_record({
+        "delegation_id": delegation_id,
+        "requester_agent_id": "agent-d1",
+        "delegate_agent_id": "agent-d2",
+        "status": "running",
+        "created_at": now,
+        "updated_at": now,
+    })
     resp = client.post(
         "/v1/runtime/sandboxes/delegated",
-        json={"delegation_id": d["delegation_id"], "agent_id": "agent-d2"},
+        json={"delegation_id": delegation_id, "agent_id": "agent-d2"},
         headers=HEADERS,
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["sandbox_id"].startswith("sbx-")
-    assert data["delegation_id"] == d["delegation_id"]
+    assert data["delegation_id"] == delegation_id
     assert data["status"] == "ready"
     print("PASS: delegated sandbox success")
+
+
+def test_delegated_sandbox_completed_rejected():
+    """Completed delegations should not allow new sandboxes."""
+    import uuid
+
+    from src.common.time import utc_now_iso
+    from src.delegation import storage as delegation_storage
+
+    delegation_id = str(uuid.uuid4())
+    now = utc_now_iso()
+    delegation_storage.append_record({
+        "delegation_id": delegation_id,
+        "requester_agent_id": "agent-d1",
+        "delegate_agent_id": "agent-d2",
+        "status": "completed",
+        "created_at": now,
+        "updated_at": now,
+    })
+    resp = client.post(
+        "/v1/runtime/sandboxes/delegated",
+        json={"delegation_id": delegation_id, "agent_id": "agent-d2"},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 400, resp.text
+    assert "not in valid state" in resp.json()["detail"]
+    print("PASS: completed delegation rejected for sandbox creation")
 
 
 # ---- Leased sandbox endpoint ----
@@ -253,6 +282,7 @@ if __name__ == "__main__":
     test_delegation_creates_runtime_sandbox()
     test_delegated_sandbox_missing_delegation_404()
     test_delegated_sandbox_success()
+    test_delegated_sandbox_completed_rejected()
     test_leased_sandbox_missing_lease_404()
     test_leased_sandbox_success()
     test_audit_evidence_returns_data()

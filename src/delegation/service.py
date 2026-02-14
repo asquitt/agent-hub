@@ -127,7 +127,12 @@ def create_delegation(
             )
             sandbox_id = rt_sandbox["sandbox_id"]
         except (ImportError, RuntimeError):
-            pass  # Runtime module not available
+            import logging
+
+            logging.getLogger("agenthub.delegation").warning(
+                "runtime module unavailable, falling back to tempdir sandbox for delegation=%s",
+                delegation_id,
+            )
 
         start = time.perf_counter()
         if sandbox_id:

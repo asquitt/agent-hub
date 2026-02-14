@@ -277,7 +277,11 @@ def _insert_token_record(
         )
 
 
-def _verify_chain_integrity(record: dict[str, Any]) -> None:
+def _verify_chain_integrity(record: dict[str, Any], _depth: int = 0) -> None:
+    from src.identity.constants import MAX_DELEGATION_CHAIN_DEPTH
+
+    if _depth > MAX_DELEGATION_CHAIN_DEPTH:
+        raise PermissionError("delegation chain too deep or circular")
     parent_id = record.get("parent_token_id")
     if not parent_id:
         return
@@ -289,7 +293,7 @@ def _verify_chain_integrity(record: dict[str, Any]) -> None:
     now = utc_now_epoch()
     if int(parent["expires_at_epoch"]) < now:
         raise PermissionError("delegation chain invalid: parent token expired")
-    _verify_chain_integrity(parent)
+    _verify_chain_integrity(parent, _depth + 1)
 
 
 def _cascade_revoke(parent_token_id: str, now_epoch: int) -> int:

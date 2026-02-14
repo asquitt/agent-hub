@@ -50,15 +50,15 @@ def _validate_transition(current: str, target: str) -> None:
 
 def _validate_resource_limits(limits: ResourceLimits) -> None:
     if limits["cpu_cores"] <= 0 or limits["cpu_cores"] > MAX_CPU_CORES:
-        raise ValueError(f"cpu_cores must be between 0 and {MAX_CPU_CORES}")
+        raise ValueError(f"cpu_cores must be > 0 and <= {MAX_CPU_CORES}")
     if limits["memory_mb"] <= 0 or limits["memory_mb"] > MAX_MEMORY_MB:
-        raise ValueError(f"memory_mb must be between 0 and {MAX_MEMORY_MB}")
+        raise ValueError(f"memory_mb must be > 0 and <= {MAX_MEMORY_MB}")
     if limits["timeout_seconds"] <= 0 or limits["timeout_seconds"] > MAX_TIMEOUT_SECONDS:
-        raise ValueError(f"timeout_seconds must be between 0 and {MAX_TIMEOUT_SECONDS}")
+        raise ValueError(f"timeout_seconds must be > 0 and <= {MAX_TIMEOUT_SECONDS}")
     if limits["network_mode"] not in VALID_NETWORK_MODES:
         raise ValueError(f"invalid network_mode: {limits['network_mode']}")
     if limits["disk_io_mb"] <= 0 or limits["disk_io_mb"] > MAX_DISK_IO_MB:
-        raise ValueError(f"disk_io_mb must be between 0 and {MAX_DISK_IO_MB}")
+        raise ValueError(f"disk_io_mb must be > 0 and <= {MAX_DISK_IO_MB}")
 
 
 def _resolve_limits(
