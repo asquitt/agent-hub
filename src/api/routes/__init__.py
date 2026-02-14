@@ -16,6 +16,7 @@ from src.api.routes.grants import router as grants_router
 from src.api.routes.identity import router as identity_router
 from src.api.routes.intent import router as intent_router
 from src.api.routes.identity_advanced import router as identity_advanced_router
+from src.api.routes.key_management import router as key_management_router
 from src.api.routes.knowledge import router as knowledge_router
 from src.api.routes.marketplace import router as marketplace_router
 from src.api.routes.misc import router as misc_router
@@ -51,6 +52,7 @@ __all__ = [
     "identity_router",
     "identity_advanced_router",
     "intent_router",
+    "key_management_router",
     "knowledge_router",
     "marketplace_router",
     "misc_router",

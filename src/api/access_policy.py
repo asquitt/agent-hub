@@ -219,6 +219,14 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/rbac/agents/[^/]+/roles$"),
     re.compile(r"^/v1/rbac/check-log$"),
     re.compile(r"^/v1/rbac/sod-constraints$"),
+    # Key management endpoints
+    re.compile(r"^/v1/keys$"),
+    re.compile(r"^/v1/keys/stats$"),
+    re.compile(r"^/v1/keys/usage$"),
+    re.compile(r"^/v1/keys/record-usage$"),
+    re.compile(r"^/v1/keys/[^/]+$"),
+    re.compile(r"^/v1/keys/[^/]+/rotate$"),
+    re.compile(r"^/v1/keys/[^/]+/revoke$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -396,6 +404,11 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/rbac/assignments/remove$"),
     re.compile(r"^/v1/rbac/check$"),
     re.compile(r"^/v1/rbac/sod-constraints$"),
+    # Key management uses its own key lifecycle model.
+    re.compile(r"^/v1/keys$"),
+    re.compile(r"^/v1/keys/record-usage$"),
+    re.compile(r"^/v1/keys/[^/]+/rotate$"),
+    re.compile(r"^/v1/keys/[^/]+/revoke$"),
 )
 
 
