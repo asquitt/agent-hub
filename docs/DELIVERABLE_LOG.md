@@ -88,3 +88,14 @@
 | S69 | Marketing homepage + operator/customer visual redesign | DONE | 2026-02-13 05:52 UTC | Platform | Yes | docs/evidence/S69.md |
 | S70 | UI redesign refinement + Playwright visual capture | DONE | 2026-02-13 06:29 UTC | Platform | Yes | docs/evidence/S70.md |
 | S71 | UI redesign pass v3 + screenshot refresh | DONE | 2026-02-13 06:41 UTC | Platform | Yes | docs/evidence/S71.md |
+| S72 | Agent identity foundation + credential lifecycle | DONE | 2026-02-13 | Platform | Yes | — |
+| S73 | Delegation tokens + scope attenuation | DONE | 2026-02-13 | Platform | Yes | — |
+| S74 | Revocation cascade + kill switch | DONE | 2026-02-13 | Platform | Yes | — |
+| S75 | Trust registry + federation attestation | DONE | 2026-02-13 | Platform | Yes | — |
+| S76 | Wire identity into auth middleware | DONE | 2026-02-13 | Platform | Yes | — |
+| S77 | Wire identity into policy + delegation + federation | DONE | 2026-02-13 | Platform | Yes | — |
+| S78 | Identity tests + README update | DONE | 2026-02-13 | Platform | Yes | — |
+| S79 | Runtime sandbox foundation — types, storage, profiles | DONE | 2026-02-14 | Platform | Yes | — |
+| S80 | Sandbox lifecycle — state machine, execution, logs/metrics | DONE | 2026-02-14 | Platform | Yes | — |
+| S81 | Runtime policy enforcement + cost metering | DONE | 2026-02-14 | Platform | Yes | — |
+| S82 | Runtime integration — delegation/lease/compliance wiring | DONE | 2026-02-14 | Platform | Yes | — |

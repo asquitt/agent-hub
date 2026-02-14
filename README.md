@@ -7,6 +7,7 @@ AgentHub is the IAM layer for autonomous systems — agent identity, credential 
 - Post-core continuation segments (`S17` through `S54`) are complete.
 - UI redesign and operator diagnostics (`S55` through `S71`) are complete.
 - **Agent Identity & Authorization (`S72` through `S78`) is complete** — the IAM layer that turns AgentHub from "agent directory" into "Okta for agents."
+- **Managed Agent Runtime (`S79` through `S82`) is complete** — sandboxed execution control plane with resource profiles, lifecycle management, policy enforcement, cost metering, and compliance audit trails.
 - Source of truth for delivery status and evidence:
   - `docs/DELIVERABLE_LOG.md`
   - `docs/evidence/`
@@ -36,6 +37,8 @@ AgentHub is organized as two connected layers:
 | Delegation Tokens & Chains | `POST /v1/identity/delegation-tokens`, `POST /v1/identity/delegation-tokens/verify`, `GET /v1/identity/delegation-tokens/{id}/chain` | Scope-attenuated delegation tokens with multi-hop chain validation (max depth 5) |
 | Revocation & Kill Switch | `POST /v1/identity/agents/{id}/revoke`, `POST /v1/identity/revocations/bulk`, `GET /v1/identity/revocations` | Instant agent kill switch with cascade to credentials, tokens, and leases |
 | Trust Registry & Federation | `POST /v1/identity/trust-registry/domains`, `POST /v1/identity/agents/{id}/attest`, `GET /v1/identity/attestations/{id}/verify` | Cross-org trust registry, signed agent attestations, federated identity verification |
+| Managed Agent Runtime | `POST /v1/runtime/sandboxes`, `POST /v1/runtime/sandboxes/{id}/execute`, `POST /v1/runtime/sandboxes/{id}/complete`, `POST /v1/runtime/sandboxes/{id}/terminate` | Sandboxed execution control plane with resource profiles, lifecycle state machine, policy enforcement, cost metering |
+| Runtime Integration | `POST /v1/runtime/sandboxes/delegated`, `POST /v1/runtime/sandboxes/leased`, `GET /v1/runtime/audit/evidence` | Delegation-linked and lease-linked sandbox provisioning, compliance audit evidence export |
 
 ## Architecture Principles
 - Deterministic workflows first, autonomy only when measured lift is proven.
@@ -145,6 +148,46 @@ curl -s -X POST http://127.0.0.1:8000/v1/identity/agents/my-agent/revoke \
   -H "X-API-Key: dev-owner-key" \
   -H "Content-Type: application/json" \
   -d '{"reason": "security_incident"}'
+```
+
+## Managed Agent Runtime (S79-S82)
+Sandboxed execution control plane for agent workloads. Resource profiles define CPU, memory, timeout, network, and disk I/O limits. Sandboxes follow a state machine: pending -> provisioning -> ready -> executing -> completed/failed/terminated.
+
+Provision a sandbox and run an execution:
+```bash
+# Create sandbox with micro profile (0.25 CPU, 256MB, 30s timeout, network disabled)
+curl -s -X POST http://127.0.0.1:8000/v1/runtime/sandboxes \
+  -H "X-API-Key: dev-owner-key" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "my-agent", "profile_name": "micro"}'
+
+# Start execution in sandbox
+curl -s -X POST http://127.0.0.1:8000/v1/runtime/sandboxes/{sandbox_id}/execute \
+  -H "X-API-Key: dev-owner-key" \
+  -H "Content-Type: application/json" \
+  -d '{"input_data": {"task": "analyze", "params": {"x": 1}}}'
+
+# Complete execution
+curl -s -X POST http://127.0.0.1:8000/v1/runtime/sandboxes/{sandbox_id}/complete \
+  -H "X-API-Key: dev-owner-key" \
+  -H "Content-Type: application/json" \
+  -d '{"exit_code": 0, "output_data": {"result": "done"}}'
+```
+
+Resource profiles (micro/small/medium/large) are seeded automatically. Create custom profiles:
+```bash
+curl -s -X POST http://127.0.0.1:8000/v1/runtime/profiles \
+  -H "X-API-Key: dev-owner-key" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "gpu-heavy", "cpu_cores": 2.0, "memory_mb": 4096, "timeout_seconds": 600, "network_mode": "egress_only", "disk_io_mb": 1024}'
+```
+
+Delegation-linked sandbox (auto-created during delegation, also available via API):
+```bash
+curl -s -X POST http://127.0.0.1:8000/v1/runtime/sandboxes/delegated \
+  -H "X-API-Key: dev-owner-key" \
+  -H "Content-Type: application/json" \
+  -d '{"delegation_id": "<delegation-id>", "agent_id": "delegate-agent"}'
 ```
 
 ## Customer UI Hardening (S58)
@@ -266,12 +309,15 @@ Compose includes:
 - `AGENTHUB_DELEGATION_DB_PATH` (delegation SQLite path)
 - `AGENTHUB_BILLING_DB_PATH` (billing/metering SQLite path)
 - `AGENTHUB_IDEMPOTENCY_DB_PATH` (idempotency reservation store)
+- `AGENTHUB_RUNTIME_DB_PATH` (runtime/sandbox SQLite path; defaults to `data/runtime/runtime.db`)
 - `AGENTHUB_HOME` (CLI config/state directory)
 
 ## Repository Layout
 - `src/`: API and domain services (policy, delegation, billing, trust, discovery, federation, identity, etc.)
 - `src/identity/`: Agent identity module — credentials, delegation tokens, revocation, federation trust registry
 - `src/api/routes/identity.py`: Identity API endpoints (17 endpoints under `/v1/identity/*`)
+- `src/runtime/`: Managed agent runtime — sandbox lifecycle, resource profiles, policy, metering, audit
+- `src/api/routes/runtime.py`: Runtime API endpoints (16 endpoints under `/v1/runtime/*`)
 - `agenthub/`: CLI package
 - `tests/`: integration, domain, and operator/UI-adjacent tests
 - `tools/`: evaluation, gate, launch, search, and trust utilities
