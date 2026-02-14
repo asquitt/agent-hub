@@ -189,6 +189,15 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/sessions/force-logout$"),
     re.compile(r"^/v1/sessions/policies$"),
     re.compile(r"^/v1/sessions/policies/[^/]+$"),
+    # Secret rotation vault endpoints
+    re.compile(r"^/v1/vault/secrets$"),
+    re.compile(r"^/v1/vault/secrets/expiring$"),
+    re.compile(r"^/v1/vault/secrets/rotation-due$"),
+    re.compile(r"^/v1/vault/secrets/[^/]+$"),
+    re.compile(r"^/v1/vault/secrets/[^/]+/access$"),
+    re.compile(r"^/v1/vault/secrets/[^/]+/rotate$"),
+    re.compile(r"^/v1/vault/secrets/[^/]+/revoke$"),
+    re.compile(r"^/v1/vault/rotation-history$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -348,6 +357,11 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/sessions/[^/]+/terminate$"),
     re.compile(r"^/v1/sessions/force-logout$"),
     re.compile(r"^/v1/sessions/policies$"),
+    # Secret vault uses versioned rotation model.
+    re.compile(r"^/v1/vault/secrets$"),
+    re.compile(r"^/v1/vault/secrets/[^/]+/access$"),
+    re.compile(r"^/v1/vault/secrets/[^/]+/rotate$"),
+    re.compile(r"^/v1/vault/secrets/[^/]+/revoke$"),
 )
 
 

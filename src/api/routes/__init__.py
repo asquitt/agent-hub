@@ -28,6 +28,7 @@ from src.api.routes.scim import router as scim_router
 from src.api.routes.sessions import router as sessions_router
 from src.api.routes.system import router as system_router
 from src.api.routes.tokens import router as tokens_router
+from src.api.routes.vault import router as vault_router
 
 __all__ = [
     "a2a_router",
@@ -60,4 +61,5 @@ __all__ = [
     "sessions_router",
     "system_router",
     "tokens_router",
+    "vault_router",
 ]

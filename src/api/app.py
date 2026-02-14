@@ -45,6 +45,7 @@ from src.api.routes import (
     sessions_router,
     system_router,
     tokens_router,
+    vault_router,
 )
 from src.idempotency import storage as idempotency_storage
 
@@ -125,6 +126,7 @@ app.include_router(audit_router)
 app.include_router(access_review_router)
 app.include_router(policy_code_router)
 app.include_router(sessions_router)
+app.include_router(vault_router)
 
 # --- Production middleware ---
 
