@@ -243,6 +243,12 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/groups/[^/]+/policies$"),
     re.compile(r"^/v1/groups/[^/]+/members$"),
     re.compile(r"^/v1/groups/[^/]+/members/remove$"),
+    # Rate limit policy endpoints
+    re.compile(r"^/v1/rate-policies$"),
+    re.compile(r"^/v1/rate-policies/stats$"),
+    re.compile(r"^/v1/rate-policies/check$"),
+    re.compile(r"^/v1/rate-policies/violations$"),
+    re.compile(r"^/v1/rate-policies/[^/]+$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -434,6 +440,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/groups/[^/]+/policies$"),
     re.compile(r"^/v1/groups/[^/]+/members$"),
     re.compile(r"^/v1/groups/[^/]+/members/remove$"),
+    # Rate limit policies use check-and-record model.
+    re.compile(r"^/v1/rate-policies$"),
+    re.compile(r"^/v1/rate-policies/check$"),
+    re.compile(r"^/v1/rate-policies/[^/]+$"),
 )
 
 

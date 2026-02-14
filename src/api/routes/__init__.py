@@ -26,6 +26,7 @@ from src.api.routes.operator import router as operator_router
 from src.api.routes.policy_code import router as policy_code_router
 from src.api.routes.procurement import router as procurement_router
 from src.api.routes.provenance import router as provenance_router
+from src.api.routes.rate_policies import router as rate_policies_router
 from src.api.routes.rbac import router as rbac_router
 from src.api.routes.runtime import router as runtime_router
 from src.api.routes.oauth import router as oauth_router
@@ -64,6 +65,7 @@ __all__ = [
     "policy_code_router",
     "procurement_router",
     "provenance_router",
+    "rate_policies_router",
     "rbac_router",
     "runtime_router",
     "oauth_router",

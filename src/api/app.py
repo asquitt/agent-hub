@@ -43,6 +43,7 @@ from src.api.routes import (
     procurement_router,
     provenance_router,
     key_management_router,
+    rate_policies_router,
     rbac_router,
     runtime_router,
     oauth_router,
@@ -137,6 +138,7 @@ app.include_router(rbac_router)
 app.include_router(key_management_router)
 app.include_router(consent_router)
 app.include_router(agent_groups_router)
+app.include_router(rate_policies_router)
 
 # --- Production middleware ---
 
