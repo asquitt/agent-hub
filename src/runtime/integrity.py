@@ -18,6 +18,7 @@ from typing import Any
 _log = logging.getLogger("agenthub.integrity")
 
 # In-memory stores
+_MAX_RECORDS = 10_000
 _baselines: dict[str, dict[str, Any]] = {}  # sandbox_id -> baseline
 _attestations: list[dict[str, Any]] = []  # attestation history
 _integrity_alerts: list[dict[str, Any]] = []  # tamper alerts
@@ -117,6 +118,8 @@ def check_integrity(
         "checked_at": now,
     }
     _attestations.append(attestation)
+    if len(_attestations) > _MAX_RECORDS:
+        _attestations[:] = _attestations[-_MAX_RECORDS:]
 
     if not intact:
         alert: dict[str, Any] = {
@@ -129,6 +132,8 @@ def check_integrity(
             "detected_at": now,
         }
         _integrity_alerts.append(alert)
+        if len(_integrity_alerts) > _MAX_RECORDS:
+            _integrity_alerts[:] = _integrity_alerts[-_MAX_RECORDS:]
         _log.warning("integrity drift: sandbox=%s score=%.1f drifts=%d", sandbox_id, drift_score, len(drifts))
 
     return attestation

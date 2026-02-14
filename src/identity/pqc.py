@@ -30,6 +30,7 @@ ALG_CLASSICAL_HMAC = "hmac-sha256"
 VALID_PQC_ALGORITHMS = {ALG_DILITHIUM3, ALG_HYBRID_HMAC_DILITHIUM, ALG_CLASSICAL_HMAC}
 
 # In-memory stores
+_MAX_SIGNATURES = 10_000
 _pqc_keypairs: dict[str, dict[str, Any]] = {}  # agent_id -> keypair
 _pqc_signatures: list[dict[str, Any]] = []  # signature records
 
@@ -142,6 +143,8 @@ def sign_data(
     }
 
     _pqc_signatures.append(sig_record)
+    if len(_pqc_signatures) > _MAX_SIGNATURES:
+        _pqc_signatures[:] = _pqc_signatures[-_MAX_SIGNATURES:]
     return sig_record
 
 

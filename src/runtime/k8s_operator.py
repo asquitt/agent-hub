@@ -23,6 +23,7 @@ DEFAULT_CPU_REQUEST = "100m"
 DEFAULT_MEMORY_REQUEST = "64Mi"
 
 # In-memory store for generated manifests
+_MAX_MANIFESTS = 5_000
 _generated_manifests: list[dict[str, Any]] = []
 
 
@@ -91,6 +92,8 @@ def generate_pod_spec(
         "generated_at": time.time(),
     }
     _generated_manifests.append(record)
+    if len(_generated_manifests) > _MAX_MANIFESTS:
+        _generated_manifests[:] = _generated_manifests[-_MAX_MANIFESTS:]
     return record
 
 
@@ -134,6 +137,8 @@ def generate_network_policy(
         "generated_at": time.time(),
     }
     _generated_manifests.append(record)
+    if len(_generated_manifests) > _MAX_MANIFESTS:
+        _generated_manifests[:] = _generated_manifests[-_MAX_MANIFESTS:]
     return record
 
 

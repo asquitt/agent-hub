@@ -10,6 +10,7 @@ import uuid
 from typing import Any
 
 # In-memory decision store
+_MAX_DECISIONS = 10_000
 _decisions: list[dict[str, Any]] = []
 
 
@@ -48,6 +49,8 @@ def record_decision(
     }
 
     _decisions.append(record)
+    if len(_decisions) > _MAX_DECISIONS:
+        _decisions[:] = _decisions[-_MAX_DECISIONS:]
     return record
 
 

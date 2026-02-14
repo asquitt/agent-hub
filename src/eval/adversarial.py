@@ -41,6 +41,7 @@ SEVERITY_HIGH = "high"
 SEVERITY_CRITICAL = "critical"
 
 # In-memory test results
+_MAX_RUNS = 1_000
 _test_runs: list[dict[str, Any]] = []
 
 
@@ -320,6 +321,8 @@ def run_full_adversarial_suite() -> dict[str, Any]:
     }
 
     _test_runs.append(run)
+    if len(_test_runs) > _MAX_RUNS:
+        _test_runs[:] = _test_runs[-_MAX_RUNS:]
     _log.info("adversarial suite complete: run=%s pass=%d fail=%d risk=%s", run_id, total_passed, total_failed, risk_level)
     return run
 

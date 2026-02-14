@@ -38,6 +38,7 @@ EVIDENCE_ANOMALY = "anomaly_detection"
 EVIDENCE_ROTATION = "credential_rotation"
 
 # In-memory evidence store
+_MAX_EVIDENCE = 10_000
 _evidence_records: list[dict[str, Any]] = []
 
 
@@ -73,6 +74,8 @@ def record_evidence(
     record["integrity_hash"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     _evidence_records.append(record)
+    if len(_evidence_records) > _MAX_EVIDENCE:
+        _evidence_records[:] = _evidence_records[-_MAX_EVIDENCE:]
     _log.info("evidence recorded: id=%s criteria=%s type=%s", evidence_id, criteria, evidence_type)
     return record
 

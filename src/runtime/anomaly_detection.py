@@ -35,6 +35,7 @@ DEFAULT_VOLUME_THRESHOLD_BYTES = 10 * 1024 * 1024  # 10 MB
 DEFAULT_BASELINE_WINDOW = 3600  # 1 hour
 
 # In-memory stores
+_MAX_RECORDS = 10_000
 _activity_log: list[dict[str, Any]] = []
 _baselines: dict[str, dict[str, Any]] = {}  # agent_id -> baseline metrics
 _anomaly_log: list[dict[str, Any]] = []
@@ -59,6 +60,8 @@ def record_activity(
         "timestamp": now,
     }
     _activity_log.append(event)
+    if len(_activity_log) > _MAX_RECORDS:
+        _activity_log[:] = _activity_log[-_MAX_RECORDS:]
     return event
 
 
@@ -204,6 +207,8 @@ def detect_anomalies(
     for a in anomalies:
         record = {**a, "agent_id": agent_id, "detected_at": now}
         _anomaly_log.append(record)
+    if len(_anomaly_log) > _MAX_RECORDS:
+        _anomaly_log[:] = _anomaly_log[-_MAX_RECORDS:]
 
     return {
         "agent_id": agent_id,

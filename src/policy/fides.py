@@ -26,6 +26,7 @@ INTEGRITY_LEVELS = ["low", "medium", "high", "critical"]
 INTEGRITY_RANK = {level: i for i, level in enumerate(INTEGRITY_LEVELS)}
 
 # In-memory stores
+_MAX_RECORDS = 10_000
 _resource_labels: dict[str, dict[str, Any]] = {}  # resource_id -> label record
 _agent_clearances: dict[str, dict[str, Any]] = {}  # agent_id -> clearance record
 _taint_records: list[dict[str, Any]] = []  # flow/taint history
@@ -147,6 +148,8 @@ def check_read_access(
             "reasons": reasons,
             "timestamp": time.time(),
         })
+        if len(_flow_violations) > _MAX_RECORDS:
+            _flow_violations[:] = _flow_violations[-_MAX_RECORDS:]
 
     return {
         "allowed": allowed,
@@ -202,6 +205,8 @@ def check_write_access(
             "reasons": reasons,
             "timestamp": time.time(),
         })
+        if len(_flow_violations) > _MAX_RECORDS:
+            _flow_violations[:] = _flow_violations[-_MAX_RECORDS:]
 
     return {
         "allowed": allowed,
@@ -266,6 +271,8 @@ def record_taint(
         "propagated_at": now,
     }
     _taint_records.append(taint_record)
+    if len(_taint_records) > _MAX_RECORDS:
+        _taint_records[:] = _taint_records[-_MAX_RECORDS:]
     _log.info("taint propagated: %s -> %s by %s", source_resource_id, target_resource_id, agent_id)
     return taint_record
 

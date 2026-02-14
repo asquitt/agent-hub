@@ -21,6 +21,7 @@ POLICY_ALLOW = "allow"
 POLICY_MUTUAL = "mutual"  # Both sides must allow
 
 # In-memory stores
+_MAX_RECORDS = 10_000
 _mesh_nodes: dict[str, dict[str, Any]] = {}  # node_id -> node
 _mesh_policies: list[dict[str, Any]] = []  # allow/deny rules
 _connections: list[dict[str, Any]] = []  # connection audit log
@@ -127,6 +128,8 @@ def add_mesh_policy(
     }
 
     _mesh_policies.append(record)
+    if len(_mesh_policies) > _MAX_RECORDS:
+        _mesh_policies[:] = _mesh_policies[-_MAX_RECORDS:]
     _log.info("mesh policy added: %s -> %s policy=%s", source_agent_id, target_agent_id, policy)
     return record
 
@@ -184,6 +187,8 @@ def check_connection(
         "timestamp": now,
     }
     _connections.append(conn)
+    if len(_connections) > _MAX_RECORDS:
+        _connections[:] = _connections[-_MAX_RECORDS:]
 
     return {
         "allowed": allowed,

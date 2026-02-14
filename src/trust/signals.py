@@ -27,6 +27,7 @@ SIGNAL_WEIGHTS = {
 }
 
 # In-memory peer attestation store
+_MAX_ATTESTATIONS = 10_000
 _peer_attestations: list[dict[str, Any]] = []
 
 
@@ -154,6 +155,8 @@ def record_peer_attestation(
         "recorded_at": now,
     }
     _peer_attestations.append(attestation)
+    if len(_peer_attestations) > _MAX_ATTESTATIONS:
+        _peer_attestations[:] = _peer_attestations[-_MAX_ATTESTATIONS:]
     return attestation
 
 

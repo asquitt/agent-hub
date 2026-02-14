@@ -33,6 +33,7 @@ SEVERITY_HIGH = "high"
 SEVERITY_CRITICAL = "critical"
 
 # In-memory stores
+_MAX_RECORDS = 10_000
 _indicators: dict[str, dict[str, Any]] = {}  # indicator_id -> indicator
 _feeds: dict[str, dict[str, Any]] = {}  # feed_id -> feed metadata
 _matches: list[dict[str, Any]] = []  # match history
@@ -118,6 +119,8 @@ def check_indicator(
             "detected_at": now,
         }
         _matches.append(match_record)
+        if len(_matches) > _MAX_RECORDS:
+            _matches[:] = _matches[-_MAX_RECORDS:]
         _log.warning("threat match: type=%s value=%s agent=%s severity=%s", indicator_type, value, agent_id, match_record["max_severity"])
 
     return {
