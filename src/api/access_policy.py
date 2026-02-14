@@ -132,6 +132,13 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/discovery/inventory/[^/]+$"),
     re.compile(r"^/v1/discovery/shadow-agents$"),
     re.compile(r"^/v1/discovery/posture$"),
+    # Approval workflow endpoints
+    re.compile(r"^/v1/approval/requests$"),
+    re.compile(r"^/v1/approval/requests/[^/]+$"),
+    re.compile(r"^/v1/approval/requests/[^/]+/decide$"),
+    re.compile(r"^/v1/approval/check$"),
+    re.compile(r"^/v1/approval/pending$"),
+    re.compile(r"^/v1/approval/policies$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -255,6 +262,11 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/discovery/inventory/[^/]+$"),
     re.compile(r"^/v1/discovery/shadow-agents$"),
     re.compile(r"^/v1/discovery/posture$"),
+    # Approval workflow endpoints use their own state model.
+    re.compile(r"^/v1/approval/requests$"),
+    re.compile(r"^/v1/approval/requests/[^/]+/decide$"),
+    re.compile(r"^/v1/approval/check$"),
+    re.compile(r"^/v1/approval/policies$"),
 )
 
 

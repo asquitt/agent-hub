@@ -17,6 +17,7 @@ from src.api.route_helpers import append_warning_header, meter_warn, resolve_ten
 from src.api.routes import (
     a2a_router,
     agents_router,
+    approval_router,
     auth_routes_router,
     billing_router,
     capabilities_router,
@@ -109,6 +110,7 @@ app.include_router(procurement_router)
 app.include_router(provenance_router)
 app.include_router(tokens_router)
 app.include_router(oauth_router)
+app.include_router(approval_router)
 
 # --- Production middleware ---
 
