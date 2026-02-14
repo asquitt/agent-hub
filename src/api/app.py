@@ -38,6 +38,7 @@ from src.api.routes import (
     provenance_router,
     runtime_router,
     oauth_router,
+    scim_router,
     system_router,
     tokens_router,
 )
@@ -115,6 +116,7 @@ app.include_router(oauth_router)
 app.include_router(approval_router)
 app.include_router(intent_router)
 app.include_router(grants_router)
+app.include_router(scim_router)
 
 # --- Production middleware ---
 

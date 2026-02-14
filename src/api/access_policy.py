@@ -33,6 +33,10 @@ PUBLIC_ROUTES = {
     ("GET", "/v1/identity/tokens/jwt/jwks"),
     # OAuth token endpoint uses client_credentials (not API key auth)
     ("POST", "/v1/oauth/token"),
+    # SCIM discovery endpoints are public per RFC 7644
+    ("GET", "/scim/v2/ServiceProviderConfig"),
+    ("GET", "/scim/v2/Schemas"),
+    ("GET", "/scim/v2/ResourceTypes"),
 }
 
 TENANT_SCOPED_PATTERNS = (
