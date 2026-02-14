@@ -73,11 +73,11 @@ def healthz() -> JSONResponse:
     except (ImportError, RuntimeError):
         checks["idempotency_db"] = {"status": "not_configured"}
 
-    # Required env vars
-    missing_vars = [v for v in _REQUIRED_ENV_VARS if not os.environ.get(v)]
+    # Required env vars (names not exposed publicly — use /v1/system/startup-diagnostics for details)
+    missing_count = sum(1 for v in _REQUIRED_ENV_VARS if not os.environ.get(v))
     checks["required_env_vars"] = {
-        "status": "ok" if not missing_vars else "degraded",
-        "missing": missing_vars,
+        "status": "ok" if missing_count == 0 else "degraded",
+        "missing_count": missing_count,
     }
 
     # Overall status
@@ -102,7 +102,7 @@ def healthz() -> JSONResponse:
 def readyz() -> JSONResponse:
     """Full readiness: DB connectivity + env vars all pass."""
     health_resp = healthz()
-    body = json.loads(health_resp.body.decode())
+    body = json.loads(bytes(health_resp.body).decode())
 
     if body["status"] == "unhealthy":
         return JSONResponse(status_code=503, content={"ready": False, **body})

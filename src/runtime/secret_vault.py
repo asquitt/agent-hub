@@ -38,7 +38,11 @@ ROTATION_EXPIRED = "expired"
 _MAX_RECORDS = 10_000
 _secrets: dict[str, dict[str, Any]] = {}  # secret_id -> secret
 _rotation_history: list[dict[str, Any]] = []
-_VAULT_KEY = os.environ.get("AGENTHUB_VAULT_KEY", "default-vault-key-change-me")
+def _vault_key() -> str:
+    key = os.environ.get("AGENTHUB_VAULT_KEY", "")
+    if not key:
+        raise RuntimeError("AGENTHUB_VAULT_KEY env var is required")
+    return key
 
 
 def store_secret(
@@ -269,7 +273,7 @@ def get_rotation_due() -> list[dict[str, Any]]:
 def _hash_value(value: str) -> str:
     """Hash a secret value for storage."""
     return hmac.new(
-        _VAULT_KEY.encode(), value.encode(), hashlib.sha256
+        _vault_key().encode(), value.encode(), hashlib.sha256
     ).hexdigest()
 
 

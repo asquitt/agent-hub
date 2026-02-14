@@ -24,8 +24,10 @@ def isolate_idempotency_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON",
         '{"partner-east":"fed-partner-east-token","partner-west":"fed-partner-west-token"}',
     )
+    monkeypatch.setenv("AGENTHUB_IDENTITY_SIGNING_SECRET", "test-global-identity-secret")
     monkeypatch.setenv("AGENTHUB_PROVENANCE_SIGNING_SECRET", "test-global-provenance-secret")
     monkeypatch.setenv("AGENTHUB_POLICY_SIGNING_SECRET", "test-global-policy-secret")
+    monkeypatch.setenv("AGENTHUB_VAULT_KEY", "test-global-vault-key")
     db_path = tmp_path / "idempotency.db"
     monkeypatch.setenv("AGENTHUB_IDEMPOTENCY_DB_PATH", str(db_path))
     idempotency_storage.reset_for_tests(db_path=db_path)
