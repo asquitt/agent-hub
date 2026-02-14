@@ -127,6 +127,11 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/identity/pqc/keypairs/[^/]+$"),
     re.compile(r"^/v1/identity/pqc/sign$"),
     re.compile(r"^/v1/identity/pqc/verify$"),
+    # Agent discovery & inventory endpoints
+    re.compile(r"^/v1/discovery/inventory$"),
+    re.compile(r"^/v1/discovery/inventory/[^/]+$"),
+    re.compile(r"^/v1/discovery/shadow-agents$"),
+    re.compile(r"^/v1/discovery/posture$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -245,6 +250,11 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/identity/pqc/keypairs$"),
     re.compile(r"^/v1/identity/pqc/sign$"),
     re.compile(r"^/v1/identity/pqc/verify$"),
+    # Agent discovery & inventory are read-only queries.
+    re.compile(r"^/v1/discovery/inventory$"),
+    re.compile(r"^/v1/discovery/inventory/[^/]+$"),
+    re.compile(r"^/v1/discovery/shadow-agents$"),
+    re.compile(r"^/v1/discovery/posture$"),
 )
 
 
