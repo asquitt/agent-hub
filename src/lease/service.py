@@ -162,5 +162,21 @@ def rollback_install(install_id: str, owner: str, reason: str) -> dict[str, Any]
     return row.copy()
 
 
+def revoke_leases_for_agent(agent_id: str, reason: str) -> int:
+    """Revoke all active leases for an agent (called when credentials are revoked)."""
+    leases = lease_storage.load_leases()
+    revoked_count = 0
+    for lease_id, row in leases.items():
+        if row["requester_agent_id"] == agent_id and row["status"] == "active":
+            row["status"] = "revoked"
+            row["revocation_reason"] = reason
+            row["revoked_at"] = _iso_from_epoch(_now_epoch())
+            leases[lease_id] = row
+            revoked_count += 1
+    if revoked_count > 0:
+        lease_storage.save_leases(leases)
+    return revoked_count
+
+
 def reset_state_for_tests() -> None:
     lease_storage.reset_for_tests()

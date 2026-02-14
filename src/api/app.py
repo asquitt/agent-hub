@@ -447,6 +447,7 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
         owner = resolve_owner_from_headers(
             x_api_key=request.headers.get("X-API-Key"),
             authorization=request.headers.get("Authorization"),
+            x_delegation_token=request.headers.get("X-Delegation-Token"),
             strict=False,
         )
     except HTTPException as exc:
@@ -500,6 +501,7 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
         owner = resolve_owner_from_headers(
             x_api_key=request.headers.get("X-API-Key"),
             authorization=request.headers.get("Authorization"),
+            x_delegation_token=request.headers.get("X-Delegation-Token"),
             strict=False,
         )
     actor = owner or "anonymous"
@@ -1762,6 +1764,7 @@ def post_delegation(
             auto_reauthorize=request.auto_reauthorize,
             policy_decision=policy_decision,
             metering_events=request.metering_events,
+            delegation_token=request.delegation_token,
         )
         response = {
             "contract": delegation_contract(),
@@ -1771,6 +1774,7 @@ def post_delegation(
             "policy_decision": policy_decision,
             "lifecycle": row["lifecycle"],
             "queue_state": row.get("queue_state"),
+            "identity_context": row.get("identity_context"),
             "sre_governance": {
                 "circuit_breaker": circuit_breaker,
                 "alerts": sre_dashboard["alerts"],
@@ -1822,6 +1826,7 @@ def post_federated_execute(request: FederatedExecutionRequest, owner: str = Depe
             max_budget_usd=request.max_budget_usd,
             requested_residency_region=request.requested_residency_region,
             connection_mode=request.connection_mode,
+            agent_attestation_id=request.agent_attestation_id,
         )
         record_metering_event(
             actor=owner,

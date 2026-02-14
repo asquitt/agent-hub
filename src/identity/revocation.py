@@ -25,10 +25,19 @@ def revoke_agent(
     # 2. Revoke all delegation tokens issued by this agent
     token_count = _revoke_agent_delegation_tokens(agent_id)
 
-    # 3. Suspend the identity itself
+    # 3. Revoke associated leases
+    lease_count = 0
+    try:
+        from src.lease.service import revoke_leases_for_agent
+
+        lease_count = revoke_leases_for_agent(agent_id, reason)
+    except (ImportError, RuntimeError):
+        pass  # Lease module not available
+
+    # 4. Suspend the identity itself
     IDENTITY_STORAGE.update_identity_status(agent_id, STATUS_REVOKED)
 
-    cascade_count = cred_count + token_count
+    cascade_count = cred_count + token_count + lease_count
     event_id = _record_event(
         revoked_type="agent_identity",
         revoked_id=agent_id,
@@ -43,6 +52,7 @@ def revoke_agent(
         "agent_id": agent_id,
         "revoked_credentials": cred_count,
         "revoked_tokens": token_count,
+        "revoked_leases": lease_count,
         "reason": reason,
     }
 

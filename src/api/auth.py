@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 from fastapi import Header, HTTPException
+
 from src.common.time import iso_from_epoch, utc_now_epoch
 
 DEFAULT_TOKEN_TTL_SECONDS = 1800
@@ -109,9 +110,44 @@ def _owner_from_api_key(x_api_key: str | None) -> str | None:
     return _api_key_map().get(x_api_key)
 
 
+def _owner_and_scopes_from_agent_credential(secret: str) -> tuple[str, list[str]]:
+    """Authenticate using an agent credential secret. Returns (owner, scopes)."""
+    from src.identity.credentials import verify_credential
+
+    try:
+        result = verify_credential(secret)
+        # Resolve owner from agent identity
+        from src.identity.storage import IDENTITY_STORAGE
+
+        identity = IDENTITY_STORAGE.get_identity(result["agent_id"])
+        return identity["owner"], result["scopes"]
+    except (PermissionError, KeyError, RuntimeError) as exc:
+        raise HTTPException(status_code=401, detail=f"agent credential auth failed: {exc}") from exc
+
+
+def _owner_and_scopes_from_delegation_token(signed_token: str) -> tuple[str, list[str]]:
+    """Authenticate using a delegation token. Returns (owner-of-subject, delegated_scopes)."""
+    from src.identity.delegation_tokens import verify_delegation_token
+
+    try:
+        result = verify_delegation_token(signed_token)
+        from src.identity.storage import IDENTITY_STORAGE
+
+        identity = IDENTITY_STORAGE.get_identity(result["subject_agent_id"])
+        return identity["owner"], result["delegated_scopes"]
+    except (PermissionError, KeyError, RuntimeError) as exc:
+        raise HTTPException(status_code=401, detail=f"delegation token auth failed: {exc}") from exc
+
+
 def _owner_and_scopes_from_authorization(authorization: str | None) -> tuple[str, list[str]] | None:
     if not authorization:
         return None
+    # Agent credential auth: "AgentCredential <secret>"
+    agent_prefix = "agentcredential "
+    if authorization.lower().startswith(agent_prefix):
+        secret = authorization[len(agent_prefix):].strip()
+        return _owner_and_scopes_from_agent_credential(secret)
+    # Standard bearer token auth
     prefix = "bearer "
     if not authorization.lower().startswith(prefix):
         raise HTTPException(status_code=401, detail="invalid authorization scheme")
@@ -124,11 +160,21 @@ def resolve_owner_from_headers(
     *,
     x_api_key: str | None,
     authorization: str | None,
+    x_delegation_token: str | None = None,
     strict: bool = True,
 ) -> str | None:
     owner = _owner_from_api_key(x_api_key)
     if owner is not None:
         return owner
+    # Delegation token header takes priority over Authorization
+    if x_delegation_token:
+        try:
+            dt_owner, _ = _owner_and_scopes_from_delegation_token(x_delegation_token)
+            return dt_owner
+        except HTTPException:
+            if strict:
+                raise
+            return None
     if not authorization:
         return None
     try:
@@ -140,6 +186,85 @@ def resolve_owner_from_headers(
     if token_auth is None:
         return None
     return token_auth[0]
+
+
+def resolve_auth_context(
+    *,
+    x_api_key: str | None = None,
+    authorization: str | None = None,
+    x_delegation_token: str | None = None,
+) -> dict[str, Any]:
+    """Resolve full auth context including agent identity, scopes, and auth method."""
+    # 1. Platform API key
+    owner = _owner_from_api_key(x_api_key)
+    if owner is not None:
+        return {
+            "owner": owner,
+            "auth_method": "api_key",
+            "agent_id": None,
+            "scopes": ["*"],
+            "delegation_token_id": None,
+        }
+
+    # 2. Delegation token
+    if x_delegation_token:
+        from src.identity.delegation_tokens import verify_delegation_token
+        from src.identity.storage import IDENTITY_STORAGE
+
+        try:
+            result = verify_delegation_token(x_delegation_token)
+            identity = IDENTITY_STORAGE.get_identity(result["subject_agent_id"])
+            return {
+                "owner": identity["owner"],
+                "auth_method": "delegation_token",
+                "agent_id": result["subject_agent_id"],
+                "scopes": result["delegated_scopes"],
+                "delegation_token_id": result["token_id"],
+            }
+        except (PermissionError, KeyError, RuntimeError):
+            pass
+
+    # 3. Agent credential or bearer token
+    if authorization:
+        agent_prefix = "agentcredential "
+        if authorization.lower().startswith(agent_prefix):
+            from src.identity.credentials import verify_credential
+            from src.identity.storage import IDENTITY_STORAGE
+
+            secret = authorization[len(agent_prefix):].strip()
+            try:
+                result = verify_credential(secret)
+                identity = IDENTITY_STORAGE.get_identity(result["agent_id"])
+                return {
+                    "owner": identity["owner"],
+                    "auth_method": "agent_credential",
+                    "agent_id": result["agent_id"],
+                    "scopes": result["scopes"],
+                    "delegation_token_id": None,
+                }
+            except (PermissionError, KeyError, RuntimeError):
+                pass
+        else:
+            try:
+                token_auth = _owner_and_scopes_from_authorization(authorization)
+                if token_auth is not None:
+                    return {
+                        "owner": token_auth[0],
+                        "auth_method": "bearer_token",
+                        "agent_id": None,
+                        "scopes": token_auth[1],
+                        "delegation_token_id": None,
+                    }
+            except HTTPException:
+                pass
+
+    return {
+        "owner": None,
+        "auth_method": None,
+        "agent_id": None,
+        "scopes": [],
+        "delegation_token_id": None,
+    }
 
 
 def validate_auth_configuration() -> None:
@@ -157,8 +282,14 @@ def require_api_key_owner(x_api_key: str | None = Header(default=None, alias="X-
 def require_api_key(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     authorization: str | None = Header(default=None, alias="Authorization"),
+    x_delegation_token: str | None = Header(default=None, alias="X-Delegation-Token"),
 ) -> str:
-    owner = resolve_owner_from_headers(x_api_key=x_api_key, authorization=authorization, strict=True)
+    owner = resolve_owner_from_headers(
+        x_api_key=x_api_key,
+        authorization=authorization,
+        x_delegation_token=x_delegation_token,
+        strict=True,
+    )
     if owner is not None:
         return owner
     raise HTTPException(status_code=401, detail="missing or invalid authentication")
@@ -170,11 +301,21 @@ def require_scope(scope: str):
     def _dependency(
         x_api_key: str | None = Header(default=None, alias="X-API-Key"),
         authorization: str | None = Header(default=None, alias="Authorization"),
+        x_delegation_token: str | None = Header(default=None, alias="X-Delegation-Token"),
     ) -> str:
+        # Platform API key has all scopes
         owner = _owner_from_api_key(x_api_key)
         if owner is not None:
             return owner
 
+        # Delegation token
+        if x_delegation_token:
+            dt_owner, dt_scopes = _owner_and_scopes_from_delegation_token(x_delegation_token)
+            if normalized_scope in dt_scopes or "*" in dt_scopes:
+                return dt_owner
+            raise HTTPException(status_code=403, detail=f"missing required scope: {normalized_scope}")
+
+        # Bearer token or agent credential
         token_auth = _owner_and_scopes_from_authorization(authorization)
         if token_auth is None:
             raise HTTPException(status_code=401, detail="missing or invalid authentication")

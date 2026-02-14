@@ -59,8 +59,19 @@ class IdentityStorage:
             self._reconfigure_locked(Path(resolved))
             assert self._conn is not None
             with self._conn:
-                self._conn.execute("DELETE FROM agent_credentials")
-                self._conn.execute("DELETE FROM agent_identities")
+                # Delete in FK-safe order: children before parents
+                for table in [
+                    "agent_attestations",
+                    "revocation_events",
+                    "delegation_tokens",
+                    "agent_credentials",
+                    "trusted_domains",
+                    "agent_identities",
+                ]:
+                    try:
+                        self._conn.execute(f"DELETE FROM {table}")  # noqa: S608
+                    except Exception:
+                        pass  # Table may not exist if migrations haven't run yet
 
     # --- Agent Identity CRUD ---
 

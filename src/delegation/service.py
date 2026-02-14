@@ -52,6 +52,20 @@ def _apply_budget_controls(estimated: float, actual: float, auto_reauthorize: bo
     return "ok", controls
 
 
+def _verify_agent_identity(agent_id: str) -> dict[str, Any] | None:
+    """Optionally verify agent identity if the identity module is configured."""
+    try:
+        from src.identity.storage import IDENTITY_STORAGE
+
+        identity = IDENTITY_STORAGE.get_identity(agent_id)
+        if identity["status"] != "active":
+            raise PermissionError(f"agent {agent_id} is {identity['status']}")
+        return dict(identity)
+    except (KeyError, RuntimeError):
+        # Identity module not configured or agent not registered — allow legacy flow
+        return None
+
+
 def create_delegation(
     requester_agent_id: str,
     delegate_agent_id: str,
@@ -62,9 +76,24 @@ def create_delegation(
     auto_reauthorize: bool = True,
     policy_decision: dict[str, Any] | None = None,
     metering_events: list[dict[str, Any]] | None = None,
+    delegation_token: str | None = None,
 ) -> dict[str, Any]:
     if estimated_cost_usd > max_budget_usd:
         raise ValueError("hard ceiling exceeded: estimated cost above max budget")
+
+    # Verify agent identities if identity module is available
+    requester_identity = _verify_agent_identity(requester_agent_id)
+    delegate_identity = _verify_agent_identity(delegate_agent_id)
+
+    # Verify delegation token if provided
+    delegation_token_info: dict[str, Any] | None = None
+    if delegation_token:
+        try:
+            from src.identity.delegation_tokens import verify_delegation_token
+
+            delegation_token_info = verify_delegation_token(delegation_token)
+        except (PermissionError, RuntimeError) as exc:
+            raise PermissionError(f"delegation token invalid: {exc}") from exc
 
     balances = storage.load_balances()
     requester_balance = balances.get(requester_agent_id, 1000.0)
@@ -169,6 +198,11 @@ def create_delegation(
             "queue_state": queue_state,
             "created_at": utc_now_iso(),
             "updated_at": utc_now_iso(),
+            "identity_context": {
+                "requester_verified": requester_identity is not None,
+                "delegate_verified": delegate_identity is not None,
+                "delegation_token_id": delegation_token_info["token_id"] if delegation_token_info else None,
+            },
         }
 
         storage.append_record(row)

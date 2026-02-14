@@ -127,6 +127,7 @@ class DelegationRequest(BaseModel):
     min_delegate_trust_score: float | None = Field(default=None, ge=0, le=1)
     required_permissions: list[str] = []
     metering_events: list[dict[str, Any]] | None = None
+    delegation_token: str | None = None
 
 
 class LeaseCreateRequest(BaseModel):
@@ -252,6 +253,7 @@ class FederatedExecutionRequest(BaseModel):
     max_budget_usd: float = Field(gt=0)
     requested_residency_region: str | None = Field(default=None, min_length=2)
     connection_mode: Literal["private_connect", "public_internet"] = "public_internet"
+    agent_attestation_id: str | None = None
 
 
 class DevHubReviewCreateRequest(BaseModel):

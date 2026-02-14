@@ -62,6 +62,19 @@ def _has_inline_secret(payload: dict[str, Any]) -> bool:
     return False
 
 
+def _verify_actor_identity(actor: str) -> dict[str, Any] | None:
+    """Verify actor has a valid agent identity if the identity module is available."""
+    try:
+        from src.identity.storage import IDENTITY_STORAGE
+
+        identity = IDENTITY_STORAGE.get_identity(actor)
+        if identity["status"] != "active":
+            raise PermissionError(f"actor agent {actor} is {identity['status']}")
+        return dict(identity)
+    except (KeyError, RuntimeError):
+        return None
+
+
 def execute_federated(
     *,
     actor: str,
@@ -74,6 +87,7 @@ def execute_federated(
     max_budget_usd: float,
     requested_residency_region: str | None = None,
     connection_mode: str = "public_internet",
+    agent_attestation_id: str | None = None,
 ) -> dict[str, Any]:
     expected_token = _domain_tokens().get(domain_id)
     if expected_token is None or domain_token != expected_token:
@@ -92,6 +106,19 @@ def execute_federated(
             raise PermissionError("requested residency region is not allowed for domain")
     if bool(profile.get("private_connect_required")) and connection_mode != "private_connect":
         raise PermissionError("private connectivity required for federated domain")
+    # Verify actor identity if available
+    actor_identity = _verify_actor_identity(actor)
+
+    # Verify agent attestation for cross-org federation if provided
+    attestation_verification: dict[str, Any] | None = None
+    if agent_attestation_id:
+        try:
+            from src.identity.federation import verify_agent_attestation
+
+            attestation_verification = verify_agent_attestation(agent_attestation_id)
+        except (PermissionError, KeyError, RuntimeError) as exc:
+            raise PermissionError(f"agent attestation verification failed: {exc}") from exc
+
     if _has_inline_secret(payload):
         raise ValueError("inline secrets are not allowed in federated payload")
     if policy_context.get("decision") != "allow":
@@ -148,7 +175,7 @@ def execute_federated(
     }
     storage.append_audit(audit_row)
 
-    return {
+    result: dict[str, Any] = {
         "execution": output,
         "attestation": {
             "attestation_hash": attestation_hash,
@@ -160,7 +187,14 @@ def execute_federated(
             "residency_region": profile["residency_region"],
             "connection_mode": connection_mode,
         },
+        "identity_context": {
+            "actor_verified": actor_identity is not None,
+            "actor_agent_id": actor if actor_identity else None,
+            "attestation_verified": attestation_verification is not None,
+            "attestation_id": agent_attestation_id if attestation_verification else None,
+        },
     }
+    return result
 
 
 def list_federation_audit(limit: int = 100) -> list[dict[str, Any]]:

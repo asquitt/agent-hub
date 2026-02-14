@@ -101,6 +101,8 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     # Federation trust registry and attestations.
     re.compile(r"^/v1/identity/trust-registry/domains$"),
     re.compile(r"^/v1/identity/agents/[^/]+/attest$"),
+    # Federation execution uses domain-token-based auth.
+    re.compile(r"^/v1/federation/execute$"),
 )
 
 
