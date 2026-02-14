@@ -1,10 +1,12 @@
 # AgentHub
 
-AgentHub is a reliability-first interoperability and runtime infrastructure layer for autonomous agents.
+AgentHub is the IAM layer for autonomous systems — agent identity, credential lifecycle, delegated authority, revocable permissions, and cross-organization federation. Built on a reliability-first interoperability and runtime infrastructure for autonomous agents.
 
 ## Current Status
 - Core segment plan (`S01` through `S16`) is complete.
 - Post-core continuation segments (`S17` through `S54`) are complete.
+- UI redesign and operator diagnostics (`S55` through `S71`) are complete.
+- **Agent Identity & Authorization (`S72` through `S78`) is complete** — the IAM layer that turns AgentHub from "agent directory" into "Okta for agents."
 - Source of truth for delivery status and evidence:
   - `docs/DELIVERABLE_LOG.md`
   - `docs/evidence/`
@@ -30,6 +32,10 @@ AgentHub is organized as two connected layers:
 | Operator + DevHub | `GET /operator`, `GET /v1/operator/dashboard`, `GET /v1/operator/startup-diagnostics`, `GET /v1/operator/startup-diagnostics/history`, `POST /v1/devhub/reviews/{review_id}/promote` | Operator diagnostics UI, startup readiness diagnostics, and release collaboration lifecycle |
 | Marketplace + Procurement + Billing | `POST /v1/marketplace/purchase`, `POST /v1/procurement/approvals`, `POST /v1/billing/invoices/generate` | Commercial flows with policy controls and reconciliation |
 | Federation + Compliance + Reliability | `POST /v1/federation/execute`, `GET /v1/compliance/controls`, `GET /v1/reliability/slo-dashboard` | Domain federation, evidence export, SRE/SLO reporting |
+| Agent Identity & Credentials | `POST /v1/identity/agents`, `POST /v1/identity/agents/{id}/credentials`, `POST /v1/identity/credentials/{id}/rotate`, `POST /v1/identity/credentials/{id}/revoke` | Agent identity registration, scoped credential issuance, rotation, and revocation |
+| Delegation Tokens & Chains | `POST /v1/identity/delegation-tokens`, `POST /v1/identity/delegation-tokens/verify`, `GET /v1/identity/delegation-tokens/{id}/chain` | Scope-attenuated delegation tokens with multi-hop chain validation (max depth 5) |
+| Revocation & Kill Switch | `POST /v1/identity/agents/{id}/revoke`, `POST /v1/identity/revocations/bulk`, `GET /v1/identity/revocations` | Instant agent kill switch with cascade to credentials, tokens, and leases |
+| Trust Registry & Federation | `POST /v1/identity/trust-registry/domains`, `POST /v1/identity/agents/{id}/attest`, `GET /v1/identity/attestations/{id}/verify` | Cross-org trust registry, signed agent attestations, federated identity verification |
 
 ## Architecture Principles
 - Deterministic workflows first, autonomy only when measured lift is proven.
@@ -39,6 +45,9 @@ AgentHub is organized as two connected layers:
 - Strict cost guardrails, metering, and auditable actions.
 - Idempotent write safety and replay-aware runtime semantics.
 - Structured outputs and early schema validation.
+- Credential-based identity with scope attenuation — child scopes must be subset of parent.
+- Cascade revocation — revoking an agent instantly invalidates all credentials, delegation tokens, and leases.
+- Backward compatible — existing endpoints work without identity params (legacy flow).
 
 See `AGENTS.md` and `docs/RESEARCH_INSIGHTS.md` for the full rationale and constraints.
 
@@ -93,6 +102,49 @@ curl -s -X POST http://127.0.0.1:8000/v1/auth/tokens \
   -H "X-API-Key: dev-owner-key" \
   -H "Content-Type: application/json" \
   -d '{"scopes":["operator.refresh"],"ttl_seconds":1800}'
+```
+
+## Agent Identity Authentication (S72-S78)
+AgentHub supports three authentication methods, checked in order:
+
+1. **Platform API Key** (`X-API-Key` header) — full access, maps to owner.
+2. **Agent Credential** (`Authorization: AgentCredential <secret>`) — scoped access tied to an agent identity.
+3. **Delegation Token** (`X-Delegation-Token` header) — scoped, time-limited delegated access from one agent to another.
+
+Register an agent and issue credentials:
+```bash
+# Register agent identity
+curl -s -X POST http://127.0.0.1:8000/v1/identity/agents \
+  -H "X-API-Key: dev-owner-key" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "my-agent", "credential_type": "api_key"}'
+
+# Issue scoped credential (returns secret — store securely)
+curl -s -X POST http://127.0.0.1:8000/v1/identity/agents/my-agent/credentials \
+  -H "X-API-Key: dev-owner-key" \
+  -H "Content-Type: application/json" \
+  -d '{"scopes": ["read", "execute"], "ttl_seconds": 86400}'
+
+# Authenticate as agent
+curl -s http://127.0.0.1:8000/v1/identity/agents/my-agent \
+  -H "Authorization: AgentCredential <secret-from-above>"
+```
+
+Issue delegation tokens with scope attenuation:
+```bash
+# Agent A delegates "read" scope to Agent B
+curl -s -X POST http://127.0.0.1:8000/v1/identity/delegation-tokens \
+  -H "X-API-Key: dev-owner-key" \
+  -H "Content-Type: application/json" \
+  -d '{"issuer_agent_id": "agent-a", "subject_agent_id": "agent-b", "delegated_scopes": ["read"], "ttl_seconds": 3600}'
+```
+
+Kill switch — instantly revoke an agent and cascade to all credentials, tokens, and leases:
+```bash
+curl -s -X POST http://127.0.0.1:8000/v1/identity/agents/my-agent/revoke \
+  -H "X-API-Key: dev-owner-key" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "security_incident"}'
 ```
 
 ## Customer UI Hardening (S58)
@@ -208,6 +260,8 @@ Compose includes:
 - `AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH` (`true` by default; auth requirement when customer UI is enabled)
 - `AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON` (`["owner-dev","owner-platform"]` default owner allowlist for enabled customer UI)
 - `AGENTHUB_OWNER_TENANTS_JSON` (owner-to-tenant mapping)
+- `AGENTHUB_IDENTITY_SIGNING_SECRET` (required for agent credential and delegation token signing)
+- `AGENTHUB_IDENTITY_DB_PATH` (identity SQLite path; defaults to `data/identity/identity.db`)
 - `AGENTHUB_REGISTRY_DB_PATH` (registry SQLite path)
 - `AGENTHUB_DELEGATION_DB_PATH` (delegation SQLite path)
 - `AGENTHUB_BILLING_DB_PATH` (billing/metering SQLite path)
@@ -215,7 +269,9 @@ Compose includes:
 - `AGENTHUB_HOME` (CLI config/state directory)
 
 ## Repository Layout
-- `src/`: API and domain services (policy, delegation, billing, trust, discovery, federation, etc.)
+- `src/`: API and domain services (policy, delegation, billing, trust, discovery, federation, identity, etc.)
+- `src/identity/`: Agent identity module — credentials, delegation tokens, revocation, federation trust registry
+- `src/api/routes/identity.py`: Identity API endpoints (17 endpoints under `/v1/identity/*`)
 - `agenthub/`: CLI package
 - `tests/`: integration, domain, and operator/UI-adjacent tests
 - `tools/`: evaluation, gate, launch, search, and trust utilities
