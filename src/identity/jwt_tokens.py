@@ -18,12 +18,16 @@ from src.identity.jwt_constants import (
     CLAIM_AGENT_CAPABILITIES,
     CLAIM_AGENT_ID,
     CLAIM_AUD,
+    CLAIM_BEHAVIORAL_ATTESTATION,
+    CLAIM_DELEGATION_CHAIN,
     CLAIM_DELEGATION_CHAIN_ID,
     CLAIM_EXP,
     CLAIM_IAT,
     CLAIM_ISS,
     CLAIM_JTI,
     CLAIM_OVERSIGHT_LEVEL,
+    CLAIM_PEER_ATTESTATIONS,
+    CLAIM_RUNTIME_CONSTRAINTS,
     CLAIM_SCOPE,
     CLAIM_SUB,
     CLAIM_TASK_BINDING,
@@ -54,6 +58,10 @@ def issue_jwt(
     task_binding: str | None = None,
     oversight_level: str | None = None,
     delegation_chain_id: str | None = None,
+    delegation_chain: list[dict[str, Any]] | None = None,
+    behavioral_attestation: dict[str, Any] | None = None,
+    runtime_constraints: dict[str, Any] | None = None,
+    peer_attestations: list[dict[str, Any]] | None = None,
     issuer: str = DEFAULT_ISSUER,
     algorithm: str = DEFAULT_ALGORITHM,
     extra_claims: dict[str, Any] | None = None,
@@ -89,6 +97,14 @@ def issue_jwt(
         payload[CLAIM_OVERSIGHT_LEVEL] = oversight_level
     if delegation_chain_id:
         payload[CLAIM_DELEGATION_CHAIN_ID] = delegation_chain_id
+    if delegation_chain:
+        payload[CLAIM_DELEGATION_CHAIN] = delegation_chain
+    if behavioral_attestation:
+        payload[CLAIM_BEHAVIORAL_ATTESTATION] = behavioral_attestation
+    if runtime_constraints:
+        payload[CLAIM_RUNTIME_CONSTRAINTS] = runtime_constraints
+    if peer_attestations:
+        payload[CLAIM_PEER_ATTESTATIONS] = peer_attestations
 
     if extra_claims:
         for key, value in extra_claims.items():

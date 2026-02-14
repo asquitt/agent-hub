@@ -23,6 +23,12 @@ CLAIM_EXP = "exp"
 CLAIM_IAT = "iat"
 CLAIM_JTI = "jti"
 
+# Extended AAP claims (S135)
+CLAIM_DELEGATION_CHAIN = "delegation_chain"
+CLAIM_BEHAVIORAL_ATTESTATION = "behavioral_attestation"
+CLAIM_RUNTIME_CONSTRAINTS = "runtime_constraints"
+CLAIM_PEER_ATTESTATIONS = "peer_attestations"
+
 # Credential type identifier
 CREDENTIAL_TYPE_JWT = "jwt"
 

@@ -34,6 +34,10 @@ class IssueJWTRequest(BaseModel):
     task_binding: str | None = Field(default=None, max_length=256)
     oversight_level: str | None = Field(default=None, max_length=32)
     delegation_chain_id: str | None = Field(default=None, max_length=256)
+    delegation_chain: list[dict[str, Any]] | None = None
+    behavioral_attestation: dict[str, Any] | None = None
+    runtime_constraints: dict[str, Any] | None = None
+    peer_attestations: list[dict[str, Any]] | None = None
 
 
 class VerifyJWTRequest(BaseModel):
@@ -68,6 +72,10 @@ def post_issue_jwt(
             task_binding=request.task_binding,
             oversight_level=request.oversight_level,
             delegation_chain_id=request.delegation_chain_id,
+            delegation_chain=request.delegation_chain,
+            behavioral_attestation=request.behavioral_attestation,
+            runtime_constraints=request.runtime_constraints,
+            peer_attestations=request.peer_attestations,
         )
         return {
             "token": result["token"],
