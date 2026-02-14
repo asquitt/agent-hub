@@ -26,6 +26,7 @@ from src.api.routes import (
     delegation_router,
     discovery_router,
     federation_router,
+    grants_router,
     identity_router,
     identity_advanced_router,
     intent_router,
@@ -113,6 +114,7 @@ app.include_router(tokens_router)
 app.include_router(oauth_router)
 app.include_router(approval_router)
 app.include_router(intent_router)
+app.include_router(grants_router)
 
 # --- Production middleware ---
 

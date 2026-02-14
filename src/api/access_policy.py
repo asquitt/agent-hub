@@ -144,6 +144,13 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/intent/summary/[^/]+$"),
     re.compile(r"^/v1/intent/evaluate$"),
     re.compile(r"^/v1/intent/policies$"),
+    # Session-based ephemeral grant endpoints
+    re.compile(r"^/v1/grants$"),
+    re.compile(r"^/v1/grants/[^/]+$"),
+    re.compile(r"^/v1/grants/[^/]+/consume$"),
+    re.compile(r"^/v1/grants/[^/]+/revoke$"),
+    re.compile(r"^/v1/grants/check$"),
+    re.compile(r"^/v1/grants/usage$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -276,6 +283,11 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/intent/log$"),
     re.compile(r"^/v1/intent/evaluate$"),
     re.compile(r"^/v1/intent/policies$"),
+    # Session grants use their own lifecycle model.
+    re.compile(r"^/v1/grants$"),
+    re.compile(r"^/v1/grants/[^/]+/consume$"),
+    re.compile(r"^/v1/grants/[^/]+/revoke$"),
+    re.compile(r"^/v1/grants/check$"),
 )
 
 
