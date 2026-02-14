@@ -16,6 +16,7 @@ from src.api.routes.procurement import router as procurement_router
 from src.api.routes.provenance import router as provenance_router
 from src.api.routes.runtime import router as runtime_router
 from src.api.routes.system import router as system_router
+from src.api.routes.tokens import router as tokens_router
 
 __all__ = [
     "agents_router",
@@ -36,4 +37,5 @@ __all__ = [
     "provenance_router",
     "runtime_router",
     "system_router",
+    "tokens_router",
 ]

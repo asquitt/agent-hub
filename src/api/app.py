@@ -32,6 +32,7 @@ from src.api.routes import (
     provenance_router,
     runtime_router,
     system_router,
+    tokens_router,
 )
 from src.idempotency import storage as idempotency_storage
 
@@ -71,6 +72,7 @@ app.include_router(marketplace_router)
 app.include_router(misc_router)
 app.include_router(procurement_router)
 app.include_router(provenance_router)
+app.include_router(tokens_router)
 
 # --- Production middleware ---
 
