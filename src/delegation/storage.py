@@ -146,6 +146,8 @@ class DelegationStorage:
                 self._conn.execute("DELETE FROM delegation_idempotency")
                 self._conn.execute("DELETE FROM delegation_queue_state")
 
+    _MAX_QUERY_ROWS = 10_000
+
     def load_records(self) -> list[dict[str, Any]]:
         self._ensure_ready()
         with self._lock:
@@ -155,7 +157,9 @@ class DelegationStorage:
                 SELECT payload_json
                 FROM delegation_records
                 ORDER BY updated_at DESC, delegation_id
-                """
+                LIMIT ?
+                """,
+                (self._MAX_QUERY_ROWS,),
             ).fetchall()
             return [json.loads(str(row["payload_json"])) for row in rows]
 
@@ -206,7 +210,10 @@ class DelegationStorage:
         self._ensure_ready()
         with self._lock:
             assert self._conn is not None
-            rows = self._conn.execute("SELECT agent_id, balance_usd FROM delegation_balances ORDER BY agent_id").fetchall()
+            rows = self._conn.execute(
+                "SELECT agent_id, balance_usd FROM delegation_balances ORDER BY agent_id LIMIT ?",
+                (self._MAX_QUERY_ROWS,),
+            ).fetchall()
             return {str(row["agent_id"]): float(row["balance_usd"]) for row in rows}
 
     def save_balances(self, balances: dict[str, float]) -> None:

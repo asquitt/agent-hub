@@ -33,6 +33,8 @@ class AgentRecord:
 
 
 class RegistryStore:
+    _MAX_QUERY_ROWS = 10_000
+
     def __init__(self, db_path: str | Path | None = None) -> None:
         self._lock = threading.RLock()
         self._conn: sqlite3.Connection | None = None
@@ -208,7 +210,7 @@ class RegistryStore:
             if status is not None:
                 query += " AND status = ?"
                 params.append(status)
-            query += " ORDER BY agent_id"
+            query += f" ORDER BY agent_id LIMIT {self._MAX_QUERY_ROWS}"
 
             rows = self._conn.execute(query, tuple(params)).fetchall()
             agent_ids = [str(row["agent_id"]) for row in rows]

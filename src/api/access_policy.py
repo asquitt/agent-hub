@@ -67,7 +67,7 @@ def classify_route(method: str, path: str) -> AccessClassification:
         return "admin_scoped"
     if any(pattern.match(path) for pattern in TENANT_SCOPED_PATTERNS):
         return "tenant_scoped"
-    if path.startswith("/v1/"):
+    if path.startswith("/v1/") or path.startswith("/scim/v2/"):
         return "authenticated"
     return "public"
 

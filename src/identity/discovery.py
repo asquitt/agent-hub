@@ -14,6 +14,8 @@ from src.identity.constants import CRED_STATUS_ACTIVE, STATUS_ACTIVE
 
 _log = logging.getLogger("agenthub.discovery")
 
+_MAX_QUERY_ROWS = 10_000
+
 
 def _safe_import_registry() -> Any:
     """Import registry store, returning None if unavailable."""
@@ -57,7 +59,7 @@ def get_agent_inventory(
             clauses.append("status = ?")
             values.append(status_filter)
         where = " AND ".join(clauses)
-        sql = "SELECT * FROM agent_identities" + (f" WHERE {where}" if where else "")
+        sql = "SELECT * FROM agent_identities" + (f" WHERE {where}" if where else "") + f" LIMIT {_MAX_QUERY_ROWS}"
         rows = _query_identity_db(sql, tuple(values))
 
         for row in rows:
@@ -163,7 +165,7 @@ def detect_shadow_agents() -> dict[str, Any]:
     """Find agents in the registry that lack IAM identities."""
     identity_agents: set[str] = set()
     try:
-        rows = _query_identity_db("SELECT agent_id FROM agent_identities")
+        rows = _query_identity_db(f"SELECT agent_id FROM agent_identities LIMIT {_MAX_QUERY_ROWS}")
         identity_agents = {str(r["agent_id"]) for r in rows}
     except Exception as exc:
         _log.warning("cannot read identity store: %s", exc)

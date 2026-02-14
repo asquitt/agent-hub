@@ -99,13 +99,19 @@ def get_trusted_domain(domain_id: str) -> dict[str, Any]:
     }
 
 
+_MAX_DOMAINS_QUERY = 10_000
+
+
 def list_trusted_domains() -> list[dict[str, Any]]:
-    """List all trusted domains."""
+    """List trusted domains (capped for safety)."""
     IDENTITY_STORAGE._ensure_ready()
     conn = IDENTITY_STORAGE._conn
     assert conn is not None
 
-    rows = conn.execute("SELECT * FROM trusted_domains ORDER BY created_at DESC").fetchall()
+    rows = conn.execute(
+        "SELECT * FROM trusted_domains ORDER BY created_at DESC LIMIT ?",
+        (_MAX_DOMAINS_QUERY,),
+    ).fetchall()
     results: list[dict[str, Any]] = []
     for row in rows:
         results.append({

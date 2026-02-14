@@ -43,13 +43,19 @@ def _get_token_record(token_id: str) -> dict[str, Any] | None:
         return record
 
 
+_MAX_TOKENS_QUERY = 10_000
+
+
 def _list_all_tokens() -> list[dict[str, Any]]:
-    """List all delegation tokens from storage."""
+    """List delegation tokens from storage (capped for safety)."""
     IDENTITY_STORAGE._ensure_ready()
     with IDENTITY_STORAGE._lock:
         conn = IDENTITY_STORAGE._conn
         assert conn is not None
-        rows = conn.execute("SELECT * FROM delegation_tokens").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM delegation_tokens ORDER BY issued_at_epoch DESC LIMIT ?",
+            (_MAX_TOKENS_QUERY,),
+        ).fetchall()
         result: list[dict[str, Any]] = []
         for row in rows:
             record = dict(row)

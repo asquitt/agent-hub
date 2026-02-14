@@ -20,6 +20,8 @@ def _path_db() -> Path:
 
 
 class IdentityStorage:
+    _MAX_QUERY_ROWS = 10_000
+
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._conn: sqlite3.Connection | None = None
@@ -152,8 +154,8 @@ class IdentityStorage:
         with self._lock:
             assert self._conn is not None
             rows = self._conn.execute(
-                "SELECT * FROM agent_identities WHERE owner = ? ORDER BY created_at DESC",
-                (owner,),
+                "SELECT * FROM agent_identities WHERE owner = ? ORDER BY created_at DESC LIMIT ?",
+                (owner, self._MAX_QUERY_ROWS),
             ).fetchall()
             return [_row_to_identity(row) for row in rows]
 
@@ -318,8 +320,9 @@ class IdentityStorage:
                 SELECT * FROM agent_credentials
                 WHERE agent_id = ? AND status = ?
                 ORDER BY issued_at_epoch DESC
+                LIMIT ?
                 """,
-                (agent_id, CRED_STATUS_ACTIVE),
+                (agent_id, CRED_STATUS_ACTIVE, self._MAX_QUERY_ROWS),
             ).fetchall()
             return [_row_to_credential(row) for row in rows]
 
