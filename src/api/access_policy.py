@@ -83,6 +83,10 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/identity/agents/[^/]+/human-principal$"),
     re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum$"),
     re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum/verify$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum/compute$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum/integrity$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/blended$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/on-behalf-of/verify$"),
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),
     re.compile(r"^/v1/identity/tokens/jwt/jwks$"),
@@ -126,6 +130,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     # Blended identity and config checksum are idempotent PUT operations.
     re.compile(r"^/v1/identity/agents/[^/]+/human-principal$"),
     re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum$"),
+    # Blended identity and config integrity are read/verify operations.
+    re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum/compute$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum/integrity$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/on-behalf-of/verify$"),
     # JWT token endpoints are stateless.
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),

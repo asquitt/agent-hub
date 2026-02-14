@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import require_api_key
+from src.identity.blended import get_blended_identity, verify_on_behalf_of
+from src.identity.checksum import compute_config_checksum, verify_config_integrity
 from src.common.time import iso_from_epoch
 from src.identity.constants import CREDENTIAL_TYPE_API_KEY, VALID_CREDENTIAL_TYPES
 from src.identity.credentials import (
@@ -68,6 +70,18 @@ class SetConfigurationChecksumRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     checksum: str = Field(min_length=1, max_length=128)
+
+
+class VerifyOnBehalfOfRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    claimed_principal_id: str = Field(min_length=1, max_length=256)
+
+
+class VerifyConfigIntegrityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    manifest: dict[str, Any]
 
 
 class UpdateAgentIdentityRequest(BaseModel):
@@ -371,6 +385,70 @@ def get_verify_configuration_checksum(
         "valid": stored is not None and stored == checksum,
         "stored_checksum": stored,
     }
+
+
+# --- Blended Identity Endpoints ---
+
+
+@router.get("/agents/{agent_id}/blended")
+def get_blended_identity_endpoint(
+    agent_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get the blended identity (agent + human principal) for an agent."""
+    try:
+        return get_blended_identity(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/agents/{agent_id}/on-behalf-of/verify")
+def post_verify_on_behalf_of(
+    agent_id: str,
+    request: VerifyOnBehalfOfRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Verify that an agent's on-behalf-of claim matches its stored binding."""
+    try:
+        return verify_on_behalf_of(
+            agent_id=agent_id,
+            claimed_principal_id=request.claimed_principal_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# --- Config Integrity Endpoints ---
+
+
+@router.post("/agents/{agent_id}/configuration-checksum/compute")
+def post_compute_config_checksum(
+    agent_id: str,
+    request: VerifyConfigIntegrityRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Compute a config checksum from a manifest and optionally store it."""
+    try:
+        identity = get_agent_identity(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if identity["owner"] != owner:
+        raise HTTPException(status_code=403, detail="owner mismatch")
+    checksum = compute_config_checksum(request.manifest)
+    return {"agent_id": agent_id, "checksum": checksum}
+
+
+@router.post("/agents/{agent_id}/configuration-checksum/integrity")
+def post_verify_config_integrity(
+    agent_id: str,
+    request: VerifyConfigIntegrityRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Verify that a manifest matches the agent's stored configuration checksum."""
+    try:
+        return verify_config_integrity(agent_id=agent_id, manifest=request.manifest)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 # --- Delegation Token Endpoints ---
