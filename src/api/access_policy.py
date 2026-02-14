@@ -155,6 +155,18 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/grants/[^/]+/revoke$"),
     re.compile(r"^/v1/grants/check$"),
     re.compile(r"^/v1/grants/usage$"),
+    # Audit event streaming and webhook endpoints
+    re.compile(r"^/v1/audit/events$"),
+    re.compile(r"^/v1/audit/stats$"),
+    re.compile(r"^/v1/audit/webhooks$"),
+    re.compile(r"^/v1/audit/webhooks/[^/]+$"),
+    re.compile(r"^/v1/audit/webhooks/[^/]+/deactivate$"),
+    re.compile(r"^/v1/audit/webhooks/[^/]+/activate$"),
+    re.compile(r"^/v1/audit/webhooks/[^/]+/test$"),
+    re.compile(r"^/v1/audit/deliveries$"),
+    re.compile(r"^/v1/audit/dead-letters$"),
+    re.compile(r"^/v1/audit/dead-letters/retry$"),
+    re.compile(r"^/v1/audit/simulate-failure$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -292,6 +304,14 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/grants/[^/]+/consume$"),
     re.compile(r"^/v1/grants/[^/]+/revoke$"),
     re.compile(r"^/v1/grants/check$"),
+    # Audit event streaming uses append-only model.
+    re.compile(r"^/v1/audit/events$"),
+    re.compile(r"^/v1/audit/webhooks$"),
+    re.compile(r"^/v1/audit/webhooks/[^/]+/deactivate$"),
+    re.compile(r"^/v1/audit/webhooks/[^/]+/activate$"),
+    re.compile(r"^/v1/audit/webhooks/[^/]+/test$"),
+    re.compile(r"^/v1/audit/dead-letters/retry$"),
+    re.compile(r"^/v1/audit/simulate-failure$"),
 )
 
 

@@ -18,6 +18,7 @@ from src.api.routes import (
     a2a_router,
     agents_router,
     approval_router,
+    audit_router,
     auth_routes_router,
     billing_router,
     capabilities_router,
@@ -117,6 +118,7 @@ app.include_router(approval_router)
 app.include_router(intent_router)
 app.include_router(grants_router)
 app.include_router(scim_router)
+app.include_router(audit_router)
 
 # --- Production middleware ---
 
