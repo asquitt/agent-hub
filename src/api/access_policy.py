@@ -234,6 +234,15 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/consents/audit-trail$"),
     re.compile(r"^/v1/consents/[^/]+$"),
     re.compile(r"^/v1/consents/[^/]+/revoke$"),
+    # Agent group endpoints
+    re.compile(r"^/v1/groups$"),
+    re.compile(r"^/v1/groups/stats$"),
+    re.compile(r"^/v1/groups/agents/[^/]+$"),
+    re.compile(r"^/v1/groups/agents/[^/]+/effective-policy$"),
+    re.compile(r"^/v1/groups/[^/]+$"),
+    re.compile(r"^/v1/groups/[^/]+/policies$"),
+    re.compile(r"^/v1/groups/[^/]+/members$"),
+    re.compile(r"^/v1/groups/[^/]+/members/remove$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -420,6 +429,11 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/consents$"),
     re.compile(r"^/v1/consents/check$"),
     re.compile(r"^/v1/consents/[^/]+/revoke$"),
+    # Agent group uses its own membership model.
+    re.compile(r"^/v1/groups$"),
+    re.compile(r"^/v1/groups/[^/]+/policies$"),
+    re.compile(r"^/v1/groups/[^/]+/members$"),
+    re.compile(r"^/v1/groups/[^/]+/members/remove$"),
 )
 
 
