@@ -105,6 +105,14 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/identity/analytics/identities$"),
     re.compile(r"^/v1/identity/analytics/delegations$"),
     re.compile(r"^/v1/identity/analytics/health$"),
+    # DID/VC endpoints
+    re.compile(r"^/v1/identity/dids$"),
+    re.compile(r"^/v1/identity/dids/[^/]+/resolve$"),
+    re.compile(r"^/v1/identity/dids/[^/]+/deactivate$"),
+    re.compile(r"^/v1/identity/vcs$"),
+    re.compile(r"^/v1/identity/vcs/issue$"),
+    re.compile(r"^/v1/identity/vcs/[^/]+/verify$"),
+    re.compile(r"^/v1/identity/vcs/[^/]+/revoke$"),
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),
     re.compile(r"^/v1/identity/tokens/jwt/jwks$"),
@@ -165,6 +173,11 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/identity/lifecycle/provision$"),
     re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/rotate$"),
     re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/deprovision$"),
+    # DID/VC endpoints are stateless or append-only.
+    re.compile(r"^/v1/identity/dids$"),
+    re.compile(r"^/v1/identity/dids/[^/]+/deactivate$"),
+    re.compile(r"^/v1/identity/vcs/issue$"),
+    re.compile(r"^/v1/identity/vcs/[^/]+/revoke$"),
     # SOC2 evidence endpoints are append-only or read operations.
     re.compile(r"^/v1/compliance/soc2/evidence$"),
     re.compile(r"^/v1/compliance/soc2/evidence-package$"),

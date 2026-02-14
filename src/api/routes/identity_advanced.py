@@ -16,6 +16,16 @@ from src.identity.analytics import (
     get_identity_health_score,
     get_identity_statistics,
 )
+from src.identity.did import (
+    create_did,
+    deactivate_did,
+    issue_verifiable_credential,
+    list_dids,
+    list_verifiable_credentials,
+    resolve_did,
+    revoke_verifiable_credential,
+    verify_verifiable_credential,
+)
 from src.identity.lifecycle import (
     check_expiry_alerts,
     check_rotation_due,
@@ -347,3 +357,143 @@ def get_analytics_health(
 ) -> dict[str, Any]:
     """Get overall identity system health score."""
     return get_identity_health_score()
+
+
+# ── DIDs & Verifiable Credentials ─────────────────────────────────
+
+
+class CreateDidRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_id: str = Field(min_length=1, max_length=256)
+    controller: str | None = Field(default=None, max_length=512)
+    service_endpoints: list[dict[str, str]] | None = None
+
+
+class IssueVcRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    issuer_did: str = Field(min_length=10, max_length=512)
+    subject_did: str = Field(min_length=10, max_length=512)
+    credential_type: str = Field(default="AgentIdentityCredential", max_length=64)
+    claims: dict[str, Any] | None = None
+    ttl_seconds: int = Field(default=86400, ge=60, le=2592000)
+
+
+class DeactivateDidRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(default="manual", max_length=256)
+
+
+class RevokeVcRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(default="manual", max_length=256)
+
+
+@router.post("/dids")
+def post_create_did(
+    request: CreateDidRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Create a DID Document for an agent."""
+    return create_did(
+        agent_id=request.agent_id,
+        controller=request.controller,
+        service_endpoints=request.service_endpoints,
+    )
+
+
+@router.get("/dids/{did_suffix}/resolve")
+def get_resolve_did(
+    did_suffix: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Resolve a DID to its DID Document."""
+    did = f"did:agenthub:{did_suffix}"
+    try:
+        return resolve_did(did)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/dids/{did_suffix}/deactivate")
+def post_deactivate_did(
+    did_suffix: str,
+    request: DeactivateDidRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Deactivate a DID."""
+    did = f"did:agenthub:{did_suffix}"
+    try:
+        return deactivate_did(did, reason=request.reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/dids")
+def get_list_dids(
+    active_only: bool = True,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """List all DID documents."""
+    dids = list_dids(active_only=active_only)
+    return {"count": len(dids), "dids": dids}
+
+
+@router.post("/vcs/issue")
+def post_issue_vc(
+    request: IssueVcRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Issue a Verifiable Credential."""
+    try:
+        return issue_verifiable_credential(
+            issuer_did=request.issuer_did,
+            subject_did=request.subject_did,
+            credential_type=request.credential_type,
+            claims=request.claims,
+            ttl_seconds=request.ttl_seconds,
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/vcs/{vc_id}/verify")
+def get_verify_vc(
+    vc_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Verify a Verifiable Credential."""
+    try:
+        return verify_verifiable_credential(f"urn:uuid:{vc_id}")
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/vcs/{vc_id}/revoke")
+def post_revoke_vc(
+    vc_id: str,
+    request: RevokeVcRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Revoke a Verifiable Credential."""
+    try:
+        return revoke_verifiable_credential(f"urn:uuid:{vc_id}", reason=request.reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/vcs")
+def get_list_vcs(
+    issuer_did: str | None = None,
+    subject_did: str | None = None,
+    credential_type: str | None = None,
+    active_only: bool = True,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """List verifiable credentials."""
+    vcs = list_verifiable_credentials(
+        issuer_did=issuer_did,
+        subject_did=subject_did,
+        credential_type=credential_type,
+        active_only=active_only,
+    )
+    return {"count": len(vcs), "credentials": vcs}
