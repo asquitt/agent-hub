@@ -19,7 +19,7 @@ from src.api.auth import (
     validate_auth_configuration,
 )
 from src.api.operator_helpers import delegation_timeline, policy_cost_overlay, require_operator_role
-from src.api.routes import customer_router, identity_router, operator_router, system_router
+from src.api.routes import customer_router, identity_router, operator_router, runtime_router, system_router
 from src.api.manifest_validation import validate_manifest_object
 from src.api.models import (
     AuthTokenIssueRequest,
@@ -128,6 +128,7 @@ app.include_router(system_router)
 app.include_router(customer_router)
 app.include_router(operator_router)
 app.include_router(identity_router)
+app.include_router(runtime_router)
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:

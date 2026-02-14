@@ -103,6 +103,17 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/identity/agents/[^/]+/attest$"),
     # Federation execution uses domain-token-based auth.
     re.compile(r"^/v1/federation/execute$"),
+    # Runtime sandbox endpoints use their own lifecycle model.
+    re.compile(r"^/v1/runtime/profiles$"),
+    re.compile(r"^/v1/runtime/profiles/[^/]+$"),
+    re.compile(r"^/v1/runtime/sandboxes$"),
+    re.compile(r"^/v1/runtime/sandboxes/[^/]+$"),
+    re.compile(r"^/v1/runtime/sandboxes/[^/]+/execute$"),
+    re.compile(r"^/v1/runtime/sandboxes/[^/]+/complete$"),
+    re.compile(r"^/v1/runtime/sandboxes/[^/]+/terminate$"),
+    re.compile(r"^/v1/runtime/sandboxes/delegated$"),
+    re.compile(r"^/v1/runtime/sandboxes/leased$"),
+    re.compile(r"^/v1/runtime/audit/evidence$"),
 )
 
 

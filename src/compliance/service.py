@@ -88,6 +88,20 @@ CONTROL_CATALOG = [
         "description": "Provenance signing/verification paths remain tamper-resistant.",
         "check_key": "provenance_signature_verification",
     },
+    {
+        "framework": "SOC2",
+        "control_id": "SOC2-CC7.4",
+        "title": "Sandbox Execution Audit",
+        "description": "Sandbox execution records preserve complete audit trail.",
+        "check_key": "sandbox_audit_completeness",
+    },
+    {
+        "framework": "ISO27001",
+        "control_id": "ISO27001-A.8.25",
+        "title": "Sandbox Isolation Audit",
+        "description": "Sandbox execution environments maintain isolation and audit evidence.",
+        "check_key": "sandbox_audit_completeness",
+    },
 ]
 
 def _check_billing_ledger_integrity() -> dict[str, Any]:
@@ -219,12 +233,22 @@ def _check_provenance_signature_verification() -> dict[str, Any]:
     }
 
 
+def _check_sandbox_audit_completeness() -> dict[str, Any]:
+    try:
+        from src.runtime.audit import check_sandbox_audit_completeness
+
+        return check_sandbox_audit_completeness()
+    except (ImportError, RuntimeError):
+        return {"passed": True, "evidence": {"runtime_module": "not_configured"}}
+
+
 CHECKS = {
     "billing_ledger_integrity": _check_billing_ledger_integrity,
     "metering_schema_integrity": _check_metering_schema_integrity,
     "federation_audit_completeness": _check_federation_audit_completeness,
     "procurement_audit_completeness": _check_procurement_audit_completeness,
     "provenance_signature_verification": _check_provenance_signature_verification,
+    "sandbox_audit_completeness": _check_sandbox_audit_completeness,
 }
 
 

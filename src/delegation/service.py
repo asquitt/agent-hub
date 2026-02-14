@@ -115,25 +115,42 @@ def create_delegation(
         storage.save_balances(balances)
 
         storage.upsert_queue_state(delegation_id=delegation_id, status="running")
-        with tempfile.TemporaryDirectory(prefix="agenthub-delegation-sandbox-") as sandbox:
-            start = time.perf_counter()
-            lifecycle.append(_stage("execution", {"sandbox_path": sandbox, "network": "disabled", "status": "started"}))
 
-            default_metering = [
-                {"event": "llm_call", "tokens": 350, "cost_usd": round(actual_cost * 0.4, 6)},
-                {"event": "tool_call", "tool": "delegate_tool", "cost_usd": round(actual_cost * 0.6, 6)},
-            ]
-            for row in (metering_events or default_metering):
-                audit_trail.append(
-                    {
-                        "timestamp": utc_now_iso(),
-                        "delegation_id": delegation_id,
-                        "type": row.get("event", "metering"),
-                        "details": row,
-                    }
-                )
+        # Try runtime sandbox; fall back to tempdir if module not configured
+        sandbox_id: str | None = None
+        try:
+            from src.runtime.sandbox import create_sandbox as _create_rt_sandbox
 
-            latency_ms = round((time.perf_counter() - start) * 1000, 3)
+            rt_sandbox = _create_rt_sandbox(
+                agent_id=delegate_agent_id, owner=requester_agent_id,
+                profile_name="micro", delegation_id=delegation_id,
+            )
+            sandbox_id = rt_sandbox["sandbox_id"]
+        except (ImportError, RuntimeError):
+            pass  # Runtime module not available
+
+        start = time.perf_counter()
+        if sandbox_id:
+            lifecycle.append(_stage("execution", {"sandbox_id": sandbox_id, "network": "disabled", "status": "started"}))
+        else:
+            with tempfile.TemporaryDirectory(prefix="agenthub-delegation-sandbox-") as _tmpdir:
+                lifecycle.append(_stage("execution", {"sandbox_path": _tmpdir, "network": "disabled", "status": "started"}))
+
+        default_metering = [
+            {"event": "llm_call", "tokens": 350, "cost_usd": round(actual_cost * 0.4, 6)},
+            {"event": "tool_call", "tool": "delegate_tool", "cost_usd": round(actual_cost * 0.6, 6)},
+        ]
+        for row in (metering_events or default_metering):
+            audit_trail.append(
+                {
+                    "timestamp": utc_now_iso(),
+                    "delegation_id": delegation_id,
+                    "type": row.get("event", "metering"),
+                    "details": row,
+                }
+            )
+
+        latency_ms = round((time.perf_counter() - start) * 1000, 3)
 
         lifecycle.append(_stage("delivery", {"output_schema_valid": True, "latency_ms": latency_ms}))
 
