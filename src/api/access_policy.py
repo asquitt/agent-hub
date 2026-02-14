@@ -227,6 +227,13 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/keys/[^/]+$"),
     re.compile(r"^/v1/keys/[^/]+/rotate$"),
     re.compile(r"^/v1/keys/[^/]+/revoke$"),
+    # Consent registry endpoints
+    re.compile(r"^/v1/consents$"),
+    re.compile(r"^/v1/consents/stats$"),
+    re.compile(r"^/v1/consents/check$"),
+    re.compile(r"^/v1/consents/audit-trail$"),
+    re.compile(r"^/v1/consents/[^/]+$"),
+    re.compile(r"^/v1/consents/[^/]+/revoke$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -409,6 +416,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/keys/record-usage$"),
     re.compile(r"^/v1/keys/[^/]+/rotate$"),
     re.compile(r"^/v1/keys/[^/]+/revoke$"),
+    # Consent registry uses its own audit model.
+    re.compile(r"^/v1/consents$"),
+    re.compile(r"^/v1/consents/check$"),
+    re.compile(r"^/v1/consents/[^/]+/revoke$"),
 )
 
 

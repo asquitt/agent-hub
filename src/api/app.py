@@ -24,6 +24,7 @@ from src.api.routes import (
     billing_router,
     capabilities_router,
     compliance_router,
+    consent_router,
     customer_router,
     delegation_router,
     discovery_router,
@@ -133,6 +134,7 @@ app.include_router(vault_router)
 app.include_router(entitlements_router)
 app.include_router(rbac_router)
 app.include_router(key_management_router)
+app.include_router(consent_router)
 
 # --- Production middleware ---
 
