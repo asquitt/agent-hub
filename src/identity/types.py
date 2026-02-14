@@ -10,6 +10,8 @@ class AgentIdentity(TypedDict):
     status: str
     public_key_pem: str | None
     metadata: dict[str, str] | None
+    human_principal_id: str | None
+    configuration_checksum: str | None
     created_at: str
     updated_at: str
 

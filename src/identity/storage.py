@@ -83,6 +83,8 @@ class IdentityStorage:
         credential_type: str,
         public_key_pem: str | None = None,
         metadata: dict[str, str] | None = None,
+        human_principal_id: str | None = None,
+        configuration_checksum: str | None = None,
     ) -> AgentIdentity:
         self._ensure_ready()
         with self._lock:
@@ -92,8 +94,9 @@ class IdentityStorage:
                     self._conn.execute(
                         """
                         INSERT INTO agent_identities(
-                            agent_id, owner, credential_type, status, public_key_pem, metadata_json
-                        ) VALUES (?, ?, ?, ?, ?, ?)
+                            agent_id, owner, credential_type, status, public_key_pem, metadata_json,
+                            human_principal_id, configuration_checksum
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             agent_id,
@@ -102,6 +105,8 @@ class IdentityStorage:
                             STATUS_ACTIVE,
                             public_key_pem,
                             json.dumps(metadata or {}, sort_keys=True),
+                            human_principal_id,
+                            configuration_checksum,
                         ),
                     )
             except sqlite3.IntegrityError as exc:
@@ -151,6 +156,40 @@ class IdentityStorage:
                 (owner,),
             ).fetchall()
             return [_row_to_identity(row) for row in rows]
+
+    def bind_human_principal(self, agent_id: str, human_principal_id: str | None) -> AgentIdentity:
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            with self._conn:
+                result = self._conn.execute(
+                    """
+                    UPDATE agent_identities
+                    SET human_principal_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    WHERE agent_id = ?
+                    """,
+                    (human_principal_id, agent_id),
+                )
+                if result.rowcount == 0:
+                    raise KeyError(f"agent identity not found: {agent_id}")
+            return self._get_identity_locked(agent_id)
+
+    def set_configuration_checksum(self, agent_id: str, checksum: str | None) -> AgentIdentity:
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            with self._conn:
+                result = self._conn.execute(
+                    """
+                    UPDATE agent_identities
+                    SET configuration_checksum = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    WHERE agent_id = ?
+                    """,
+                    (checksum, agent_id),
+                )
+                if result.rowcount == 0:
+                    raise KeyError(f"agent identity not found: {agent_id}")
+            return self._get_identity_locked(agent_id)
 
     # --- Credential CRUD ---
 
@@ -312,6 +351,8 @@ def register_agent_identity(
     credential_type: str,
     public_key_pem: str | None = None,
     metadata: dict[str, str] | None = None,
+    human_principal_id: str | None = None,
+    configuration_checksum: str | None = None,
 ) -> AgentIdentity:
     return _STORAGE.register_identity(
         agent_id=agent_id,
@@ -319,6 +360,8 @@ def register_agent_identity(
         credential_type=credential_type,
         public_key_pem=public_key_pem,
         metadata=metadata,
+        human_principal_id=human_principal_id,
+        configuration_checksum=configuration_checksum,
     )
 
 
@@ -332,6 +375,14 @@ def update_agent_identity_status(agent_id: str, status: str) -> AgentIdentity:
 
 def list_agent_identities(owner: str) -> list[AgentIdentity]:
     return _STORAGE.list_identities(owner)
+
+
+def bind_human_principal(agent_id: str, human_principal_id: str | None) -> AgentIdentity:
+    return _STORAGE.bind_human_principal(agent_id, human_principal_id)
+
+
+def set_configuration_checksum(agent_id: str, checksum: str | None) -> AgentIdentity:
+    return _STORAGE.set_configuration_checksum(agent_id, checksum)
 
 
 def list_active_sessions(agent_id: str) -> ActiveSessions:
@@ -361,6 +412,8 @@ def _row_to_identity(row: sqlite3.Row) -> AgentIdentity:
         status=str(row["status"]),
         public_key_pem=row["public_key_pem"],
         metadata=metadata,
+        human_principal_id=row["human_principal_id"],
+        configuration_checksum=row["configuration_checksum"],
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
     )

@@ -74,6 +74,9 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/identity/trust-registry/domains/[^/]+$"),
     re.compile(r"^/v1/identity/agents/[^/]+/attest$"),
     re.compile(r"^/v1/identity/attestations/[^/]+/verify$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/human-principal$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum/verify$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -108,6 +111,9 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     # Federation trust registry and attestations.
     re.compile(r"^/v1/identity/trust-registry/domains$"),
     re.compile(r"^/v1/identity/agents/[^/]+/attest$"),
+    # Blended identity and config checksum are idempotent PUT operations.
+    re.compile(r"^/v1/identity/agents/[^/]+/human-principal$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum$"),
     # Federation execution uses domain-token-based auth.
     re.compile(r"^/v1/federation/execute$"),
     # Runtime sandbox endpoints use their own lifecycle model.

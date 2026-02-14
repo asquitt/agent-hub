@@ -33,9 +33,11 @@ from src.identity.revocation import (
     revoke_agent,
 )
 from src.identity.storage import (
+    bind_human_principal,
     get_agent_identity,
     list_active_sessions,
     register_agent_identity,
+    set_configuration_checksum,
     update_agent_identity_status,
 )
 
@@ -52,6 +54,20 @@ class RegisterAgentIdentityRequest(BaseModel):
     credential_type: str = Field(default=CREDENTIAL_TYPE_API_KEY, max_length=32)
     public_key_pem: str | None = Field(default=None)
     metadata: dict[str, str] | None = Field(default=None)
+    human_principal_id: str | None = Field(default=None, max_length=256)
+    configuration_checksum: str | None = Field(default=None, max_length=128)
+
+
+class BindHumanPrincipalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    human_principal_id: str | None = Field(default=None, max_length=256)
+
+
+class SetConfigurationChecksumRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    checksum: str = Field(min_length=1, max_length=128)
 
 
 class UpdateAgentIdentityRequest(BaseModel):
@@ -153,6 +169,8 @@ def post_register_agent_identity(
             credential_type=request.credential_type,
             public_key_pem=request.public_key_pem,
             metadata=request.metadata,
+            human_principal_id=request.human_principal_id,
+            configuration_checksum=request.configuration_checksum,
         )
         return dict(identity)
     except ValueError as exc:
@@ -294,6 +312,65 @@ def get_active_sessions(
         }
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# --- Blended Identity & Configuration Checksum Endpoints ---
+
+
+@router.put("/agents/{agent_id}/human-principal")
+def put_bind_human_principal(
+    agent_id: str,
+    request: BindHumanPrincipalRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        identity = get_agent_identity(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if identity["owner"] != owner:
+        raise HTTPException(status_code=403, detail="owner mismatch")
+    try:
+        updated = bind_human_principal(agent_id, request.human_principal_id)
+        return dict(updated)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put("/agents/{agent_id}/configuration-checksum")
+def put_configuration_checksum(
+    agent_id: str,
+    request: SetConfigurationChecksumRequest,
+    owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        identity = get_agent_identity(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if identity["owner"] != owner:
+        raise HTTPException(status_code=403, detail="owner mismatch")
+    try:
+        updated = set_configuration_checksum(agent_id, request.checksum)
+        return dict(updated)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/agents/{agent_id}/configuration-checksum/verify")
+def get_verify_configuration_checksum(
+    agent_id: str,
+    checksum: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        identity = get_agent_identity(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    stored = identity.get("configuration_checksum")
+    return {
+        "agent_id": agent_id,
+        "valid": stored is not None and stored == checksum,
+        "stored_checksum": stored,
+    }
 
 
 # --- Delegation Token Endpoints ---
