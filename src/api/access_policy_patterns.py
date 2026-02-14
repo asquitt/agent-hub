@@ -289,6 +289,12 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/chain-viz/tokens/[^/]+/snapshot$"),
     re.compile(r"^/v1/chain-viz/snapshots$"),
     re.compile(r"^/v1/chain-viz/snapshots/[^/]+$"),
+    # Policy simulation endpoints
+    re.compile(r"^/v1/policy-sim/access$"),
+    re.compile(r"^/v1/policy-sim/rule-change$"),
+    re.compile(r"^/v1/policy-sim/impact$"),
+    re.compile(r"^/v1/policy-sim/simulations$"),
+    re.compile(r"^/v1/policy-sim/simulations/[^/]+$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -466,4 +472,8 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/quotas/[^/]+$"),
     # Chain visualization endpoints use read-only queries and snapshot model.
     re.compile(r"^/v1/chain-viz/tokens/[^/]+/snapshot$"),
+    # Policy simulation endpoints are stateless dry-run evaluations.
+    re.compile(r"^/v1/policy-sim/access$"),
+    re.compile(r"^/v1/policy-sim/rule-change$"),
+    re.compile(r"^/v1/policy-sim/impact$"),
 )

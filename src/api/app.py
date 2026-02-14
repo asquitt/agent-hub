@@ -46,6 +46,7 @@ from src.api.routes import (
     misc_router,
     operator_router,
     policy_code_router,
+    policy_sim_router,
     procurement_router,
     provenance_router,
     key_management_router,
@@ -153,6 +154,7 @@ app.include_router(scope_narrowing_router)
 app.include_router(ip_allowlist_router)
 app.include_router(capability_quotas_router)
 app.include_router(chain_viz_router)
+app.include_router(policy_sim_router)
 
 # --- Production middleware ---
 
