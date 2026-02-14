@@ -202,6 +202,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/runtime/sandboxes/delegated$"),
     re.compile(r"^/v1/runtime/sandboxes/leased$"),
     re.compile(r"^/v1/runtime/audit/evidence$"),
+    # Adversarial testing endpoints are stateless evaluations.
+    re.compile(r"^/v1/eval/adversarial/run$"),
+    re.compile(r"^/v1/eval/adversarial/prompt-injection$"),
+    re.compile(r"^/v1/eval/adversarial/scope-escalation$"),
 )
 
 

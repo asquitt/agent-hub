@@ -1,4 +1,4 @@
-"""Cost metering, reliability SLO dashboard, devhub routes."""
+"""Cost metering, reliability SLO dashboard, devhub, adversarial testing routes."""
 from __future__ import annotations
 
 from typing import Any
@@ -10,6 +10,14 @@ from src.api.models import DevHubReviewCreateRequest, DevHubReviewDecisionReques
 from src.api.operator_helpers import require_operator_role
 from src.cost_governance.service import list_metering_events
 from src.devhub import service as devhub_service
+from src.eval.adversarial import (
+    get_payload_catalog,
+    get_test_run,
+    list_test_runs,
+    run_full_adversarial_suite,
+    run_prompt_injection_tests,
+    run_scope_escalation_tests,
+)
 from src.registry.store import STORE
 from src.reliability.service import DEFAULT_WINDOW_SIZE, build_slo_dashboard
 
@@ -104,3 +112,60 @@ def get_devhub_promotions(
     _owner: str = Depends(require_api_key),
 ) -> dict[str, Any]:
     return {"data": devhub_service.list_promotions(agent_id=agent_id)}
+
+
+# ── Adversarial Testing ───────────────────────────────────────────
+
+
+@router.post("/v1/eval/adversarial/run")
+def post_run_adversarial_suite(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Run the full adversarial test suite."""
+    return run_full_adversarial_suite()
+
+
+@router.post("/v1/eval/adversarial/prompt-injection")
+def post_run_prompt_injection(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Run prompt injection tests only."""
+    return run_prompt_injection_tests()
+
+
+@router.post("/v1/eval/adversarial/scope-escalation")
+def post_run_scope_escalation(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Run scope escalation tests only."""
+    return run_scope_escalation_tests()
+
+
+@router.get("/v1/eval/adversarial/runs")
+def get_adversarial_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """List recent adversarial test runs."""
+    runs = list_test_runs(limit=limit)
+    return {"count": len(runs), "runs": runs}
+
+
+@router.get("/v1/eval/adversarial/runs/{run_id}")
+def get_adversarial_run(
+    run_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get a specific adversarial test run."""
+    try:
+        return get_test_run(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/v1/eval/adversarial/payloads")
+def get_adversarial_payloads(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get the adversarial payload catalog."""
+    return get_payload_catalog()
