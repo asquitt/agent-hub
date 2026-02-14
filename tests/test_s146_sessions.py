@@ -10,6 +10,7 @@ os.environ.setdefault("AGENTHUB_AUTH_TOKEN_SECRET", "test-auth-s146")
 os.environ.setdefault("AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON", json.dumps({"test.local": "tok"}))
 os.environ.setdefault("AGENTHUB_PROVENANCE_SIGNING_SECRET", "test-prov-s146")
 os.environ.setdefault("AGENTHUB_POLICY_SIGNING_SECRET", "test-policy-secret")
+os.environ.setdefault("AGENTHUB_VAULT_KEY", "test-vault-key")
 
 from fastapi.testclient import TestClient
 
