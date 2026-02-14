@@ -24,10 +24,14 @@ DEFAULT_OWNER_TENANTS = {
 PUBLIC_ROUTES = {
     ("GET", "/healthz"),
     ("GET", "/.well-known/agent-card.json"),
+    ("GET", "/.well-known/oauth-protected-resource"),
+    ("GET", "/.well-known/oauth-authorization-server"),
     ("GET", "/operator"),
     ("GET", "/operator/versioning"),
     ("GET", "/customer"),
     ("GET", "/v1/identity/tokens/jwt/jwks"),
+    # OAuth token endpoint uses client_credentials (not API key auth)
+    ("POST", "/v1/oauth/token"),
 }
 
 TENANT_SCOPED_PATTERNS = (
@@ -81,6 +85,9 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),
     re.compile(r"^/v1/identity/tokens/jwt/jwks$"),
+    # OAuth endpoints
+    re.compile(r"^/v1/oauth/register$"),
+    re.compile(r"^/v1/oauth/token$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -121,6 +128,9 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     # JWT token endpoints are stateless.
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),
+    # OAuth endpoints use client_credentials auth, not idempotency keys.
+    re.compile(r"^/v1/oauth/register$"),
+    re.compile(r"^/v1/oauth/token$"),
     # Federation execution uses domain-token-based auth.
     re.compile(r"^/v1/federation/execute$"),
     # Runtime sandbox endpoints use their own lifecycle model.
