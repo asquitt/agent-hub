@@ -9,7 +9,16 @@ from src.api.auth import require_api_key
 from src.api.models import ComplianceEvidenceExportRequest
 from src.compliance import export_evidence_pack, list_controls as list_compliance_controls, list_evidence_reports
 from pydantic import BaseModel, ConfigDict, Field
+from src.compliance.dashboard import get_dashboard
 from src.compliance.owasp_agentic import get_gap_analysis, get_owasp_mapping
+from src.policy.decision_graph import (
+    build_decision_graph,
+    get_decision,
+    get_decision_chain,
+    get_decision_statistics,
+    get_decisions_for_agent,
+    record_decision,
+)
 from src.compliance.soc2_evidence import (
     collect_evidence_for_criteria,
     generate_evidence_package,
@@ -165,3 +174,104 @@ def get_verify_evidence(
         return verify_evidence_integrity(evidence_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# ── Compliance Dashboard ────────────────────────────────────────────
+
+
+@router.get("/v1/compliance/dashboard")
+def get_compliance_dashboard(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get the unified compliance dashboard with overall posture score."""
+    return get_dashboard()
+
+
+# ── Policy Decision Graph ───────────────────────────────────────────
+
+
+class RecordDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: str | None = Field(default=None, max_length=256)
+    agent_id: str = Field(min_length=1, max_length=256)
+    action: str = Field(min_length=1, max_length=128)
+    resource: str = Field(min_length=1, max_length=512)
+    decision: str = Field(pattern="^(allow|deny)$")
+    reason: str = Field(min_length=1, max_length=512)
+    policies_evaluated: list[str] | None = None
+    conditions_checked: list[dict[str, Any]] | None = None
+    parent_decision_id: str | None = None
+    delegation_chain: list[str] | None = None
+    latency_ms: float = 0.0
+
+
+@router.post("/v1/policy/decisions")
+def post_record_decision(
+    request: RecordDecisionRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Record a policy decision."""
+    return record_decision(
+        request_id=request.request_id,
+        agent_id=request.agent_id,
+        action=request.action,
+        resource=request.resource,
+        decision=request.decision,
+        reason=request.reason,
+        policies_evaluated=request.policies_evaluated,
+        conditions_checked=request.conditions_checked,
+        parent_decision_id=request.parent_decision_id,
+        delegation_chain=request.delegation_chain,
+        latency_ms=request.latency_ms,
+    )
+
+
+@router.get("/v1/policy/decisions/{decision_id}")
+def get_policy_decision(
+    decision_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get a specific policy decision."""
+    try:
+        return get_decision(decision_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/v1/policy/decisions/{decision_id}/chain")
+def get_policy_decision_chain(
+    decision_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Trace the full decision chain from a decision back to root."""
+    chain = get_decision_chain(decision_id)
+    return {"decision_id": decision_id, "chain_length": len(chain), "chain": chain}
+
+
+@router.get("/v1/policy/agents/{agent_id}/decisions")
+def get_agent_decisions(
+    agent_id: str,
+    action: str | None = None,
+    decision_filter: str | None = Query(default=None, alias="decision"),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get recent policy decisions for an agent."""
+    decisions = get_decisions_for_agent(agent_id, action=action, decision_filter=decision_filter)
+    return {"agent_id": agent_id, "count": len(decisions), "decisions": decisions}
+
+
+@router.get("/v1/policy/decisions-stats")
+def get_policy_decision_stats(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get aggregate statistics on policy decisions."""
+    return get_decision_statistics()
+
+
+@router.get("/v1/policy/requests/{request_id}/graph")
+def get_request_decision_graph(
+    request_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Build the decision graph for a specific request."""
+    return build_decision_graph(request_id)

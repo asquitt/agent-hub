@@ -168,6 +168,8 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     # SOC2 evidence endpoints are append-only or read operations.
     re.compile(r"^/v1/compliance/soc2/evidence$"),
     re.compile(r"^/v1/compliance/soc2/evidence-package$"),
+    # Policy decision recording is append-only.
+    re.compile(r"^/v1/policy/decisions$"),
     # JWT token endpoints are stateless.
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),
