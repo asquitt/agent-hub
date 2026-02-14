@@ -48,6 +48,27 @@ ADMIN_SCOPED_PATTERNS = (
     re.compile(r"^/v1/system/startup-diagnostics$"),
 )
 
+IDENTITY_PATTERNS = (
+    re.compile(r"^/v1/identity/agents$"),
+    re.compile(r"^/v1/identity/agents/[^/]+$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/credentials$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/active-sessions$"),
+    re.compile(r"^/v1/identity/credentials/[^/]+$"),
+    re.compile(r"^/v1/identity/credentials/[^/]+/rotate$"),
+    re.compile(r"^/v1/identity/credentials/[^/]+/revoke$"),
+    re.compile(r"^/v1/identity/delegation-tokens$"),
+    re.compile(r"^/v1/identity/delegation-tokens/verify$"),
+    re.compile(r"^/v1/identity/delegation-tokens/[^/]+/chain$"),
+    re.compile(r"^/v1/identity/delegation-tokens/[^/]+/revoke$"),
+    re.compile(r"^/v1/identity/revocations$"),
+    re.compile(r"^/v1/identity/revocations/bulk$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/revoke$"),
+    re.compile(r"^/v1/identity/trust-registry/domains$"),
+    re.compile(r"^/v1/identity/trust-registry/domains/[^/]+$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/attest$"),
+    re.compile(r"^/v1/identity/attestations/[^/]+/verify$"),
+)
+
 # Endpoints with local write semantics where idempotency is intentionally optional.
 IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/auth/tokens$"),
@@ -65,6 +86,21 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/billing/invoices/[^/]+/reconcile$"),
     # Delegation uses its own durable idempotency store and reservation contract.
     re.compile(r"^/v1/delegations$"),
+    # Identity endpoints use their own credential-based safety model.
+    re.compile(r"^/v1/identity/agents$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/credentials$"),
+    re.compile(r"^/v1/identity/credentials/[^/]+/rotate$"),
+    re.compile(r"^/v1/identity/credentials/[^/]+/revoke$"),
+    # Delegation tokens use their own chain-based safety model.
+    re.compile(r"^/v1/identity/delegation-tokens$"),
+    re.compile(r"^/v1/identity/delegation-tokens/verify$"),
+    re.compile(r"^/v1/identity/delegation-tokens/[^/]+/revoke$"),
+    # Revocation endpoints use their own audit model.
+    re.compile(r"^/v1/identity/revocations/bulk$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/revoke$"),
+    # Federation trust registry and attestations.
+    re.compile(r"^/v1/identity/trust-registry/domains$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/attest$"),
 )
 
 
