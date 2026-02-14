@@ -10,6 +10,7 @@ os.environ.setdefault("AGENTHUB_IDENTITY_SIGNING_SECRET", "test-signing-secret-h
 os.environ.setdefault("AGENTHUB_AUTH_TOKEN_SECRET", "test-auth-secret")
 os.environ.setdefault("AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON", json.dumps({"test-domain": "test-token"}))
 os.environ.setdefault("AGENTHUB_PROVENANCE_SIGNING_SECRET", "test-provenance-secret")
+os.environ.setdefault("AGENTHUB_POLICY_SIGNING_SECRET", "test-policy-secret")
 
 from starlette.testclient import TestClient
 

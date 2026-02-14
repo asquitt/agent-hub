@@ -24,6 +24,7 @@ os.environ.setdefault("AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON", json.dumps({
     "test-domain.example.com": "test-domain-token-s91"
 }))
 os.environ.setdefault("AGENTHUB_PROVENANCE_SIGNING_SECRET", "test-provenance-secret-s91")
+os.environ.setdefault("AGENTHUB_POLICY_SIGNING_SECRET", "test-policy-secret")
 os.environ.setdefault("AGENTHUB_IDENTITY_DB_PATH", ":memory:")
 os.environ.setdefault("AGENTHUB_DELEGATION_DB_PATH", ":memory:")
 os.environ.setdefault("AGENTHUB_RUNTIME_DB_PATH", ":memory:")
