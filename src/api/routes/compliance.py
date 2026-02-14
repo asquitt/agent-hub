@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from src.api.auth import require_api_key
 from src.api.models import ComplianceEvidenceExportRequest
 from src.compliance import export_evidence_pack, list_controls as list_compliance_controls, list_evidence_reports
+from src.compliance.owasp_agentic import get_gap_analysis, get_owasp_mapping
 from src.cost_governance.service import record_metering_event
 
 router = APIRouter(tags=["compliance"])
@@ -50,3 +51,19 @@ def get_compliance_evidence_reports(
     if owner not in {"owner-dev", "owner-platform"}:
         raise HTTPException(status_code=403, detail="compliance evidence listing requires admin role")
     return {"data": list_evidence_reports(framework=framework, limit=limit)}
+
+
+@router.get("/v1/compliance/owasp-agentic")
+def get_owasp_agentic_mapping(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get the OWASP Agentic Top 10 control mapping."""
+    return get_owasp_mapping()
+
+
+@router.get("/v1/compliance/owasp-agentic/gaps")
+def get_owasp_agentic_gaps(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get OWASP Agentic Top 10 gap analysis."""
+    return get_gap_analysis()
