@@ -87,6 +87,10 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum/integrity$"),
     re.compile(r"^/v1/identity/agents/[^/]+/blended$"),
     re.compile(r"^/v1/identity/agents/[^/]+/on-behalf-of/verify$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/spiffe-id$"),
+    re.compile(r"^/v1/identity/agents/[^/]+/svid$"),
+    re.compile(r"^/v1/identity/spiffe/verify$"),
+    re.compile(r"^/v1/identity/spiffe/bundle$"),
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),
     re.compile(r"^/v1/identity/tokens/jwt/jwks$"),
@@ -134,6 +138,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum/compute$"),
     re.compile(r"^/v1/identity/agents/[^/]+/configuration-checksum/integrity$"),
     re.compile(r"^/v1/identity/agents/[^/]+/on-behalf-of/verify$"),
+    # SPIFFE endpoints are stateless generation/verification.
+    re.compile(r"^/v1/identity/agents/[^/]+/svid$"),
+    re.compile(r"^/v1/identity/spiffe/verify$"),
+    re.compile(r"^/v1/identity/spiffe/bundle$"),
     # JWT token endpoints are stateless.
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),

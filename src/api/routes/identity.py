@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import require_api_key
 from src.identity.blended import get_blended_identity, verify_on_behalf_of
+from src.identity.spiffe import (
+    generate_bundle as generate_spiffe_bundle,
+    generate_spiffe_id,
+    generate_svid,
+    verify_spiffe_id,
+)
 from src.identity.checksum import compute_config_checksum, verify_config_integrity
 from src.common.time import iso_from_epoch
 from src.identity.constants import CREDENTIAL_TYPE_API_KEY, VALID_CREDENTIAL_TYPES
@@ -621,3 +627,61 @@ def get_verify_attestation(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+# ── SPIFFE / SPIRE ──────────────────────────────────────────────────
+
+
+class GenerateSvidRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ttl_hours: int = Field(default=24, ge=1, le=720)
+    workload_path: str | None = Field(default=None, max_length=256)
+
+
+class VerifySpiffeIdRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    spiffe_id: str = Field(min_length=10, max_length=512)
+
+
+class SpiffeBundleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+@router.get("/agents/{agent_id}/spiffe-id")
+def get_agent_spiffe_id(
+    agent_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Generate the SPIFFE ID for an agent."""
+    spiffe_id = generate_spiffe_id(agent_id=agent_id)
+    return {"spiffe_id": spiffe_id, "agent_id": agent_id}
+
+
+@router.post("/agents/{agent_id}/svid")
+def post_agent_svid(
+    agent_id: str,
+    request: GenerateSvidRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Issue a self-signed X.509 SVID for an agent."""
+    spiffe_id = generate_spiffe_id(agent_id=agent_id, workload_path=request.workload_path)
+    return generate_svid(agent_id=agent_id, spiffe_id=spiffe_id, ttl_hours=request.ttl_hours)
+
+
+@router.post("/spiffe/verify")
+def post_verify_spiffe_id(
+    request: VerifySpiffeIdRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Validate a SPIFFE ID format and extract components."""
+    return verify_spiffe_id(request.spiffe_id)
+
+
+@router.post("/spiffe/bundle")
+def post_spiffe_bundle(
+    request: SpiffeBundleRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Generate a SPIFFE trust bundle for multiple agents."""
+    return generate_spiffe_bundle(request.agent_ids)
