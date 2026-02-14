@@ -10,6 +10,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import require_api_key
+from src.identity.analytics import (
+    get_credential_statistics,
+    get_delegation_statistics,
+    get_identity_health_score,
+    get_identity_statistics,
+)
 from src.identity.lifecycle import (
     check_expiry_alerts,
     check_rotation_due,
@@ -306,3 +312,38 @@ def post_deprovision_agent(
         return deprovision_agent(agent_id=agent_id, owner=owner, reason=request.reason)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# ── Identity Analytics ──────────────────────────────────────────────
+
+
+@router.get("/analytics/credentials")
+def get_analytics_credentials(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get credential usage statistics."""
+    return get_credential_statistics()
+
+
+@router.get("/analytics/identities")
+def get_analytics_identities(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get agent identity statistics."""
+    return get_identity_statistics()
+
+
+@router.get("/analytics/delegations")
+def get_analytics_delegations(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get delegation token statistics."""
+    return get_delegation_statistics()
+
+
+@router.get("/analytics/health")
+def get_analytics_health(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get overall identity system health score."""
+    return get_identity_health_score()
