@@ -174,6 +174,12 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/access-review/campaigns/[^/]+/items$"),
     re.compile(r"^/v1/access-review/items/[^/]+/decide$"),
     re.compile(r"^/v1/access-review/compliance$"),
+    # Policy-as-Code rule engine endpoints
+    re.compile(r"^/v1/policy/rules$"),
+    re.compile(r"^/v1/policy/rules/[^/]+$"),
+    re.compile(r"^/v1/policy/rules/[^/]+/versions$"),
+    re.compile(r"^/v1/policy/evaluate$"),
+    re.compile(r"^/v1/policy/evaluations$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -323,6 +329,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/access-review/campaigns$"),
     re.compile(r"^/v1/access-review/campaigns/[^/]+/items$"),
     re.compile(r"^/v1/access-review/items/[^/]+/decide$"),
+    # Policy-as-Code rule engine uses versioned rules.
+    re.compile(r"^/v1/policy/rules$"),
+    re.compile(r"^/v1/policy/rules/[^/]+$"),
+    re.compile(r"^/v1/policy/evaluate$"),
 )
 
 

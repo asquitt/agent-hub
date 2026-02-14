@@ -19,6 +19,7 @@ from src.api.routes.knowledge import router as knowledge_router
 from src.api.routes.marketplace import router as marketplace_router
 from src.api.routes.misc import router as misc_router
 from src.api.routes.operator import router as operator_router
+from src.api.routes.policy_code import router as policy_code_router
 from src.api.routes.procurement import router as procurement_router
 from src.api.routes.provenance import router as provenance_router
 from src.api.routes.runtime import router as runtime_router
@@ -49,6 +50,7 @@ __all__ = [
     "marketplace_router",
     "misc_router",
     "operator_router",
+    "policy_code_router",
     "procurement_router",
     "provenance_router",
     "runtime_router",

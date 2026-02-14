@@ -36,6 +36,7 @@ from src.api.routes import (
     marketplace_router,
     misc_router,
     operator_router,
+    policy_code_router,
     procurement_router,
     provenance_router,
     runtime_router,
@@ -121,6 +122,7 @@ app.include_router(grants_router)
 app.include_router(scim_router)
 app.include_router(audit_router)
 app.include_router(access_review_router)
+app.include_router(policy_code_router)
 
 # --- Production middleware ---
 
