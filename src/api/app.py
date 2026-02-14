@@ -28,6 +28,7 @@ from src.api.routes import (
     federation_router,
     identity_router,
     identity_advanced_router,
+    intent_router,
     knowledge_router,
     marketplace_router,
     misc_router,
@@ -111,6 +112,7 @@ app.include_router(provenance_router)
 app.include_router(tokens_router)
 app.include_router(oauth_router)
 app.include_router(approval_router)
+app.include_router(intent_router)
 
 # --- Production middleware ---
 

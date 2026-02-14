@@ -139,6 +139,11 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/approval/check$"),
     re.compile(r"^/v1/approval/pending$"),
     re.compile(r"^/v1/approval/policies$"),
+    # Intent-aware access logging endpoints
+    re.compile(r"^/v1/intent/log$"),
+    re.compile(r"^/v1/intent/summary/[^/]+$"),
+    re.compile(r"^/v1/intent/evaluate$"),
+    re.compile(r"^/v1/intent/policies$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -267,6 +272,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/approval/requests/[^/]+/decide$"),
     re.compile(r"^/v1/approval/check$"),
     re.compile(r"^/v1/approval/policies$"),
+    # Intent-aware access logging is append-only.
+    re.compile(r"^/v1/intent/log$"),
+    re.compile(r"^/v1/intent/evaluate$"),
+    re.compile(r"^/v1/intent/policies$"),
 )
 
 

@@ -10,6 +10,7 @@ from src.api.routes.delegation import router as delegation_router
 from src.api.routes.discovery import router as discovery_router
 from src.api.routes.federation import router as federation_router
 from src.api.routes.identity import router as identity_router
+from src.api.routes.intent import router as intent_router
 from src.api.routes.identity_advanced import router as identity_advanced_router
 from src.api.routes.knowledge import router as knowledge_router
 from src.api.routes.marketplace import router as marketplace_router
@@ -36,6 +37,7 @@ __all__ = [
     "federation_router",
     "identity_router",
     "identity_advanced_router",
+    "intent_router",
     "knowledge_router",
     "marketplace_router",
     "misc_router",
