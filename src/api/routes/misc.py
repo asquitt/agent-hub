@@ -1,9 +1,10 @@
-"""Cost metering, reliability SLO dashboard, devhub, adversarial testing routes."""
+"""Cost metering, reliability SLO dashboard, devhub, adversarial testing, threat intel routes."""
 from __future__ import annotations
 
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import require_api_key
 from src.api.models import DevHubReviewCreateRequest, DevHubReviewDecisionRequest
@@ -19,6 +20,16 @@ from src.eval.adversarial import (
     run_scope_escalation_tests,
 )
 from src.registry.store import STORE
+from src.trust.threat_intel import (
+    add_indicator,
+    check_indicator,
+    get_agent_threat_assessment,
+    get_match_history,
+    get_threat_summary,
+    list_indicators,
+    register_feed,
+    list_feeds,
+)
 from src.reliability.service import DEFAULT_WINDOW_SIZE, build_slo_dashboard
 
 router = APIRouter(tags=["misc"])
@@ -169,3 +180,130 @@ def get_adversarial_payloads(
 ) -> dict[str, Any]:
     """Get the adversarial payload catalog."""
     return get_payload_catalog()
+
+
+# ── Threat Intelligence ───────────────────────────────────────────
+
+
+class AddIndicatorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    indicator_type: str = Field(min_length=1, max_length=64)
+    value: str = Field(min_length=1, max_length=512)
+    severity: str = Field(default="medium", max_length=16)
+    description: str = Field(default="", max_length=1024)
+    source_feed: str | None = Field(default=None, max_length=256)
+    ttl_seconds: int = Field(default=2592000, ge=3600, le=31536000)
+    tags: list[str] | None = None
+
+
+class CheckIndicatorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    indicator_type: str = Field(min_length=1, max_length=64)
+    value: str = Field(min_length=1, max_length=512)
+    agent_id: str | None = Field(default=None, max_length=256)
+    context: str = Field(default="", max_length=512)
+
+
+class RegisterFeedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    feed_name: str = Field(min_length=1, max_length=256)
+    feed_url: str = Field(default="", max_length=1024)
+    feed_type: str = Field(default="stix-taxii", max_length=64)
+    description: str = Field(default="", max_length=1024)
+
+
+@router.post("/v1/threat-intel/indicators")
+def post_add_indicator(
+    request: AddIndicatorRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Add a threat indicator (IOC)."""
+    try:
+        return add_indicator(
+            indicator_type=request.indicator_type,
+            value=request.value,
+            severity=request.severity,
+            description=request.description,
+            source_feed=request.source_feed,
+            ttl_seconds=request.ttl_seconds,
+            tags=request.tags,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/v1/threat-intel/indicators")
+def get_indicators(
+    indicator_type: str | None = None,
+    severity: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """List threat indicators."""
+    indicators = list_indicators(indicator_type=indicator_type, severity=severity, limit=limit)
+    return {"count": len(indicators), "indicators": indicators}
+
+
+@router.post("/v1/threat-intel/check")
+def post_check_indicator(
+    request: CheckIndicatorRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Check a value against threat indicators."""
+    return check_indicator(
+        indicator_type=request.indicator_type,
+        value=request.value,
+        agent_id=request.agent_id,
+        context=request.context,
+    )
+
+
+@router.get("/v1/threat-intel/agents/{agent_id}/assessment")
+def get_threat_assessment(
+    agent_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get threat assessment for an agent."""
+    return get_agent_threat_assessment(agent_id)
+
+
+@router.post("/v1/threat-intel/feeds")
+def post_register_feed(
+    request: RegisterFeedRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Register a threat intelligence feed."""
+    return register_feed(
+        feed_name=request.feed_name,
+        feed_url=request.feed_url,
+        feed_type=request.feed_type,
+        description=request.description,
+    )
+
+
+@router.get("/v1/threat-intel/feeds")
+def get_feeds(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """List registered threat intelligence feeds."""
+    feeds = list_feeds()
+    return {"count": len(feeds), "feeds": feeds}
+
+
+@router.get("/v1/threat-intel/matches")
+def get_matches(
+    agent_id: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get threat match history."""
+    matches = get_match_history(agent_id=agent_id, limit=limit)
+    return {"count": len(matches), "matches": matches}
+
+
+@router.get("/v1/threat-intel/summary")
+def get_intel_summary(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get threat intelligence summary."""
+    return get_threat_summary()

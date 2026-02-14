@@ -219,6 +219,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/policy/fides/check-read$"),
     re.compile(r"^/v1/policy/fides/check-write$"),
     re.compile(r"^/v1/policy/fides/taint$"),
+    # Threat intelligence endpoints.
+    re.compile(r"^/v1/threat-intel/indicators$"),
+    re.compile(r"^/v1/threat-intel/check$"),
+    re.compile(r"^/v1/threat-intel/feeds$"),
 )
 
 
