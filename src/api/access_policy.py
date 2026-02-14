@@ -288,6 +288,13 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/ip-rules/check$"),
     re.compile(r"^/v1/ip-rules/[^/]+$"),
     re.compile(r"^/v1/ip-rules/[^/]+/disable$"),
+    # Capability quota endpoints
+    re.compile(r"^/v1/quotas$"),
+    re.compile(r"^/v1/quotas/stats$"),
+    re.compile(r"^/v1/quotas/violations$"),
+    re.compile(r"^/v1/quotas/check$"),
+    re.compile(r"^/v1/quotas/usage/[^/]+$"),
+    re.compile(r"^/v1/quotas/[^/]+$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -506,6 +513,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/ip-rules$"),
     re.compile(r"^/v1/ip-rules/check$"),
     re.compile(r"^/v1/ip-rules/[^/]+/disable$"),
+    # Capability quotas use check-and-consume model.
+    re.compile(r"^/v1/quotas$"),
+    re.compile(r"^/v1/quotas/check$"),
+    re.compile(r"^/v1/quotas/[^/]+$"),
 )
 
 

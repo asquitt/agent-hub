@@ -26,6 +26,7 @@ from src.api.routes import (
     auth_routes_router,
     billing_router,
     capabilities_router,
+    capability_quotas_router,
     compliance_router,
     consent_router,
     credential_binding_router,
@@ -149,6 +150,7 @@ app.include_router(activity_monitor_router)
 app.include_router(env_access_router)
 app.include_router(scope_narrowing_router)
 app.include_router(ip_allowlist_router)
+app.include_router(capability_quotas_router)
 
 # --- Production middleware ---
 
