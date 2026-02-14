@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
 from typing import Literal
 
 from fastapi.routing import APIRoute
+
+_log = logging.getLogger("agenthub.access_policy")
 
 
 AccessClassification = Literal["public", "authenticated", "tenant_scoped", "admin_scoped"]
@@ -39,6 +42,10 @@ TENANT_SCOPED_PATTERNS = (
     re.compile(r"^/v1/namespaces/[^/]+$"),
     re.compile(r"^/v1/discovery/agent-manifest$"),
     re.compile(r"^/v1/delegations/[^/]+/status$"),
+    # Runtime routes require tenant scoping
+    re.compile(r"^/v1/runtime/profiles"),
+    re.compile(r"^/v1/runtime/sandboxes"),
+    re.compile(r"^/v1/runtime/audit"),
 )
 
 ADMIN_SCOPED_PATTERNS = (
@@ -161,8 +168,10 @@ def _owner_tenants() -> dict[str, list[str]]:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
+        _log.warning("AGENTHUB_OWNER_TENANTS_JSON is malformed, falling back to defaults")
         return dict(DEFAULT_OWNER_TENANTS)
     if not isinstance(parsed, dict):
+        _log.warning("AGENTHUB_OWNER_TENANTS_JSON is not a JSON object, falling back to defaults")
         return dict(DEFAULT_OWNER_TENANTS)
 
     out: dict[str, list[str]] = {}

@@ -503,7 +503,14 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
 
     if violation_code is not None and mode == "enforce":
         status_code = 401 if violation_code in {"auth.required", "auth.invalid"} else 403
-        return _stable_error(status_code, violation_code, violation_message or "request not permitted")
+        error_response = _stable_error(status_code, violation_code, violation_message or "request not permitted")
+        # Add CORS headers so browsers can read the error
+        origin = request.headers.get("origin", "")
+        if origin:
+            allowed = os.environ.get("AGENTHUB_CORS_ORIGINS", "*")
+            if allowed == "*" or origin in allowed.split(","):
+                error_response.headers["Access-Control-Allow-Origin"] = origin if allowed != "*" else "*"
+        return error_response
 
     response = await call_next(request)
     if violation_code is not None:
@@ -600,15 +607,8 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
         content_type = response.headers.get("content-type", "application/json")
         response_headers = {k: v for k, v in response.headers.items()}
 
-        if response.status_code >= 500:
-            idempotency_storage.clear(
-                tenant_id=tenant_id,
-                actor=actor,
-                method=method,
-                route=path,
-                idempotency_key=key,
-            )
-        else:
+        if response.status_code < 300:
+            # Only cache successful responses — 4xx should be retryable with corrected payload
             idempotency_storage.finalize(
                 tenant_id=tenant_id,
                 actor=actor,
@@ -619,6 +619,14 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
                 content_type=content_type,
                 headers=response_headers,
                 body=response_body,
+            )
+        else:
+            idempotency_storage.clear(
+                tenant_id=tenant_id,
+                actor=actor,
+                method=method,
+                route=path,
+                idempotency_key=key,
             )
 
         final_response = Response(

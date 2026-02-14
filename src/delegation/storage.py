@@ -221,6 +221,44 @@ class DelegationStorage:
                         (agent_id, float(balance)),
                     )
 
+    def deduct_balance(self, agent_id: str, amount: float) -> float:
+        """Atomically deduct from balance. Returns new balance. Raises if insufficient."""
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            with self._conn:
+                row = self._conn.execute(
+                    "SELECT balance_usd FROM delegation_balances WHERE agent_id = ?",
+                    (agent_id,),
+                ).fetchone()
+                current = float(row["balance_usd"]) if row else 1000.0
+                if current < amount:
+                    raise ValueError("insufficient balance")
+                new_balance = round(current - amount, 6)
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO delegation_balances(agent_id, balance_usd) VALUES (?, ?)",
+                    (agent_id, new_balance),
+                )
+                return new_balance
+
+    def credit_balance(self, agent_id: str, amount: float) -> float:
+        """Atomically credit balance. Returns new balance."""
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            with self._conn:
+                row = self._conn.execute(
+                    "SELECT balance_usd FROM delegation_balances WHERE agent_id = ?",
+                    (agent_id,),
+                ).fetchone()
+                current = float(row["balance_usd"]) if row else 0.0
+                new_balance = round(current + amount, 6)
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO delegation_balances(agent_id, balance_usd) VALUES (?, ?)",
+                    (agent_id, new_balance),
+                )
+                return new_balance
+
     def reserve_idempotency(self, owner: str, idempotency_key: str, request_hash: str) -> dict[str, Any]:
         self._ensure_ready()
         with self._lock:
@@ -364,6 +402,14 @@ def load_balances() -> dict[str, float]:
 
 def save_balances(balances: dict[str, float]) -> None:
     _STORAGE.save_balances(balances)
+
+
+def deduct_balance(agent_id: str, amount: float) -> float:
+    return _STORAGE.deduct_balance(agent_id, amount)
+
+
+def credit_balance(agent_id: str, amount: float) -> float:
+    return _STORAGE.credit_balance(agent_id, amount)
 
 
 def reset_for_tests(db_path: str | Path | None = None) -> None:

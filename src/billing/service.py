@@ -125,42 +125,44 @@ def _invoice_ledger_entries(
 
 
 def generate_invoice(account_id: str, owner: str) -> dict[str, Any]:
-    usage_events = _STORAGE.list_uninvoiced_usage(account_id)
-    usage_total = _round(sum(float(row["cost_usd"]) for row in usage_events))
+    # Hold storage lock for the full read-compute-write cycle to prevent double-billing
+    with _STORAGE._lock:
+        usage_events = _STORAGE.list_uninvoiced_usage(account_id)
+        usage_total = _round(sum(float(row["cost_usd"]) for row in usage_events))
 
-    subscription = _STORAGE.get_subscription(account_id)
-    subscription_fee = _round(float(subscription["monthly_fee_usd"]) if subscription else 0.0)
+        subscription = _STORAGE.get_subscription(account_id)
+        subscription_fee = _round(float(subscription["monthly_fee_usd"]) if subscription else 0.0)
 
-    invoice_id = str(uuid.uuid4())
-    now = utc_now_iso()
-    subtotal = _round(subscription_fee + usage_total)
-    invoice = {
-        "invoice_id": invoice_id,
-        "account_id": account_id,
-        "owner": owner,
-        "line_items": [
-            {"type": "subscription", "amount_usd": subscription_fee},
-            {"type": "usage", "amount_usd": usage_total, "event_count": len(usage_events)},
-        ],
-        "subscription_snapshot_usd": subscription_fee,
-        "subtotal_usd": subtotal,
-        "refunded_usd": 0.0,
-        "due_usd": subtotal,
-        "usage_event_ids": [row["event_id"] for row in usage_events],
-        "created_at": now,
-    }
-    _STORAGE.insert_invoice(invoice)
-    _STORAGE.mark_usage_invoiced(invoice["usage_event_ids"], invoice_id)
+        invoice_id = str(uuid.uuid4())
+        now = utc_now_iso()
+        subtotal = _round(subscription_fee + usage_total)
+        invoice = {
+            "invoice_id": invoice_id,
+            "account_id": account_id,
+            "owner": owner,
+            "line_items": [
+                {"type": "subscription", "amount_usd": subscription_fee},
+                {"type": "usage", "amount_usd": usage_total, "event_count": len(usage_events)},
+            ],
+            "subscription_snapshot_usd": subscription_fee,
+            "subtotal_usd": subtotal,
+            "refunded_usd": 0.0,
+            "due_usd": subtotal,
+            "usage_event_ids": [row["event_id"] for row in usage_events],
+            "created_at": now,
+        }
+        _STORAGE.insert_invoice(invoice)
+        _STORAGE.mark_usage_invoiced(invoice["usage_event_ids"], invoice_id)
 
-    ledger_entries = _invoice_ledger_entries(subscription_fee=subscription_fee, usage_total=usage_total, timestamp=now)
-    if ledger_entries:
-        _STORAGE.append_ledger_transaction(
-            tx_id=f"invoice:{invoice_id}",
-            account_id=account_id,
-            source_type="invoice",
-            source_id=invoice_id,
-            entries=ledger_entries,
-        )
+        ledger_entries = _invoice_ledger_entries(subscription_fee=subscription_fee, usage_total=usage_total, timestamp=now)
+        if ledger_entries:
+            _STORAGE.append_ledger_transaction(
+                tx_id=f"invoice:{invoice_id}",
+                account_id=account_id,
+                source_type="invoice",
+                source_id=invoice_id,
+                entries=ledger_entries,
+            )
     return invoice.copy()
 
 

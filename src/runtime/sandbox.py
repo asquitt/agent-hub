@@ -187,6 +187,11 @@ def start_execution(
     if instance["status"] != SANDBOX_READY:
         raise ValueError(f"sandbox must be in 'ready' state, got '{instance['status']}'")
 
+    # Re-verify agent identity is still active before executing
+    identity = _verify_agent_identity(instance["agent_id"])
+    if identity is not None and identity.get("status") != "active":
+        raise PermissionError(f"agent {instance['agent_id']} is {identity.get('status')}")
+
     input_hash = hashlib.sha256(
         json.dumps(input_data, sort_keys=True).encode()
     ).hexdigest()
@@ -246,12 +251,21 @@ def complete_execution(
         error_message=error_message,
     )
 
-    # Transition sandbox back to ready or completed/failed
-    sandbox = RUNTIME_STORAGE.get_instance(execution["sandbox_id"])
-    if status == EXEC_COMPLETED:
-        RUNTIME_STORAGE.update_instance_status(execution["sandbox_id"], SANDBOX_READY)
-    else:
-        RUNTIME_STORAGE.update_instance_status(execution["sandbox_id"], SANDBOX_FAILED)
+    # Transition sandbox back to ready or failed — must always happen
+    try:
+        if status == EXEC_COMPLETED:
+            RUNTIME_STORAGE.update_instance_status(execution["sandbox_id"], SANDBOX_READY)
+        else:
+            RUNTIME_STORAGE.update_instance_status(execution["sandbox_id"], SANDBOX_FAILED)
+    except Exception:
+        import logging
+
+        logging.getLogger("agenthub.runtime").error(
+            "failed to transition sandbox %s after execution %s completed",
+            execution["sandbox_id"],
+            execution_id,
+        )
+        raise
 
     RUNTIME_STORAGE.insert_log(
         sandbox_id=execution["sandbox_id"],

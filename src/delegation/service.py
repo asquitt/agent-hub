@@ -95,8 +95,17 @@ def create_delegation(
         except (PermissionError, RuntimeError) as exc:
             raise PermissionError(f"delegation token invalid: {exc}") from exc
 
-    balances = storage.load_balances()
-    requester_balance = balances.get(requester_agent_id, 1000.0)
+        import logging
+
+        logging.getLogger("agenthub.delegation").info(
+            "delegation created with token scopes=%s for task=%s",
+            sorted(delegation_token_info.get("delegated_scopes", [])),
+            task_spec,
+        )
+
+    # Validate balance (pre-check, actual deduction is atomic below)
+    pre_balances = storage.load_balances()
+    requester_balance = pre_balances.get(requester_agent_id, 1000.0)
     if requester_balance < estimated_cost_usd:
         raise ValueError("insufficient requester balance for escrow")
 
@@ -111,8 +120,7 @@ def create_delegation(
         lifecycle.append(_stage("discovery", {"requester": requester_agent_id, "delegate": delegate_agent_id}))
         lifecycle.append(_stage("negotiation", {"estimated_cost_usd": estimated_cost_usd, "max_budget_usd": max_budget_usd}))
 
-        balances[requester_agent_id] = requester_balance - estimated_cost_usd
-        storage.save_balances(balances)
+        storage.deduct_balance(requester_agent_id, estimated_cost_usd)
 
         storage.upsert_queue_state(delegation_id=delegation_id, status="running")
 
@@ -168,9 +176,8 @@ def create_delegation(
             settlement_status = "pending_reauthorization"
 
         release_amount = max(0.0, estimated_cost_usd - actual_cost)
-        balances = storage.load_balances()
-        balances[requester_agent_id] = balances.get(requester_agent_id, 0.0) + release_amount
-        storage.save_balances(balances)
+        if release_amount > 0:
+            storage.credit_balance(requester_agent_id, release_amount)
 
         lifecycle.append(
             _stage(
@@ -224,6 +231,7 @@ def create_delegation(
                 "requester_verified": requester_identity is not None,
                 "delegate_verified": delegate_identity is not None,
                 "delegation_token_id": delegation_token_info["token_id"] if delegation_token_info else None,
+                "delegation_token_scopes": delegation_token_info["delegated_scopes"] if delegation_token_info else None,
             },
         }
 

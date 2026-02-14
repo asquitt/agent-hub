@@ -206,7 +206,7 @@ def resolve_auth_context(
             "delegation_token_id": None,
         }
 
-    # 2. Delegation token
+    # 2. Delegation token — fail loudly if provided but invalid
     if x_delegation_token:
         from src.identity.delegation_tokens import verify_delegation_token
         from src.identity.storage import IDENTITY_STORAGE
@@ -221,10 +221,10 @@ def resolve_auth_context(
                 "scopes": result["delegated_scopes"],
                 "delegation_token_id": result["token_id"],
             }
-        except (PermissionError, KeyError, RuntimeError):
-            pass
+        except (PermissionError, KeyError, RuntimeError) as exc:
+            raise HTTPException(status_code=401, detail=f"delegation token auth failed: {exc}") from exc
 
-    # 3. Agent credential or bearer token
+    # 3. Agent credential or bearer token — fail loudly if provided but invalid
     if authorization:
         agent_prefix = "agentcredential "
         if authorization.lower().startswith(agent_prefix):
@@ -242,22 +242,20 @@ def resolve_auth_context(
                     "scopes": result["scopes"],
                     "delegation_token_id": None,
                 }
-            except (PermissionError, KeyError, RuntimeError):
-                pass
+            except (PermissionError, KeyError, RuntimeError) as exc:
+                raise HTTPException(status_code=401, detail=f"agent credential auth failed: {exc}") from exc
         else:
-            try:
-                token_auth = _owner_and_scopes_from_authorization(authorization)
-                if token_auth is not None:
-                    return {
-                        "owner": token_auth[0],
-                        "auth_method": "bearer_token",
-                        "agent_id": None,
-                        "scopes": token_auth[1],
-                        "delegation_token_id": None,
-                    }
-            except HTTPException:
-                pass
+            token_auth = _owner_and_scopes_from_authorization(authorization)
+            if token_auth is not None:
+                return {
+                    "owner": token_auth[0],
+                    "auth_method": "bearer_token",
+                    "agent_id": None,
+                    "scopes": token_auth[1],
+                    "delegation_token_id": None,
+                }
 
+    # No credentials provided at all
     return {
         "owner": None,
         "auth_method": None,

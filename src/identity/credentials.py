@@ -117,7 +117,8 @@ def rotate_credential(
     if identity["owner"] != owner:
         raise PermissionError("owner mismatch")
 
-    IDENTITY_STORAGE.update_credential_status(credential_id, CRED_STATUS_ROTATED)
+    # Optimistic lock: only transitions if still active (prevents revoke-rotate race)
+    IDENTITY_STORAGE.update_credential_status_if_active(credential_id, CRED_STATUS_ROTATED)
 
     scopes = new_scopes if new_scopes is not None else old_cred["scopes"]
     ttl = max(MIN_CREDENTIAL_TTL_SECONDS, min(int(new_ttl_seconds), MAX_CREDENTIAL_TTL_SECONDS))

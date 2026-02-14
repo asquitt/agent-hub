@@ -240,6 +240,36 @@ class IdentityStorage:
                     )
             return self.get_credential(credential_id)
 
+    def update_credential_status_if_active(
+        self,
+        credential_id: str,
+        new_status: str,
+        reason: str | None = None,
+    ) -> AgentCredential:
+        """Atomically update status only if currently active (optimistic lock)."""
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            with self._conn:
+                if new_status == "revoked":
+                    result = self._conn.execute(
+                        """
+                        UPDATE agent_credentials
+                        SET status = ?, revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                            revocation_reason = ?
+                        WHERE credential_id = ? AND status = ?
+                        """,
+                        (new_status, reason, credential_id, CRED_STATUS_ACTIVE),
+                    )
+                else:
+                    result = self._conn.execute(
+                        "UPDATE agent_credentials SET status = ? WHERE credential_id = ? AND status = ?",
+                        (new_status, credential_id, CRED_STATUS_ACTIVE),
+                    )
+                if result.rowcount == 0:
+                    raise ValueError("credential is no longer active (concurrent modification)")
+            return self.get_credential(credential_id)
+
     def list_active_credentials(self, agent_id: str) -> list[AgentCredential]:
         self._ensure_ready()
         with self._lock:

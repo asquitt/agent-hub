@@ -208,15 +208,16 @@ def revoke_delegation_token(token_id: str, owner: str) -> dict[str, Any]:
         raise PermissionError("owner mismatch")
 
     now = utc_now_epoch()
-    conn = IDENTITY_STORAGE._conn
-    assert conn is not None
-    with conn:
-        conn.execute(
-            "UPDATE delegation_tokens SET revoked = 1, revoked_at = ? WHERE token_id = ?",
-            (iso_from_epoch(now), token_id),
-        )
-        # Cascade: revoke all child tokens
-        cascade_count = _cascade_revoke(token_id, now)
+    with IDENTITY_STORAGE._lock:
+        conn = IDENTITY_STORAGE._conn
+        assert conn is not None
+        with conn:
+            conn.execute(
+                "UPDATE delegation_tokens SET revoked = 1, revoked_at = ? WHERE token_id = ?",
+                (iso_from_epoch(now), token_id),
+            )
+            # Cascade: revoke all child tokens
+            cascade_count = _cascade_revoke(token_id, now)
 
     return {
         "token_id": token_id,
@@ -231,15 +232,16 @@ def revoke_delegation_token(token_id: str, owner: str) -> dict[str, Any]:
 
 def _get_token_record(token_id: str) -> dict[str, Any] | None:
     IDENTITY_STORAGE._ensure_ready()
-    conn = IDENTITY_STORAGE._conn
-    assert conn is not None
-    row = conn.execute(
-        "SELECT * FROM delegation_tokens WHERE token_id = ?",
-        (token_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    return dict(row)
+    with IDENTITY_STORAGE._lock:
+        conn = IDENTITY_STORAGE._conn
+        assert conn is not None
+        row = conn.execute(
+            "SELECT * FROM delegation_tokens WHERE token_id = ?",
+            (token_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
 
 
 def _insert_token_record(
@@ -254,27 +256,28 @@ def _insert_token_record(
     chain_depth: int,
 ) -> None:
     IDENTITY_STORAGE._ensure_ready()
-    conn = IDENTITY_STORAGE._conn
-    assert conn is not None
-    with conn:
-        conn.execute(
-            """
-            INSERT INTO delegation_tokens(
-                token_id, issuer_agent_id, subject_agent_id, delegated_scopes_json,
-                issued_at_epoch, expires_at_epoch, parent_token_id, chain_depth
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                token_id,
-                issuer_agent_id,
-                subject_agent_id,
-                json.dumps(sorted(delegated_scopes)),
-                issued_at_epoch,
-                expires_at_epoch,
-                parent_token_id,
-                chain_depth,
-            ),
-        )
+    with IDENTITY_STORAGE._lock:
+        conn = IDENTITY_STORAGE._conn
+        assert conn is not None
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO delegation_tokens(
+                    token_id, issuer_agent_id, subject_agent_id, delegated_scopes_json,
+                    issued_at_epoch, expires_at_epoch, parent_token_id, chain_depth
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    token_id,
+                    issuer_agent_id,
+                    subject_agent_id,
+                    json.dumps(sorted(delegated_scopes)),
+                    issued_at_epoch,
+                    expires_at_epoch,
+                    parent_token_id,
+                    chain_depth,
+                ),
+            )
 
 
 def _verify_chain_integrity(record: dict[str, Any], _depth: int = 0) -> None:
@@ -297,6 +300,12 @@ def _verify_chain_integrity(record: dict[str, Any], _depth: int = 0) -> None:
 
 
 def _cascade_revoke(parent_token_id: str, now_epoch: int) -> int:
+    # Lock is reentrant (RLock) — safe to acquire when already held by caller
+    with IDENTITY_STORAGE._lock:
+        return _cascade_revoke_locked(parent_token_id, now_epoch)
+
+
+def _cascade_revoke_locked(parent_token_id: str, now_epoch: int) -> int:
     conn = IDENTITY_STORAGE._conn
     assert conn is not None
     children = conn.execute(
@@ -311,5 +320,5 @@ def _cascade_revoke(parent_token_id: str, now_epoch: int) -> int:
             (iso_from_epoch(now_epoch), child_id),
         )
         count += 1
-        count += _cascade_revoke(child_id, now_epoch)
+        count += _cascade_revoke_locked(child_id, now_epoch)
     return count
