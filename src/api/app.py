@@ -100,6 +100,11 @@ from src.api.middleware import RequestLoggingMiddleware  # noqa: E402
 
 app.add_middleware(RequestLoggingMiddleware)
 
+# Delegation chain middleware
+from src.api.middleware_delegation import DelegationChainMiddleware  # noqa: E402
+
+app.add_middleware(DelegationChainMiddleware)
+
 
 # --- Access policy middleware ---
 
