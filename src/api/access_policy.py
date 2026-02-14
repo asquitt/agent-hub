@@ -91,6 +91,10 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/identity/agents/[^/]+/svid$"),
     re.compile(r"^/v1/identity/spiffe/verify$"),
     re.compile(r"^/v1/identity/spiffe/bundle$"),
+    re.compile(r"^/v1/identity/capability-tokens/issue$"),
+    re.compile(r"^/v1/identity/capability-tokens/attenuate$"),
+    re.compile(r"^/v1/identity/capability-tokens/verify$"),
+    re.compile(r"^/v1/identity/capability-tokens/third-party-block$"),
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),
     re.compile(r"^/v1/identity/tokens/jwt/jwks$"),
@@ -142,6 +146,11 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/identity/agents/[^/]+/svid$"),
     re.compile(r"^/v1/identity/spiffe/verify$"),
     re.compile(r"^/v1/identity/spiffe/bundle$"),
+    # Capability token endpoints are stateless operations.
+    re.compile(r"^/v1/identity/capability-tokens/issue$"),
+    re.compile(r"^/v1/identity/capability-tokens/attenuate$"),
+    re.compile(r"^/v1/identity/capability-tokens/verify$"),
+    re.compile(r"^/v1/identity/capability-tokens/third-party-block$"),
     # JWT token endpoints are stateless.
     re.compile(r"^/v1/identity/tokens/jwt$"),
     re.compile(r"^/v1/identity/tokens/jwt/verify$"),

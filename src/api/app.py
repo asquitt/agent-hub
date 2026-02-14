@@ -25,6 +25,7 @@ from src.api.routes import (
     discovery_router,
     federation_router,
     identity_router,
+    identity_advanced_router,
     knowledge_router,
     marketplace_router,
     misc_router,
@@ -61,6 +62,7 @@ app.include_router(system_router)
 app.include_router(customer_router)
 app.include_router(operator_router)
 app.include_router(identity_router)
+app.include_router(identity_advanced_router)
 app.include_router(runtime_router)
 app.include_router(agents_router)
 app.include_router(auth_routes_router)
