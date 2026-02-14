@@ -210,6 +210,9 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/eval/adversarial/scope-escalation$"),
     # Trust signals v2 attestation is append-only.
     re.compile(r"^/v1/agents/[^/]+/trust/attestation$"),
+    # Runtime integrity attestation endpoints.
+    re.compile(r"^/v1/runtime/integrity/baselines$"),
+    re.compile(r"^/v1/runtime/integrity/check$"),
     # FIDES information-flow control endpoints.
     re.compile(r"^/v1/policy/fides/labels$"),
     re.compile(r"^/v1/policy/fides/clearances$"),

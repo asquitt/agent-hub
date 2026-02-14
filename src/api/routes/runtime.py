@@ -14,6 +14,14 @@ from src.runtime.constants import (
     VALID_NETWORK_MODES,
 )
 from src.runtime.audit import export_sandbox_evidence
+from src.runtime.integrity import (
+    check_integrity,
+    generate_attestation_report,
+    get_attestation_history,
+    get_baseline,
+    get_integrity_alerts,
+    register_baseline,
+)
 from src.runtime.integration import create_delegated_sandbox, create_leased_sandbox
 from src.runtime.sandbox import (
     complete_execution,
@@ -374,3 +382,101 @@ def get_audit_evidence(
         agent_id=agent_id,
         limit=limit,
     )
+
+
+# ── Runtime Integrity Attestation ─────────────────────────────────
+
+
+class RegisterBaselineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sandbox_id: str = Field(min_length=1, max_length=256)
+    agent_id: str = Field(min_length=1, max_length=256)
+    environment: dict[str, Any]
+    runtime_version: str = Field(default="1.0.0", max_length=32)
+    dependencies: list[str] | None = None
+
+
+class CheckIntegrityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sandbox_id: str = Field(min_length=1, max_length=256)
+    current_environment: dict[str, Any]
+    current_dependencies: list[str] | None = None
+    current_runtime_version: str = Field(default="1.0.0", max_length=32)
+
+
+@router.post("/v1/runtime/integrity/baselines")
+def post_register_baseline(
+    request: RegisterBaselineRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Register an integrity baseline for a sandbox."""
+    return register_baseline(
+        sandbox_id=request.sandbox_id,
+        agent_id=request.agent_id,
+        environment=request.environment,
+        runtime_version=request.runtime_version,
+        dependencies=request.dependencies,
+    )
+
+
+@router.get("/v1/runtime/integrity/baselines/{sandbox_id}")
+def get_integrity_baseline(
+    sandbox_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get the registered baseline for a sandbox."""
+    try:
+        return get_baseline(sandbox_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/v1/runtime/integrity/check")
+def post_check_integrity(
+    request: CheckIntegrityRequest,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Check current environment against the baseline."""
+    try:
+        return check_integrity(
+            sandbox_id=request.sandbox_id,
+            current_environment=request.current_environment,
+            current_dependencies=request.current_dependencies,
+            current_runtime_version=request.current_runtime_version,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/v1/runtime/integrity/history")
+def get_integrity_history(
+    sandbox_id: str | None = None,
+    agent_id: str | None = None,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get attestation check history."""
+    history = get_attestation_history(sandbox_id=sandbox_id, agent_id=agent_id)
+    return {"count": len(history), "attestations": history}
+
+
+@router.get("/v1/runtime/integrity/alerts")
+def get_integrity_alerts_endpoint(
+    sandbox_id: str | None = None,
+    severity: str | None = None,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Get integrity tamper alerts."""
+    alerts = get_integrity_alerts(sandbox_id=sandbox_id, severity=severity)
+    return {"count": len(alerts), "alerts": alerts}
+
+
+@router.get("/v1/runtime/integrity/report/{sandbox_id}")
+def get_integrity_report(
+    sandbox_id: str,
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Generate an attestation report for a sandbox."""
+    try:
+        return generate_attestation_report(sandbox_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
