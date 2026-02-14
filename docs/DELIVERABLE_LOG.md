@@ -99,3 +99,11 @@
 | S80 | Sandbox lifecycle — state machine, execution, logs/metrics | DONE | 2026-02-14 | Platform | Yes | — |
 | S81 | Runtime policy enforcement + cost metering | DONE | 2026-02-14 | Platform | Yes | — |
 | S82 | Runtime integration — delegation/lease/compliance wiring | DONE | 2026-02-14 | Platform | Yes | — |
+| S83 | Rate limiting middleware (slowapi, 100/min default) | DONE | 2026-02-14 | Platform | Yes | — |
+| S84 | CORS configuration (configurable origins, custom headers) | DONE | 2026-02-14 | Platform | Yes | — |
+| S85 | Request timeout middleware (30s default, 504 on expiry) | DONE | 2026-02-14 | Platform | Yes | — |
+| S86 | Structured JSON logging + X-Request-ID injection | DONE | 2026-02-14 | Platform | Yes | — |
+| S87 | Deep health checks (/healthz DB connectivity, /readyz) | DONE | 2026-02-14 | Platform | Yes | — |
+| S88 | Fix bare exception handlers (auth, identity, runtime) | DONE | 2026-02-14 | Platform | Yes | — |
+| S89 | Dockerfile hardening (non-root, HEALTHCHECK, workers) | DONE | 2026-02-14 | Platform | Yes | — |
+| S90 | CI expansion (identity/runtime tests, pip-audit) | DONE | 2026-02-14 | Platform | Yes | — |

@@ -8,6 +8,7 @@ AgentHub is the IAM layer for autonomous systems — agent identity, credential 
 - UI redesign and operator diagnostics (`S55` through `S71`) are complete.
 - **Agent Identity & Authorization (`S72` through `S78`) is complete** — the IAM layer that turns AgentHub from "agent directory" into "Okta for agents."
 - **Managed Agent Runtime (`S79` through `S82`) is complete** — sandboxed execution control plane with resource profiles, lifecycle management, policy enforcement, cost metering, and compliance audit trails.
+- **Production Hardening (`S83` through `S90`) is complete** — rate limiting, CORS, request timeouts, structured JSON logging, deep health checks, Dockerfile hardening, and expanded CI coverage.
 - Source of truth for delivery status and evidence:
   - `docs/DELIVERABLE_LOG.md`
   - `docs/evidence/`
@@ -295,6 +296,10 @@ Compose includes:
 
 ## Useful Configuration Variables
 - `AGENTHUB_ACCESS_ENFORCEMENT_MODE` (`warn` or `enforce`)
+- `AGENTHUB_CORS_ORIGINS` (comma-separated allowed origins; defaults to `*`)
+- `AGENTHUB_RATE_LIMIT_DEFAULT` (rate limit per API key; defaults to `100/minute`)
+- `AGENTHUB_REQUEST_TIMEOUT_SECONDS` (HTTP request timeout; defaults to `30`)
+- `AGENTHUB_LOG_LEVEL` (logging level; defaults to `INFO`)
 - `AGENTHUB_API_KEYS_JSON` (required JSON object of API key -> owner mappings)
 - `AGENTHUB_AUTH_TOKEN_SECRET` (required bearer token signing secret)
 - `AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON` (required JSON object of domain -> federation token)
