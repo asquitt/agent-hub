@@ -19,6 +19,7 @@ from src.api.routes.env_access import router as env_access_router
 from src.api.routes.federation import router as federation_router
 from src.api.routes.grants import router as grants_router
 from src.api.routes.identity import router as identity_router
+from src.api.routes.ip_allowlist import router as ip_allowlist_router
 from src.api.routes.intent import router as intent_router
 from src.api.routes.identity_advanced import router as identity_advanced_router
 from src.api.routes.key_management import router as key_management_router
@@ -62,6 +63,7 @@ __all__ = [
     "federation_router",
     "grants_router",
     "identity_router",
+    "ip_allowlist_router",
     "identity_advanced_router",
     "intent_router",
     "key_management_router",

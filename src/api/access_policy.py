@@ -281,6 +281,13 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/scope-narrowing/validate$"),
     re.compile(r"^/v1/scope-narrowing/[^/]+$"),
     re.compile(r"^/v1/scope-narrowing/[^/]+/revoke$"),
+    # IP allowlist endpoints
+    re.compile(r"^/v1/ip-rules$"),
+    re.compile(r"^/v1/ip-rules/stats$"),
+    re.compile(r"^/v1/ip-rules/access-log$"),
+    re.compile(r"^/v1/ip-rules/check$"),
+    re.compile(r"^/v1/ip-rules/[^/]+$"),
+    re.compile(r"^/v1/ip-rules/[^/]+/disable$"),
 )
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
@@ -495,6 +502,10 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/scope-narrowing$"),
     re.compile(r"^/v1/scope-narrowing/validate$"),
     re.compile(r"^/v1/scope-narrowing/[^/]+/revoke$"),
+    # IP allowlist uses check-and-log model.
+    re.compile(r"^/v1/ip-rules$"),
+    re.compile(r"^/v1/ip-rules/check$"),
+    re.compile(r"^/v1/ip-rules/[^/]+/disable$"),
 )
 
 

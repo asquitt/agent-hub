@@ -37,6 +37,7 @@ from src.api.routes import (
     grants_router,
     identity_router,
     identity_advanced_router,
+    ip_allowlist_router,
     intent_router,
     knowledge_router,
     marketplace_router,
@@ -147,6 +148,7 @@ app.include_router(credential_binding_router)
 app.include_router(activity_monitor_router)
 app.include_router(env_access_router)
 app.include_router(scope_narrowing_router)
+app.include_router(ip_allowlist_router)
 
 # --- Production middleware ---
 
