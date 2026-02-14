@@ -125,6 +125,21 @@ def _owner_and_scopes_from_agent_credential(secret: str) -> tuple[str, list[str]
         raise HTTPException(status_code=401, detail=f"agent credential auth failed: {exc}") from exc
 
 
+def _owner_and_scopes_from_jwt(token: str) -> tuple[str, list[str]]:
+    """Authenticate using a JWT bearer token. Returns (owner, scopes)."""
+    from src.identity.jwt_tokens import verify_jwt
+
+    try:
+        claims = verify_jwt(token, require_agent_id=False)
+        owner = str(claims.get("sub", ""))
+        scopes: list[str] = claims.get("scopes", [])
+        if not owner:
+            raise HTTPException(status_code=401, detail="JWT missing sub claim")
+        return owner, scopes
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=f"JWT auth failed: {exc}") from exc
+
+
 def _owner_and_scopes_from_delegation_token(signed_token: str) -> tuple[str, list[str]]:
     """Authenticate using a delegation token. Returns (owner-of-subject, delegated_scopes)."""
     from src.identity.delegation_tokens import verify_delegation_token
@@ -152,6 +167,9 @@ def _owner_and_scopes_from_authorization(authorization: str | None) -> tuple[str
     if not authorization.lower().startswith(prefix):
         raise HTTPException(status_code=401, detail="invalid authorization scheme")
     token = authorization[len(prefix) :].strip()
+    # JWT tokens have 3 dot-separated segments; legacy HMAC tokens have 2
+    if token.count(".") == 2:
+        return _owner_and_scopes_from_jwt(token)
     claims = verify_scoped_token(token)
     return claims["sub"], claims.get("scopes", [])
 
@@ -245,6 +263,19 @@ def resolve_auth_context(
             except (PermissionError, KeyError, RuntimeError) as exc:
                 raise HTTPException(status_code=401, detail=f"agent credential auth failed: {exc}") from exc
         else:
+            prefix = "bearer "
+            if authorization.lower().startswith(prefix):
+                raw_token = authorization[len(prefix):].strip()
+                # JWT tokens have 3 dot-separated segments
+                if raw_token.count(".") == 2:
+                    jwt_owner, jwt_scopes = _owner_and_scopes_from_jwt(raw_token)
+                    return {
+                        "owner": jwt_owner,
+                        "auth_method": "jwt_bearer",
+                        "agent_id": None,
+                        "scopes": jwt_scopes,
+                        "delegation_token_id": None,
+                    }
             token_auth = _owner_and_scopes_from_authorization(authorization)
             if token_auth is not None:
                 return {
