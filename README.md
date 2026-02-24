@@ -53,7 +53,7 @@ AgentHub is organized as two connected layers:
 - Cascade revocation — revoking an agent instantly invalidates all credentials, delegation tokens, and leases.
 - Backward compatible — existing endpoints work without identity params (legacy flow).
 
-See `AGENTS.md` and `docs/RESEARCH_INSIGHTS.md` for the full rationale and constraints.
+See `docs/RESEARCH_INSIGHTS.md` for the full rationale and constraints.
 
 ## Prerequisites
 - Python `>=3.11`
@@ -62,7 +62,8 @@ See `AGENTS.md` and `docs/RESEARCH_INSIGHTS.md` for the full rationale and const
 
 ## Quick Start (Local API + UI)
 ```bash
-cd /Users/demarioasquitt/Desktop/Projects/Entrepreneurial/agent-hub
+git clone https://github.com/asquitt/agent-hub.git
+cd agent-hub
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
