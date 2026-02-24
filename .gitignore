@@ -46,3 +46,9 @@ data/compliance/
 *.pem
 *.key
 *.p12
+
+# Claude Code / Codex artifacts
+CLAUDE.md
+AGENTS.md
+.claude/
+.codex/
