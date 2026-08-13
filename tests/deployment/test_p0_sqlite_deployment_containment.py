@@ -41,6 +41,8 @@ def test_compose_is_an_explicit_single_replica_sqlite_topology() -> None:
     environment = api["environment"]
     assert "DATABASE_URL" not in environment
     assert "REDIS_URL" not in environment
+    assert environment["AGENTHUB_ACCESS_ENFORCEMENT_MODE"] == "${AGENTHUB_ACCESS_ENFORCEMENT_MODE:-enforce}"
+    assert "AGENTHUB_ACCESS_POLICY_MODE" not in environment
     for name in (
         "AGENTHUB_API_KEYS_JSON",
         "AGENTHUB_AUTH_TOKEN_SECRET",
