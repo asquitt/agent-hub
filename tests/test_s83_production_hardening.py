@@ -54,28 +54,24 @@ def test_cors_allows_custom_headers():
 # ---- Health Check ----
 
 
-def test_healthz_returns_checks():
-    """Health check should return DB connectivity and env var checks."""
+def test_healthz_is_dependency_free_liveness():
+    """Liveness reports only whether the process can serve requests."""
     resp = client.get("/healthz")
     assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert "status" in data
-    assert "checks" in data
-    assert "identity_db" in data["checks"]
-    assert "runtime_db" in data["checks"]
-    assert "required_env_vars" in data["checks"]
-    assert data["checks"]["required_env_vars"]["status"] == "ok"
-    print("PASS: healthz returns comprehensive checks")
+    assert resp.json() == {"status": "ok"}
+    print("PASS: healthz is dependency-free liveness")
 
 
-def test_healthz_db_connectivity():
-    """Health check should verify DB connectivity."""
-    resp = client.get("/healthz")
+def test_readyz_returns_dependency_checks():
+    """Readiness reports database and required-configuration checks."""
+    resp = client.get("/readyz")
+    assert resp.status_code == 200, resp.text
     data = resp.json()
-    # Both DBs should be ok (initialized by import)
+    assert data["ready"] is True
+    assert data["checks"]["required_env_vars"] == {"status": "ok", "missing_count": 0}
     assert data["checks"]["identity_db"]["status"] == "ok"
     assert data["checks"]["runtime_db"]["status"] == "ok"
-    print("PASS: healthz verifies DB connectivity")
+    print("PASS: readyz verifies dependencies")
 
 
 def test_readyz_returns_readiness():
@@ -182,23 +178,24 @@ def test_dockerfile_has_healthcheck():
 # ---- CI ----
 
 
-def test_ci_includes_runtime_tests():
-    """CI workflow should run identity and runtime tests."""
+def test_ci_runs_full_suite_and_blocking_dependency_audit():
+    """CI must collect and run every Python test before a blocking audit."""
     from pathlib import Path
 
     ci = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "quality-gates.yml"
     content = ci.read_text()
-    assert "test_s79_sandbox_foundation" in content
-    assert "test_s82_integration" in content
-    assert "pip-audit" in content
-    print("PASS: CI includes runtime tests and security scanning")
+    assert "python -m pytest --collect-only -q" in content
+    assert "python -m pytest -q" in content
+    assert "python -m pip_audit --strict --requirement requirements.txt" in content
+    assert "pip-audit --strict || true" not in content
+    print("PASS: CI runs the full suite and blocking security scan")
 
 
 if __name__ == "__main__":
     test_cors_headers_present()
     test_cors_allows_custom_headers()
-    test_healthz_returns_checks()
-    test_healthz_db_connectivity()
+    test_healthz_is_dependency_free_liveness()
+    test_readyz_returns_dependency_checks()
     test_readyz_returns_readiness()
     test_request_id_injected()
     test_request_id_preserved()
@@ -208,5 +205,5 @@ if __name__ == "__main__":
     test_runtime_storage_uses_sqlite_error()
     test_logging_setup()
     test_dockerfile_has_healthcheck()
-    test_ci_includes_runtime_tests()
+    test_ci_runs_full_suite_and_blocking_dependency_audit()
     print("\nAll production hardening tests passed!")
