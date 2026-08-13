@@ -9,7 +9,13 @@ from __future__ import annotations
 import re
 
 PUBLIC_ROUTES = {
+    ("GET", "/"),
+    ("GET", "/docs"),
+    ("GET", "/docs/oauth2-redirect"),
     ("GET", "/healthz"),
+    ("GET", "/openapi.json"),
+    ("GET", "/readyz"),
+    ("GET", "/redoc"),
     ("GET", "/.well-known/agent-card.json"),
     ("GET", "/.well-known/agent.json"),
     ("GET", "/.well-known/oauth-protected-resource"),
@@ -25,6 +31,60 @@ PUBLIC_ROUTES = {
     ("GET", "/scim/v2/Schemas"),
     ("GET", "/scim/v2/ResourceTypes"),
 }
+
+# Route families are the central allow-list for protected API surfaces. A new
+# top-level family is denied until it is deliberately added here and assigned a
+# policy by access_policy.py.
+AUTHENTICATED_ROUTE_FAMILIES = frozenset(
+    {
+        "a2a",
+        "access-review",
+        "activity",
+        "agents",
+        "approval",
+        "audit",
+        "auth",
+        "billing",
+        "capabilities",
+        "chain-viz",
+        "compliance",
+        "consents",
+        "cost",
+        "credential-bindings",
+        "delegations",
+        "devhub",
+        "discovery",
+        "entitlements",
+        "environments",
+        "eval",
+        "federation",
+        "grants",
+        "groups",
+        "identity",
+        "intent",
+        "ip-rules",
+        "keys",
+        "knowledge",
+        "marketplace",
+        "namespaces",
+        "oauth",
+        "operator",
+        "policy",
+        "policy-sim",
+        "procurement",
+        "provenance",
+        "quotas",
+        "rate-policies",
+        "rbac",
+        "reliability",
+        "runtime",
+        "scope-narrowing",
+        "sessions",
+        "system",
+        "threat-intel",
+        "vault",
+    }
+)
 
 TENANT_SCOPED_PATTERNS = (
     re.compile(r"^/v1/agents$"),
@@ -53,6 +113,13 @@ ADMIN_SCOPED_PATTERNS = (
     re.compile(r"^/v1/compliance/evidence$"),
     re.compile(r"^/v1/federation/attestations/export$"),
     re.compile(r"^/v1/system/startup-diagnostics$"),
+    re.compile(r"^/v1/operator/startup-diagnostics(?:/.*)?$"),
+    re.compile(r"^/v1/access-review(?:/.*)?$"),
+    re.compile(r"^/v1/entitlements(?:/.*)?$"),
+    re.compile(r"^/v1/keys(?:/.*)?$"),
+    re.compile(r"^/v1/rbac(?:/.*)?$"),
+    re.compile(r"^/v1/vault(?:/.*)?$"),
+    re.compile(r"^/scim/v2/(?:Users|Bulk)(?:/.*)?$"),
 )
 
 IDENTITY_PATTERNS = (

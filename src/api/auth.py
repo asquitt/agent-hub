@@ -5,7 +5,8 @@ import hashlib
 import hmac
 import json
 import os
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Iterable, Literal
 
 from fastapi import Header, HTTPException
 
@@ -14,7 +15,107 @@ from src.common.time import iso_from_epoch, utc_now_epoch
 DEFAULT_TOKEN_TTL_SECONDS = 1800
 MAX_TOKEN_TTL_SECONDS = 86400
 
-def _api_key_map() -> dict[str, str]:
+
+AuthMethod = Literal[
+    "api_key",
+    "agent_credential",
+    "bearer_token",
+    "jwt_bearer",
+    "delegation_token",
+]
+
+
+class AuthContext(str):
+    """Authenticated principal that remains compatible with owner-string routes."""
+
+    scopes: frozenset[str]
+    roles: frozenset[str]
+    tenant_id: str
+    auth_method: AuthMethod
+    agent_id: str | None
+    delegation_token_id: str | None
+
+    def __new__(
+        cls,
+        owner: str,
+        *,
+        scopes: Iterable[str],
+        auth_method: AuthMethod,
+        roles: Iterable[str] = (),
+        tenant_id: str = "tenant-default",
+        agent_id: str | None = None,
+        delegation_token_id: str | None = None,
+    ) -> AuthContext:
+        normalized_owner = str(owner).strip()
+        if not normalized_owner:
+            raise ValueError("authenticated owner cannot be empty")
+        context = str.__new__(cls, normalized_owner)
+        context.scopes = frozenset(str(scope).strip() for scope in scopes if str(scope).strip())
+        context.roles = frozenset(str(role).strip() for role in roles if str(role).strip())
+        context.tenant_id = str(tenant_id).strip() or "tenant-default"
+        context.auth_method = auth_method
+        context.agent_id = str(agent_id).strip() if agent_id else None
+        context.delegation_token_id = str(delegation_token_id).strip() if delegation_token_id else None
+        return context
+
+    @property
+    def owner(self) -> str:
+        return str(self)
+
+    def with_tenant(self, tenant_id: str | None) -> AuthContext:
+        return AuthContext(
+            self.owner,
+            scopes=self.scopes,
+            roles=self.roles,
+            tenant_id=str(tenant_id or "tenant-default"),
+            auth_method=self.auth_method,
+            agent_id=self.agent_id,
+            delegation_token_id=self.delegation_token_id,
+        )
+
+    def allows_scope(self, required_scope: str) -> bool:
+        required = required_scope.strip()
+        if not required:
+            return False
+        if "*" in self.scopes or required in self.scopes:
+            return True
+        namespace = required.split(".", 1)[0]
+        return f"{namespace}.*" in self.scopes
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "owner": self.owner,
+            "auth_method": self.auth_method,
+            "agent_id": self.agent_id,
+            "scopes": sorted(self.scopes),
+            "roles": sorted(self.roles),
+            "tenant_id": self.tenant_id,
+            "delegation_token_id": self.delegation_token_id,
+        }
+
+
+@dataclass(frozen=True)
+class _ApiKeyRecord:
+    owner: str
+    scopes: tuple[str, ...]
+    roles: tuple[str, ...]
+
+
+def _default_roles(owner: str) -> tuple[str, ...]:
+    if owner in {"owner-dev", "owner-platform"}:
+        return ("admin",)
+    return ("member",)
+
+
+def _normalize_claim_list(value: object, *, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise RuntimeError(f"{field_name} must be a JSON array")
+    if any(not isinstance(item, str) for item in value):
+        raise RuntimeError(f"{field_name} must contain only strings")
+    return tuple(sorted({item.strip() for item in value if item.strip()}))
+
+
+def _api_key_records() -> dict[str, _ApiKeyRecord]:
     raw = os.getenv("AGENTHUB_API_KEYS_JSON")
     if raw is None or not raw.strip():
         raise RuntimeError("AGENTHUB_API_KEYS_JSON is required")
@@ -24,12 +125,28 @@ def _api_key_map() -> dict[str, str]:
         raise RuntimeError("AGENTHUB_API_KEYS_JSON must be valid JSON") from exc
     if not isinstance(parsed, dict):
         raise RuntimeError("AGENTHUB_API_KEYS_JSON must be a JSON object")
-    normalized: dict[str, str] = {}
-    for key, owner in parsed.items():
+    normalized: dict[str, _ApiKeyRecord] = {}
+    for key, configured in parsed.items():
         key_str = str(key).strip()
-        owner_str = str(owner).strip()
-        if key_str and owner_str:
-            normalized[key_str] = owner_str
+        if not key_str:
+            continue
+        if isinstance(configured, str):
+            owner = configured.strip()
+            scopes = ("*",)
+            roles = _default_roles(owner)
+        elif isinstance(configured, dict):
+            owner = str(configured.get("owner", "")).strip()
+            scopes = _normalize_claim_list(configured.get("scopes", []), field_name=f"API key {key_str} scopes")
+            raw_roles = configured.get("roles")
+            roles = _default_roles(owner) if raw_roles is None else _normalize_claim_list(
+                raw_roles,
+                field_name=f"API key {key_str} roles",
+            )
+        else:
+            raise RuntimeError(f"AGENTHUB_API_KEYS_JSON entry {key_str} must be a string or JSON object")
+        if not owner:
+            raise RuntimeError(f"AGENTHUB_API_KEYS_JSON entry {key_str} must define an owner")
+        normalized[key_str] = _ApiKeyRecord(owner=owner, scopes=scopes, roles=roles)
     if not normalized:
         raise RuntimeError("AGENTHUB_API_KEYS_JSON must define at least one API key")
     return normalized
@@ -55,12 +172,26 @@ def _sign(body: str) -> str:
     return hmac.new(_token_secret(), body.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def issue_scoped_token(owner: str, scopes: list[str], ttl_seconds: int = DEFAULT_TOKEN_TTL_SECONDS) -> dict[str, Any]:
+def issue_scoped_token(
+    owner: str,
+    scopes: list[str],
+    ttl_seconds: int = DEFAULT_TOKEN_TTL_SECONDS,
+) -> dict[str, Any]:
     ttl = max(1, min(int(ttl_seconds), MAX_TOKEN_TTL_SECONDS))
     now = utc_now_epoch()
+    owner_value = owner.owner if isinstance(owner, AuthContext) else str(owner)
+    roles = sorted(owner.roles) if isinstance(owner, AuthContext) else list(_default_roles(owner_value))
+    tenant_id = owner.tenant_id if isinstance(owner, AuthContext) else "tenant-default"
+    requested_scopes = sorted({str(scope).strip() for scope in scopes if str(scope).strip()})
+    if isinstance(owner, AuthContext) and "*" not in owner.scopes:
+        unauthorized = [scope for scope in requested_scopes if not owner.allows_scope(scope)]
+        if unauthorized:
+            raise HTTPException(status_code=403, detail="requested scopes exceed issuer authority")
     payload = {
-        "sub": owner,
-        "scopes": sorted({str(scope).strip() for scope in scopes if str(scope).strip()}),
+        "sub": owner_value,
+        "scopes": requested_scopes,
+        "roles": roles,
+        "tenant_id": tenant_id,
         "iat": now,
         "exp": now + ttl,
     }
@@ -94,35 +225,38 @@ def verify_scoped_token(token: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="invalid bearer token payload")
     if "sub" not in payload or "exp" not in payload:
         raise HTTPException(status_code=401, detail="invalid bearer token claims")
-    if int(payload["exp"]) < utc_now_epoch():
+    try:
+        expires_at = int(payload["exp"])
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=401, detail="invalid bearer token expiry") from exc
+    if expires_at < utc_now_epoch():
         raise HTTPException(status_code=401, detail="bearer token expired")
     scopes = payload.get("scopes", [])
-    if not isinstance(scopes, list):
+    if not isinstance(scopes, list) or any(not isinstance(scope, str) for scope in scopes):
         raise HTTPException(status_code=401, detail="invalid bearer token scopes")
+    roles = payload.get("roles", [])
+    if not isinstance(roles, list) or any(not isinstance(role, str) for role in roles):
+        raise HTTPException(status_code=401, detail="invalid bearer token roles")
     payload["scopes"] = [str(scope) for scope in scopes]
+    payload["roles"] = [str(role) for role in roles]
     payload["sub"] = str(payload["sub"])
+    payload["tenant_id"] = str(payload.get("tenant_id") or "tenant-default")
     return payload
 
 
-def _owner_from_api_key(x_api_key: str | None) -> str | None:
+def _context_from_api_key(x_api_key: str | None, *, tenant_id: str = "tenant-default") -> AuthContext | None:
     if not x_api_key:
         return None
-    return _api_key_map().get(x_api_key)
-
-
-def _owner_and_scopes_from_agent_credential(secret: str) -> tuple[str, list[str]]:
-    """Authenticate using an agent credential secret. Returns (owner, scopes)."""
-    from src.identity.credentials import verify_credential
-
-    try:
-        result = verify_credential(secret)
-        # Resolve owner from agent identity
-        from src.identity.storage import IDENTITY_STORAGE
-
-        identity = IDENTITY_STORAGE.get_identity(result["agent_id"])
-        return identity["owner"], result["scopes"]
-    except (PermissionError, KeyError, RuntimeError) as exc:
-        raise HTTPException(status_code=401, detail=f"agent credential auth failed: {exc}") from exc
+    record = _api_key_records().get(x_api_key)
+    if record is None:
+        return None
+    return AuthContext(
+        record.owner,
+        scopes=record.scopes,
+        roles=record.roles,
+        tenant_id=tenant_id,
+        auth_method="api_key",
+    )
 
 
 def _owner_and_scopes_from_jwt(token: str) -> tuple[str, list[str]]:
@@ -132,46 +266,14 @@ def _owner_and_scopes_from_jwt(token: str) -> tuple[str, list[str]]:
     try:
         claims = verify_jwt(token, require_agent_id=False)
         owner = str(claims.get("sub", ""))
-        scopes: list[str] = claims.get("scopes", [])
+        scopes = claims.get("scopes", [])
         if not owner:
             raise HTTPException(status_code=401, detail="JWT missing sub claim")
+        if not isinstance(scopes, list) or any(not isinstance(scope, str) for scope in scopes):
+            raise HTTPException(status_code=401, detail="JWT has invalid scopes claim")
         return owner, scopes
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=f"JWT auth failed: {exc}") from exc
-
-
-def _owner_and_scopes_from_delegation_token(signed_token: str) -> tuple[str, list[str]]:
-    """Authenticate using a delegation token. Returns (owner-of-subject, delegated_scopes)."""
-    from src.identity.delegation_tokens import verify_delegation_token
-
-    try:
-        result = verify_delegation_token(signed_token)
-        from src.identity.storage import IDENTITY_STORAGE
-
-        identity = IDENTITY_STORAGE.get_identity(result["subject_agent_id"])
-        return identity["owner"], result["delegated_scopes"]
-    except (PermissionError, KeyError, RuntimeError) as exc:
-        raise HTTPException(status_code=401, detail=f"delegation token auth failed: {exc}") from exc
-
-
-def _owner_and_scopes_from_authorization(authorization: str | None) -> tuple[str, list[str]] | None:
-    if not authorization:
-        return None
-    # Agent credential auth: "AgentCredential <secret>"
-    agent_prefix = "agentcredential "
-    if authorization.lower().startswith(agent_prefix):
-        secret = authorization[len(agent_prefix):].strip()
-        return _owner_and_scopes_from_agent_credential(secret)
-    # Standard bearer token auth
-    prefix = "bearer "
-    if not authorization.lower().startswith(prefix):
-        raise HTTPException(status_code=401, detail="invalid authorization scheme")
-    token = authorization[len(prefix) :].strip()
-    # JWT tokens have 3 dot-separated segments; legacy HMAC tokens have 2
-    if token.count(".") == 2:
-        return _owner_and_scopes_from_jwt(token)
-    claims = verify_scoped_token(token)
-    return claims["sub"], claims.get("scopes", [])
 
 
 def resolve_owner_from_headers(
@@ -179,31 +281,20 @@ def resolve_owner_from_headers(
     x_api_key: str | None,
     authorization: str | None,
     x_delegation_token: str | None = None,
+    tenant_id: str = "tenant-default",
     strict: bool = True,
-) -> str | None:
-    owner = _owner_from_api_key(x_api_key)
-    if owner is not None:
-        return owner
-    # Delegation token header takes priority over Authorization
-    if x_delegation_token:
-        try:
-            dt_owner, _ = _owner_and_scopes_from_delegation_token(x_delegation_token)
-            return dt_owner
-        except HTTPException:
-            if strict:
-                raise
-            return None
-    if not authorization:
-        return None
+) -> AuthContext | None:
     try:
-        token_auth = _owner_and_scopes_from_authorization(authorization)
+        return resolve_auth_context(
+            x_api_key=x_api_key,
+            authorization=authorization,
+            x_delegation_token=x_delegation_token,
+            tenant_id=tenant_id,
+        )
     except HTTPException:
         if strict:
             raise
         return None
-    if token_auth is None:
-        return None
-    return token_auth[0]
 
 
 def resolve_auth_context(
@@ -211,18 +302,16 @@ def resolve_auth_context(
     x_api_key: str | None = None,
     authorization: str | None = None,
     x_delegation_token: str | None = None,
-) -> dict[str, Any]:
+    tenant_id: str = "tenant-default",
+) -> AuthContext | None:
     """Resolve full auth context including agent identity, scopes, and auth method."""
-    # 1. Platform API key
-    owner = _owner_from_api_key(x_api_key)
-    if owner is not None:
-        return {
-            "owner": owner,
-            "auth_method": "api_key",
-            "agent_id": None,
-            "scopes": ["*"],
-            "delegation_token_id": None,
-        }
+    # An explicitly supplied credential must validate; do not silently fall through
+    # to a second credential type when the first one is invalid.
+    if x_api_key:
+        context = _context_from_api_key(x_api_key, tenant_id=tenant_id)
+        if context is None:
+            raise HTTPException(status_code=401, detail="invalid API key")
+        return context
 
     # 2. Delegation token — fail loudly if provided but invalid
     if x_delegation_token:
@@ -232,13 +321,15 @@ def resolve_auth_context(
         try:
             result = verify_delegation_token(x_delegation_token)
             identity = IDENTITY_STORAGE.get_identity(result["subject_agent_id"])
-            return {
-                "owner": identity["owner"],
-                "auth_method": "delegation_token",
-                "agent_id": result["subject_agent_id"],
-                "scopes": result["delegated_scopes"],
-                "delegation_token_id": result["token_id"],
-            }
+            return AuthContext(
+                identity["owner"],
+                scopes=result["delegated_scopes"],
+                roles=_default_roles(identity["owner"]),
+                tenant_id=tenant_id,
+                auth_method="delegation_token",
+                agent_id=result["subject_agent_id"],
+                delegation_token_id=result["token_id"],
+            )
         except (PermissionError, KeyError, RuntimeError) as exc:
             raise HTTPException(status_code=401, detail=f"delegation token auth failed: {exc}") from exc
 
@@ -253,74 +344,72 @@ def resolve_auth_context(
             try:
                 result = verify_credential(secret)
                 identity = IDENTITY_STORAGE.get_identity(result["agent_id"])
-                return {
-                    "owner": identity["owner"],
-                    "auth_method": "agent_credential",
-                    "agent_id": result["agent_id"],
-                    "scopes": result["scopes"],
-                    "delegation_token_id": None,
-                }
+                return AuthContext(
+                    identity["owner"],
+                    scopes=result["scopes"],
+                    roles=_default_roles(identity["owner"]),
+                    tenant_id=tenant_id,
+                    auth_method="agent_credential",
+                    agent_id=result["agent_id"],
+                )
             except (PermissionError, KeyError, RuntimeError) as exc:
                 raise HTTPException(status_code=401, detail=f"agent credential auth failed: {exc}") from exc
-        else:
-            prefix = "bearer "
-            if authorization.lower().startswith(prefix):
-                raw_token = authorization[len(prefix):].strip()
-                # JWT tokens have 3 dot-separated segments
-                if raw_token.count(".") == 2:
-                    jwt_owner, jwt_scopes = _owner_and_scopes_from_jwt(raw_token)
-                    return {
-                        "owner": jwt_owner,
-                        "auth_method": "jwt_bearer",
-                        "agent_id": None,
-                        "scopes": jwt_scopes,
-                        "delegation_token_id": None,
-                    }
-            token_auth = _owner_and_scopes_from_authorization(authorization)
-            if token_auth is not None:
-                return {
-                    "owner": token_auth[0],
-                    "auth_method": "bearer_token",
-                    "agent_id": None,
-                    "scopes": token_auth[1],
-                    "delegation_token_id": None,
-                }
+        prefix = "bearer "
+        if not authorization.lower().startswith(prefix):
+            raise HTTPException(status_code=401, detail="invalid authorization scheme")
+        raw_token = authorization[len(prefix):].strip()
+        if raw_token.count(".") == 2:
+            jwt_owner, jwt_scopes = _owner_and_scopes_from_jwt(raw_token)
+            return AuthContext(
+                jwt_owner,
+                scopes=jwt_scopes,
+                roles=_default_roles(jwt_owner),
+                tenant_id=tenant_id,
+                auth_method="jwt_bearer",
+            )
+        claims = verify_scoped_token(raw_token)
+        return AuthContext(
+            claims["sub"],
+            scopes=claims.get("scopes", []),
+            roles=claims.get("roles", []),
+            tenant_id=tenant_id or claims.get("tenant_id", "tenant-default"),
+            auth_method="bearer_token",
+        )
 
     # No credentials provided at all
-    return {
-        "owner": None,
-        "auth_method": None,
-        "agent_id": None,
-        "scopes": [],
-        "delegation_token_id": None,
-    }
+    return None
 
 
 def validate_auth_configuration() -> None:
-    _ = _api_key_map()
+    _ = _api_key_records()
     _ = _token_secret()
 
 
-def require_api_key_owner(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> str:
-    owner = _owner_from_api_key(x_api_key)
-    if owner is None:
+def require_api_key_owner(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> AuthContext:
+    context = _context_from_api_key(x_api_key, tenant_id=x_tenant_id or "tenant-default")
+    if context is None:
         raise HTTPException(status_code=401, detail="missing or invalid API key")
-    return owner
+    return context
 
 
 def require_api_key(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_delegation_token: str | None = Header(default=None, alias="X-Delegation-Token"),
-) -> str:
-    owner = resolve_owner_from_headers(
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> AuthContext:
+    context = resolve_owner_from_headers(
         x_api_key=x_api_key,
         authorization=authorization,
         x_delegation_token=x_delegation_token,
+        tenant_id=x_tenant_id or "tenant-default",
         strict=True,
     )
-    if owner is not None:
-        return owner
+    if context is not None:
+        return context
     raise HTTPException(status_code=401, detail="missing or invalid authentication")
 
 
@@ -331,26 +420,18 @@ def require_scope(scope: str):
         x_api_key: str | None = Header(default=None, alias="X-API-Key"),
         authorization: str | None = Header(default=None, alias="Authorization"),
         x_delegation_token: str | None = Header(default=None, alias="X-Delegation-Token"),
-    ) -> str:
-        # Platform API key has all scopes
-        owner = _owner_from_api_key(x_api_key)
-        if owner is not None:
-            return owner
-
-        # Delegation token
-        if x_delegation_token:
-            dt_owner, dt_scopes = _owner_and_scopes_from_delegation_token(x_delegation_token)
-            if normalized_scope in dt_scopes or "*" in dt_scopes:
-                return dt_owner
-            raise HTTPException(status_code=403, detail=f"missing required scope: {normalized_scope}")
-
-        # Bearer token or agent credential
-        token_auth = _owner_and_scopes_from_authorization(authorization)
-        if token_auth is None:
+        x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+    ) -> AuthContext:
+        context = resolve_auth_context(
+            x_api_key=x_api_key,
+            authorization=authorization,
+            x_delegation_token=x_delegation_token,
+            tenant_id=x_tenant_id or "tenant-default",
+        )
+        if context is None:
             raise HTTPException(status_code=401, detail="missing or invalid authentication")
-        token_owner, scopes = token_auth
-        if normalized_scope in scopes or "*" in scopes:
-            return token_owner
+        if context.allows_scope(normalized_scope):
+            return context
         raise HTTPException(status_code=403, detail=f"missing required scope: {normalized_scope}")
 
     return _dependency
