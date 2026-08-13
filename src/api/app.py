@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from src.api.access_policy import access_mode, classify_route, evaluate_access, requires_idempotency
 from src.api.auth import resolve_owner_from_headers
@@ -158,25 +159,16 @@ app.include_router(policy_sim_router)
 
 # --- Production middleware ---
 
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=os.environ.get("AGENTHUB_CORS_ORIGINS", "").split(",") if os.environ.get("AGENTHUB_CORS_ORIGINS") else [],
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["X-API-Key", "Authorization", "Content-Type", "Idempotency-Key", "X-Delegation-Token"],
-    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+from src.api.middleware import (  # noqa: E402
+    RequestLoggingMiddleware,
+    RequestTimeoutMiddleware,
+    is_rate_limit_exempt_path,
+    limiter,
+    rate_limit_exceeded_handler as _rl_handler,
 )
-
-# Rate limiting
-from src.api.middleware import limiter, rate_limit_exceeded_handler as _rl_handler  # noqa: E402
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rl_handler)
-
-# Request logging + X-Request-ID
-from src.api.middleware import RequestLoggingMiddleware  # noqa: E402
-
-app.add_middleware(RequestLoggingMiddleware)
 
 # Delegation chain middleware
 from src.api.middleware_delegation import DelegationChainMiddleware  # noqa: E402
@@ -378,3 +370,28 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
             idempotency_key=key,
         )
         raise
+
+
+# Register outer middleware after function middleware so reliability controls
+# cover access, idempotency, delegation, and route execution. Starlette wraps
+# the last middleware added around the existing stack.
+for _route in app.routes:
+    _path = getattr(_route, "path", "")
+    _endpoint = getattr(_route, "endpoint", None)
+    if _endpoint is not None and is_rate_limit_exempt_path(_path):
+        limiter.exempt(_endpoint)
+
+app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(RequestTimeoutMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=(
+        os.environ.get("AGENTHUB_CORS_ORIGINS", "").split(",")
+        if os.environ.get("AGENTHUB_CORS_ORIGINS")
+        else []
+    ),
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["X-API-Key", "Authorization", "Content-Type", "Idempotency-Key", "X-Delegation-Token"],
+    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+)
