@@ -75,6 +75,7 @@ module.exports = defineConfig({
       AGENTHUB_DEVHUB_DB_PATH: runtimePath("devhub.db"),
       AGENTHUB_LEASE_DB_PATH: runtimePath("lease.db"),
       AGENTHUB_KNOWLEDGE_DB_PATH: runtimePath("knowledge.db"),
+      AGENTHUB_OPERATOR_DIAGNOSTICS_DB_PATH: runtimePath("operator-diagnostics.db"),
       AGENTHUB_COMPLIANCE_DB_PATH: runtimePath("compliance.db"),
       AGENTHUB_COMPLIANCE_EVIDENCE_PATH: runtimePath("compliance-evidence.json"),
       AGENTHUB_FEDERATION_DB_PATH: runtimePath("federation.db"),
