@@ -70,8 +70,7 @@ def _authorize_jwt_issuance(request: IssueJWTRequest, context: AuthContext) -> l
         raise HTTPException(status_code=403, detail="agent principal cannot issue a token for another agent")
 
     requested_scopes = sorted({scope.strip() for scope in request.scopes if scope.strip()})
-    is_platform_admin = "admin" in context.roles
-    if not is_platform_admin and any(not context.allows_scope(scope) for scope in requested_scopes):
+    if any(not context.allows_scope(scope) for scope in requested_scopes):
         raise HTTPException(status_code=403, detail="requested scopes exceed issuer authority")
     return requested_scopes
 

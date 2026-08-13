@@ -40,6 +40,11 @@ def jwt_issuance_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dic
                     "scopes": ["identity.write"],
                     "roles": ["admin"],
                 },
+                "platform-wildcard-key": {
+                    "owner": "owner-platform",
+                    "scopes": ["*"],
+                    "roles": ["admin"],
+                },
                 "platform-member-key": {
                     "owner": "owner-platform",
                     "scopes": ["identity.write"],
@@ -173,7 +178,7 @@ def test_tenant_mismatch_is_denied(jwt_issuance_runtime: dict[str, str]) -> None
     assert response.json()["detail"]["code"] == "tenant.forbidden"
 
 
-def test_only_explicit_platform_admin_role_bypasses_scope_attenuation(
+def test_admin_role_does_not_bypass_scope_attenuation_but_wildcard_does(
     jwt_issuance_runtime: dict[str, str],
 ) -> None:
     with TestClient(app) as client:
@@ -189,6 +194,13 @@ def test_only_explicit_platform_admin_role_bypasses_scope_attenuation(
             scopes=["runtime.admin"],
             headers=_api_key_headers("platform-admin-key"),
         )
+        wildcard_response = _issue(
+            client,
+            agent_id="agent-platform",
+            scopes=["runtime.admin"],
+            headers=_api_key_headers("platform-wildcard-key"),
+        )
 
     assert member_response.status_code == 403
-    assert admin_response.status_code == 200, admin_response.text
+    assert admin_response.status_code == 403
+    assert wildcard_response.status_code == 200, wildcard_response.text
