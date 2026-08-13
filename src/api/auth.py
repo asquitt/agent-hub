@@ -259,19 +259,32 @@ def _context_from_api_key(x_api_key: str | None, *, tenant_id: str = "tenant-def
     )
 
 
-def _owner_and_scopes_from_jwt(token: str) -> tuple[str, list[str]]:
-    """Authenticate using a JWT bearer token. Returns (owner, scopes)."""
+def _context_from_jwt(token: str, *, tenant_id: str) -> AuthContext:
+    """Authenticate a JWT without discarding its bound agent identity."""
     from src.identity.jwt_tokens import verify_jwt
 
     try:
-        claims = verify_jwt(token, require_agent_id=False)
+        claims = verify_jwt(token, require_agent_id=True)
         owner = str(claims.get("sub", ""))
         scopes = claims.get("scopes", [])
+        agent_id = str(claims.get("agent_id", "")).strip()
+        roles = claims.get("roles", [])
         if not owner:
             raise HTTPException(status_code=401, detail="JWT missing sub claim")
+        if not agent_id:
+            raise HTTPException(status_code=401, detail="JWT missing agent_id claim")
         if not isinstance(scopes, list) or any(not isinstance(scope, str) for scope in scopes):
             raise HTTPException(status_code=401, detail="JWT has invalid scopes claim")
-        return owner, scopes
+        if not isinstance(roles, list) or any(not isinstance(role, str) for role in roles):
+            raise HTTPException(status_code=401, detail="JWT has invalid roles claim")
+        return AuthContext(
+            owner,
+            scopes=scopes,
+            roles=roles or ("member",),
+            tenant_id=tenant_id,
+            auth_method="jwt_bearer",
+            agent_id=agent_id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=f"JWT auth failed: {exc}") from exc
 
@@ -305,8 +318,11 @@ def resolve_auth_context(
     tenant_id: str = "tenant-default",
 ) -> AuthContext | None:
     """Resolve full auth context including agent identity, scopes, and auth method."""
-    # An explicitly supplied credential must validate; do not silently fall through
-    # to a second credential type when the first one is invalid.
+    supplied_credentials = sum(bool(value and value.strip()) for value in (x_api_key, authorization, x_delegation_token))
+    if supplied_credentials > 1:
+        raise HTTPException(status_code=401, detail="multiple authentication credentials are not allowed")
+
+    # An explicitly supplied credential must validate; do not silently fall through.
     if x_api_key:
         context = _context_from_api_key(x_api_key, tenant_id=tenant_id)
         if context is None:
@@ -324,7 +340,7 @@ def resolve_auth_context(
             return AuthContext(
                 identity["owner"],
                 scopes=result["delegated_scopes"],
-                roles=_default_roles(identity["owner"]),
+                roles=("member",),
                 tenant_id=tenant_id,
                 auth_method="delegation_token",
                 agent_id=result["subject_agent_id"],
@@ -347,7 +363,7 @@ def resolve_auth_context(
                 return AuthContext(
                     identity["owner"],
                     scopes=result["scopes"],
-                    roles=_default_roles(identity["owner"]),
+                    roles=("member",),
                     tenant_id=tenant_id,
                     auth_method="agent_credential",
                     agent_id=result["agent_id"],
@@ -359,14 +375,7 @@ def resolve_auth_context(
             raise HTTPException(status_code=401, detail="invalid authorization scheme")
         raw_token = authorization[len(prefix):].strip()
         if raw_token.count(".") == 2:
-            jwt_owner, jwt_scopes = _owner_and_scopes_from_jwt(raw_token)
-            return AuthContext(
-                jwt_owner,
-                scopes=jwt_scopes,
-                roles=_default_roles(jwt_owner),
-                tenant_id=tenant_id,
-                auth_method="jwt_bearer",
-            )
+            return _context_from_jwt(raw_token, tenant_id=tenant_id)
         claims = verify_scoped_token(raw_token)
         return AuthContext(
             claims["sub"],

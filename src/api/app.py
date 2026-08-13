@@ -194,22 +194,24 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
     from fastapi import HTTPException
 
     auth_error: HTTPException | None = None
-    owner: str | None = None
+    auth_context = None
     try:
-        owner = resolve_owner_from_headers(
+        auth_context = resolve_owner_from_headers(
             x_api_key=request.headers.get("X-API-Key"),
             authorization=request.headers.get("Authorization"),
             x_delegation_token=request.headers.get("X-Delegation-Token"),
+            tenant_id=tenant_id,
             strict=False,
         )
     except HTTPException as exc:
         auth_error = exc
 
-    request.state.agenthub_owner = owner
+    request.state.agenthub_auth_context = auth_context
+    request.state.agenthub_owner = auth_context.owner if auth_context is not None else None
     request.state.agenthub_tenant_id = tenant_id
 
-    violation = evaluate_access(classification=classification, owner=owner, tenant_id=tenant_id)
-    if auth_error is not None and classification != "public" and owner is None:
+    violation = evaluate_access(classification=classification, owner=auth_context, tenant_id=tenant_id)
+    if auth_error is not None and classification != "public" and auth_context is None:
         violation_code = "auth.invalid"
         violation_message = str(auth_error.detail)
     elif violation is not None:
@@ -235,7 +237,7 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
         warning = f"{violation_code}:{violation_message}"
         append_warning_header(response, warning)
         meter_warn(
-            actor=owner or "anonymous",
+            actor=auth_context.owner if auth_context is not None else "anonymous",
             kind="access.warn",
             method=method,
             path=path,

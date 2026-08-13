@@ -22,7 +22,7 @@ def reliability_app(tmp_path_factory: pytest.TempPathFactory):
         "AGENTHUB_PROVENANCE_SIGNING_SECRET": "test-provenance-secret",
         "AGENTHUB_VAULT_KEY": "test-vault-key",
         "AGENTHUB_RATE_LIMIT_DEFAULT": "2/minute",
-        "AGENTHUB_REQUEST_TIMEOUT_SECONDS": "0.02",
+        "AGENTHUB_REQUEST_TIMEOUT_SECONDS": "0.5",
     }
     storage_paths = {
         "AGENTHUB_REGISTRY_DB_PATH": root / "registry.db",
@@ -55,7 +55,7 @@ def reliability_app(tmp_path_factory: pytest.TempPathFactory):
             return {"ok": True}
 
         async def slow_probe() -> dict[str, bool]:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.75)
             return {"ok": True}
 
         app.add_api_route("/__reliability__/fast", fast_probe, methods=["GET"], include_in_schema=False)
@@ -93,7 +93,7 @@ def test_request_timeout_returns_504(reliability_app) -> None:
         client.close()
 
     assert response.status_code == 504
-    assert response.json() == {"detail": "request timed out after 0.02s"}
+    assert response.json() == {"detail": "request timed out after 0.5s"}
     assert response.headers.get("X-Request-ID")
 
 

@@ -28,6 +28,7 @@ def authorization_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
         ),
     )
     monkeypatch.setenv("AGENTHUB_AUTH_TOKEN_SECRET", "authorization-boundary-token-secret")
+    monkeypatch.setenv("AGENTHUB_IDENTITY_SIGNING_SECRET", "authorization-boundary-identity-secret")
     monkeypatch.setenv(
         "AGENTHUB_OWNER_TENANTS_JSON",
         json.dumps({"owner-a": ["tenant-a"], "owner-b": ["tenant-a"]}),
@@ -150,6 +151,29 @@ def test_unclassified_route_is_denied_before_execution(
 
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "route.unclassified"
+
+
+def test_mixed_credentials_are_rejected(authorization_runtime: None) -> None:
+    with TestClient(app) as client:
+        response = client.get(
+            "/v1/agents",
+            headers={**_headers("owner-a-key"), "Authorization": "Bearer invalid-token"},
+        )
+
+    assert response.status_code == 401
+
+
+def test_jwt_retains_agent_identity_without_owner_derived_admin_role(authorization_runtime: None) -> None:
+    from src.api.auth import resolve_auth_context
+    from src.identity.jwt_tokens import issue_jwt
+
+    token = issue_jwt(subject="owner-dev", agent_id="agent-bound", scopes=["runtime.read"])["token"]
+    context = resolve_auth_context(authorization=f"Bearer {token}", tenant_id="tenant-a")
+
+    assert context is not None
+    assert context.agent_id == "agent-bound"
+    assert context.roles == frozenset({"member"})
+    assert context.tenant_id == "tenant-a"
 
 
 def test_every_registered_operation_has_an_explicit_policy(authorization_runtime: None) -> None:
