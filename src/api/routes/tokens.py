@@ -6,8 +6,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.api.auth import require_api_key
+from src.api.auth import AuthContext, require_api_key
 from src.common.time import iso_from_epoch
+from src.identity.constants import STATUS_ACTIVE
 from src.identity.jwt_constants import (
     DEFAULT_JWT_TTL_SECONDS,
     DEFAULT_ISSUER,
@@ -16,6 +17,7 @@ from src.identity.jwt_constants import (
     VALID_OVERSIGHT_LEVELS,
 )
 from src.identity.jwt_tokens import get_jwks, issue_jwt, verify_jwt
+from src.identity.storage import get_agent_identity
 
 router = APIRouter(prefix="/v1/identity/tokens", tags=["identity-tokens"])
 
@@ -51,11 +53,35 @@ class VerifyJWTRequest(BaseModel):
 # --- Endpoints ---
 
 
+def _authorize_jwt_issuance(request: IssueJWTRequest, context: AuthContext) -> list[str]:
+    if not isinstance(context, AuthContext):
+        raise HTTPException(status_code=403, detail="JWT issuance requires an authorization context")
+
+    try:
+        identity = get_agent_identity(request.agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="agent identity not found") from exc
+
+    if identity["status"] != STATUS_ACTIVE:
+        raise HTTPException(status_code=403, detail="agent identity is not active")
+    if identity["owner"] != context.owner:
+        raise HTTPException(status_code=403, detail="agent identity belongs to another owner")
+    if context.agent_id is not None and context.agent_id != request.agent_id:
+        raise HTTPException(status_code=403, detail="agent principal cannot issue a token for another agent")
+
+    requested_scopes = sorted({scope.strip() for scope in request.scopes if scope.strip()})
+    is_platform_admin = "admin" in context.roles
+    if not is_platform_admin and any(not context.allows_scope(scope) for scope in requested_scopes):
+        raise HTTPException(status_code=403, detail="requested scopes exceed issuer authority")
+    return requested_scopes
+
+
 @router.post("/jwt")
 def post_issue_jwt(
     request: IssueJWTRequest,
-    owner: str = Depends(require_api_key),
+    context: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
+    requested_scopes = _authorize_jwt_issuance(request, context)
     if request.oversight_level and request.oversight_level not in VALID_OVERSIGHT_LEVELS:
         raise HTTPException(
             status_code=400,
@@ -63,9 +89,9 @@ def post_issue_jwt(
         )
     try:
         result = issue_jwt(
-            subject=owner,
+            subject=context.owner,
             agent_id=request.agent_id,
-            scopes=request.scopes,
+            scopes=requested_scopes,
             ttl_seconds=request.ttl_seconds,
             audience=request.audience,
             agent_capabilities=request.agent_capabilities,
