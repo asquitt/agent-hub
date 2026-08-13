@@ -21,6 +21,7 @@ from src.identity.oauth_clients import OAUTH_CLIENT_STORE
 router = APIRouter(tags=["oauth"])
 
 _DEFAULT_ISSUER = "urn:agenthub:registry"
+_SUPPORTED_GRANT_TYPES = frozenset({"client_credentials"})
 
 
 def _base_url() -> str:
@@ -80,7 +81,7 @@ class RegisterClientRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     client_name: str = Field(min_length=1, max_length=256)
-    grant_types: list[str] = Field(default_factory=lambda: ["client_credentials"], max_length=5)
+    grant_types: list[str] = Field(default_factory=lambda: ["client_credentials"], min_length=1, max_length=5)
     scope: str | None = Field(default=None, max_length=512)
     redirect_uris: list[str] = Field(default_factory=list, max_length=10)
 
@@ -91,15 +92,27 @@ def post_register_client(
     _owner: str = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Dynamic client registration (RFC 7591)."""
-    for gt in request.grant_types:
-        if gt not in {"client_credentials", "authorization_code", "refresh_token"}:
-            raise HTTPException(status_code=400, detail=f"unsupported grant_type: {gt}")
-    result = OAUTH_CLIENT_STORE.register_client(
-        client_name=request.client_name,
-        grant_types=request.grant_types,
-        scope=request.scope,
-        redirect_uris=request.redirect_uris,
-    )
+    unsupported = sorted(set(request.grant_types) - _SUPPORTED_GRANT_TYPES)
+    if unsupported:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_client_metadata",
+                "error_description": f"unsupported grant_type: {unsupported[0]}",
+            },
+        )
+    try:
+        result = OAUTH_CLIENT_STORE.register_client(
+            client_name=request.client_name,
+            grant_types=request.grant_types,
+            scope=request.scope,
+            redirect_uris=request.redirect_uris,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_client_metadata", "error_description": str(exc)},
+        ) from exc
     return result
 
 
@@ -140,12 +153,23 @@ def post_token(
             detail={"error": "unauthorized_client", "error_description": "client not authorized for client_credentials grant"},
         )
 
-    requested_scopes = [s.strip() for s in scope.split() if s.strip()] if scope else []
+    registered_scopes = set(str(client.get("scope", "")).split())
+    requested_scopes = set(scope.split()) if scope else set()
+    unauthorized_scopes = requested_scopes - registered_scopes
+    if unauthorized_scopes:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_scope",
+                "error_description": "requested scope is not authorized for this client",
+            },
+        )
+    granted_scopes = sorted(requested_scopes or registered_scopes)
 
     jwt_result = issue_jwt(
         subject=client_id,
         agent_id=client_id,
-        scopes=requested_scopes or None,
+        scopes=granted_scopes or None,
         issuer=_DEFAULT_ISSUER,
         ttl_seconds=3600,
     )
@@ -155,6 +179,6 @@ def post_token(
         "token_type": "Bearer",
         "expires_in": 3600,
     }
-    if requested_scopes:
-        response["scope"] = " ".join(sorted(requested_scopes))
+    if granted_scopes:
+        response["scope"] = " ".join(granted_scopes)
     return response
