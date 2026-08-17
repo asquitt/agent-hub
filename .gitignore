@@ -52,3 +52,23 @@ CLAUDE.md
 AGENTS.md
 .claude/
 .codex/
+
+# Shared agent operating system
+!CLAUDE.md
+!AGENTS.md
+!.agents/
+!.agents/skills/
+!.agents/skills/**
+!.codex/
+.codex/*
+!.codex/hooks.json
+!.codex/hooks/
+!.codex/hooks/*.sh
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/project-quality/
+!.claude/skills/project-quality/SKILL.md
+!.claude/skills/independent-review/
+!.claude/skills/independent-review/SKILL.md
