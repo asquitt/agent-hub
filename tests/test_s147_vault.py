@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 
+import pytest
+
 os.environ.setdefault("AGENTHUB_API_KEYS_JSON", json.dumps({"test-key": "owner-dev"}))
 os.environ.setdefault("AGENTHUB_IDENTITY_SIGNING_SECRET", "test-secret-s147")
 os.environ.setdefault("AGENTHUB_AUTH_TOKEN_SECRET", "test-auth-s147")
@@ -128,6 +130,51 @@ def test_rotate_secret() -> None:
     )
     assert r.status_code == 200
     assert r.json()["version"] == 2
+
+
+def test_rotate_revoked_secret_returns_bad_request() -> None:
+    _reset()
+    stored = client.post(
+        "/v1/vault/secrets",
+        json={"name": "revoked", "value": "v1"},
+        headers=HEADERS,
+    )
+    secret_id = stored.json()["secret_id"]
+    revoked = client.post(f"/v1/vault/secrets/{secret_id}/revoke", headers=HEADERS)
+    rotated = client.post(
+        f"/v1/vault/secrets/{secret_id}/rotate",
+        json={"new_value": "v2"},
+        headers=HEADERS,
+    )
+
+    assert revoked.status_code == 200
+    assert rotated.status_code == 400
+    assert rotated.json()["detail"] == "secret is expired, not active"
+
+
+@pytest.mark.parametrize("operation", ["rotate", "revoke"])
+@pytest.mark.parametrize(
+    ("error_type", "expected_status"),
+    [(ValueError, 400), (PermissionError, 403)],
+)
+def test_vault_mutation_routes_map_service_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    error_type: type[Exception],
+    expected_status: int,
+) -> None:
+    def denied(*args: object, **kwargs: object) -> dict[str, object]:
+        raise error_type("denied")
+
+    monkeypatch.setattr(f"src.api.routes.vault.{operation}_secret", denied)
+    response = client.post(
+        f"/v1/vault/secrets/test-secret/{operation}",
+        json={"new_value": "v2"} if operation == "rotate" else None,
+        headers=HEADERS,
+    )
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"] == "denied"
 
 
 def test_rotation_history() -> None:

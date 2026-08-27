@@ -165,6 +165,10 @@ def post_rotate_secret(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post("/v1/vault/secrets/{secret_id}/revoke")
@@ -177,3 +181,7 @@ def post_revoke_secret(
         return revoke_secret(secret_id, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc

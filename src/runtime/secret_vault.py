@@ -136,6 +136,8 @@ def access_secret(
     context = require_resource_actor(actor)
     if context.agent_id is not None and context.agent_id != agent_id:
         raise PermissionError("authenticated agent does not match requested agent")
+    effective_agent_id = context.agent_id or agent_id
+    get_agent_identity_for_actor(effective_agent_id, context)
     with _lock:
         secret = _get_authorized_secret_locked(secret_id, context)
         if secret["status"] != ROTATION_ACTIVE:
@@ -144,7 +146,6 @@ def access_secret(
             secret["status"] = ROTATION_EXPIRED
             raise ValueError("secret has expired")
 
-        effective_agent_id = context.agent_id or agent_id
         if secret.get("agent_id") and secret["agent_id"] != effective_agent_id:
             if context.agent_id is not None:
                 raise KeyError(f"secret not found: {secret_id}")
@@ -166,7 +167,12 @@ def rotate_secret(
     context = require_resource_actor(actor)
     with _lock:
         secret = _get_authorized_secret_locked(secret_id, context)
+        if secret["status"] != ROTATION_ACTIVE:
+            raise ValueError(f"secret is {secret['status']}, not active")
         now = time.time()
+        if now > secret["expires_at"]:
+            secret["status"] = ROTATION_EXPIRED
+            raise ValueError("secret has expired")
         old_version = secret["version"]
         remaining_ttl = max(secret["expires_at"] - now, 300)
 

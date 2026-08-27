@@ -453,3 +453,42 @@ def test_vault_rejects_invalid_agent_bindings(
     assert cross_owner.status_code == 404
     assert cross_tenant.status_code == 404
     assert missing.status_code == 404
+
+
+def test_vault_access_rejects_invalid_agent_attribution(
+    authorization_runtime: None,
+) -> None:
+    with TestClient(app) as client:
+        _register(client, "access-owner-a-agent")
+        _register(client, "access-owner-b-agent", api_key="owner-b-key")
+        _register(client, "access-tenant-b-agent", tenant_id="tenant-b")
+        stored = client.post(
+            "/v1/vault/secrets",
+            json={"name": "unbound-access-secret", "value": "value"},
+            headers=_headers("owner-a-key", "tenant-a"),
+        )
+        assert stored.status_code == 200, stored.text
+        secret_id = stored.json()["secret_id"]
+
+        def access(agent_id: str):
+            return client.post(
+                f"/v1/vault/secrets/{secret_id}/access",
+                json={"agent_id": agent_id},
+                headers=_headers("owner-a-key", "tenant-a"),
+            )
+
+        allowed = access("access-owner-a-agent")
+        cross_owner = access("access-owner-b-agent")
+        cross_tenant = access("access-tenant-b-agent")
+        missing = access("missing-access-agent")
+        detail = client.get(
+            f"/v1/vault/secrets/{secret_id}",
+            headers=_headers("owner-a-key", "tenant-a"),
+        )
+
+    assert allowed.status_code == 200
+    assert cross_owner.status_code == 404
+    assert cross_tenant.status_code == 404
+    assert missing.status_code == 404
+    assert detail.status_code == 200
+    assert detail.json()["access_count"] == 1
