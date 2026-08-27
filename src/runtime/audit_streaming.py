@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import logging
 import time
 import uuid
@@ -38,6 +37,7 @@ EVENT_ANOMALY_DETECTED = "anomaly.detected"
 EVENT_FEDERATION_REQUEST = "federation.request"
 EVENT_SCIM_PROVISIONED = "scim.provisioned"
 EVENT_SCIM_DEPROVISIONED = "scim.deprovisioned"
+EVENT_OAUTH_CLIENT_AUTHORITY_BOUND = "oauth.client_authority_bound"
 
 ALL_EVENT_TYPES = {
     EVENT_CREDENTIAL_ISSUED, EVENT_CREDENTIAL_ROTATED, EVENT_CREDENTIAL_REVOKED,
@@ -48,6 +48,7 @@ ALL_EVENT_TYPES = {
     EVENT_IDENTITY_CREATED, EVENT_IDENTITY_SUSPENDED,
     EVENT_ANOMALY_DETECTED, EVENT_FEDERATION_REQUEST,
     EVENT_SCIM_PROVISIONED, EVENT_SCIM_DEPROVISIONED,
+    EVENT_OAUTH_CLIENT_AUTHORITY_BOUND,
 }
 
 # Severity levels
@@ -75,6 +76,7 @@ EVENT_SEVERITY: dict[str, str] = {
     EVENT_FEDERATION_REQUEST: SEVERITY_INFO,
     EVENT_SCIM_PROVISIONED: SEVERITY_INFO,
     EVENT_SCIM_DEPROVISIONED: SEVERITY_WARNING,
+    EVENT_OAUTH_CLIENT_AUTHORITY_BOUND: SEVERITY_INFO,
 }
 
 # ── In-memory stores ────────────────────────────────────────────────
@@ -379,7 +381,7 @@ def _dispatch_event(event: dict[str, Any]) -> None:
 
         # In production this would be an async HTTP POST.
         # Here we record the delivery intent for testing.
-        delivery = _record_delivery(
+        _record_delivery(
             webhook_id=wh["webhook_id"],
             event_id=event["id"],
             status="delivered",

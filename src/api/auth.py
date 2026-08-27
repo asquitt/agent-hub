@@ -271,7 +271,7 @@ def verify_live_jwt(
 ) -> tuple[dict[str, Any], AuthContext]:
     """Verify JWT cryptography plus live agent or OAuth authority."""
     from src.identity.constants import STATUS_ACTIVE
-    from src.identity.jwt_tokens import verify_jwt
+    from src.identity.jwt_tokens import TOKEN_USE_AGENT, TOKEN_USE_OAUTH_CLIENT, verify_jwt
     from src.identity.oauth_clients import OAUTH_CLIENT_STORE
     from src.identity.storage import get_agent_identity_auth_snapshot
 
@@ -298,16 +298,26 @@ def verify_live_jwt(
     if token_tenant_id != tenant_id:
         raise HTTPException(status_code=401, detail="JWT tenant mismatch")
 
-    try:
-        identity, current_generation, identity_tenant_id = get_agent_identity_auth_snapshot(agent_id)
-    except KeyError as exc:
+    token_use = claims.get("token_use")
+    principal_type = claims.get("principal_type")
+    if principal_type is not None and (
+        not isinstance(principal_type, str) or principal_type not in {TOKEN_USE_AGENT, TOKEN_USE_OAUTH_CLIENT}
+    ):
+        raise HTTPException(status_code=401, detail="JWT has invalid principal_type claim")
+    if token_use is not None and principal_type is not None and token_use != principal_type:
+        raise HTTPException(status_code=401, detail="JWT authority claims conflict")
+    if token_use is None:
+        token_use = principal_type
+    if token_use is None and isinstance(claims.get("identity_generation"), str):
+        token_use = TOKEN_USE_AGENT
+    if token_use == TOKEN_USE_OAUTH_CLIENT:
         oauth_client = OAUTH_CLIENT_STORE.get_client(agent_id)
         if oauth_client is None:
-            raise HTTPException(status_code=401, detail="JWT agent identity not found") from exc
+            raise HTTPException(status_code=401, detail="JWT OAuth client not found")
         if oauth_client["owner"] != owner:
-            raise HTTPException(status_code=401, detail="JWT owner does not match OAuth client") from exc
+            raise HTTPException(status_code=401, detail="JWT owner does not match OAuth client")
         if oauth_client["tenant_id"] != token_tenant_id:
-            raise HTTPException(status_code=401, detail="JWT tenant does not match OAuth client") from exc
+            raise HTTPException(status_code=401, detail="JWT tenant does not match OAuth client")
         context = AuthContext(
             owner,
             scopes=scopes,
@@ -317,6 +327,13 @@ def verify_live_jwt(
             agent_id=agent_id,
         )
         return claims, context
+    if token_use != TOKEN_USE_AGENT:
+        raise HTTPException(status_code=401, detail="JWT missing token_use claim")
+
+    try:
+        identity, current_generation, identity_tenant_id = get_agent_identity_auth_snapshot(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=401, detail="JWT agent identity not found") from exc
 
     if identity["status"] != STATUS_ACTIVE:
         raise HTTPException(status_code=401, detail="JWT agent identity is not active")

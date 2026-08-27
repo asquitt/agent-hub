@@ -14,7 +14,7 @@ from src.api.app import app
 from src.api.auth import AuthContext, issue_scoped_token, resolve_auth_context
 from src.identity.credentials import issue_credential
 from src.identity import delegation_tokens
-from src.identity.jwt_tokens import issue_jwt, verify_jwt
+from src.identity.jwt_tokens import TOKEN_USE_OAUTH_CLIENT, issue_jwt, verify_jwt
 from src.identity.oauth_clients import OAUTH_CLIENT_STORE
 from src.identity.storage import get_agent_identity_auth_snapshot, reconfigure, reset_for_tests
 
@@ -253,6 +253,7 @@ def test_registered_oauth_client_jwt_uses_registrar_owner_and_tenant(jwt_auth_ru
     assert claims["sub"] == "owner-a"
     assert claims["agent_id"] == client_record["client_id"]
     assert claims["tenant_id"] == "tenant-a"
+    assert claims["token_use"] == "oauth_client"
     assert context is not None
     assert context.owner == "owner-a"
     assert context.agent_id == client_record["client_id"]
@@ -282,6 +283,7 @@ def test_oauth_jwt_claims_must_match_durable_client_owner_and_tenant(
             subject=subject,
             agent_id=str(client_record["client_id"]),
             tenant_id=tenant_id,
+            token_use=TOKEN_USE_OAUTH_CLIENT,
             scopes=["read"],
             issuer="urn:agenthub:registry",
         )["token"]
@@ -300,6 +302,27 @@ def test_tenantless_legacy_oauth_jwt_fails_closed(jwt_auth_runtime: None) -> Non
         )["token"]
 
         _assert_agent_request_denied(client, token)
+
+
+@pytest.mark.parametrize("principal_type", ["agent", ["oauth_client"]])
+def test_oauth_jwt_rejects_conflicting_or_malformed_authority_discriminator(
+    jwt_auth_runtime: None,
+    principal_type: object,
+) -> None:
+    with TestClient(app) as client:
+        client_record = _register_oauth_client(client)
+        token = issue_jwt(
+            subject="owner-a",
+            agent_id=str(client_record["client_id"]),
+            tenant_id="tenant-a",
+            token_use=TOKEN_USE_OAUTH_CLIENT,
+            scopes=["read"],
+            issuer="urn:agenthub:registry",
+            extra_claims={"principal_type": principal_type},
+        )["token"]
+        verification = _verify_jwt_endpoint(client, token)
+
+    assert verification["valid"] is False
 
 
 def test_delegation_token_cannot_replay_across_tenants(
@@ -480,3 +503,51 @@ def test_jwt_verify_endpoint_accepts_live_oauth_client(jwt_auth_runtime: None) -
     assert isinstance(claims, dict)
     assert claims["sub"] == "owner-a"
     assert claims["tenant_id"] == "tenant-a"
+
+
+def test_live_oauth_jwt_ignores_colliding_agent_identity(jwt_auth_runtime: None) -> None:
+    with TestClient(app) as client:
+        client_record = _register_oauth_client(client)
+        token = _issue_oauth_token(client, client_record)
+
+        collision = client.post(
+            "/v1/identity/agents",
+            json={"agent_id": str(client_record["client_id"])},
+            headers=_api_headers(tenant_id="tenant-b", api_key="owner-b-key"),
+        )
+        assert collision.status_code == 200, collision.text
+
+        verification = _verify_jwt_endpoint(client, token)
+        context = resolve_auth_context(authorization=f"Bearer {token}", tenant_id="tenant-a")
+        parent_authority_token = issue_jwt(
+            subject="owner-a",
+            agent_id=str(client_record["client_id"]),
+            tenant_id="tenant-a",
+            scopes=["read"],
+            issuer="urn:agenthub:registry",
+            extra_claims={"principal_type": "oauth_client"},
+        )["token"]
+        parent_authority_context = resolve_auth_context(
+            authorization=f"Bearer {parent_authority_token}",
+            tenant_id="tenant-a",
+        )
+        agent_issued = client.post(
+            "/v1/identity/tokens/jwt",
+            json={"agent_id": str(client_record["client_id"]), "scopes": ["read"]},
+            headers=_api_headers(tenant_id="tenant-b", api_key="owner-b-key"),
+        )
+        assert agent_issued.status_code == 200, agent_issued.text
+        agent_token = str(agent_issued.json()["token"])
+        agent_context = resolve_auth_context(authorization=f"Bearer {agent_token}", tenant_id="tenant-b")
+
+    assert verification["valid"] is True
+    assert context is not None
+    assert context.owner == "owner-a"
+    assert context.tenant_id == "tenant-a"
+    assert parent_authority_context is not None
+    assert parent_authority_context.owner == "owner-a"
+    assert parent_authority_context.tenant_id == "tenant-a"
+    assert agent_context is not None
+    assert agent_context.owner == "owner-b"
+    assert agent_context.tenant_id == "tenant-b"
+    assert verify_jwt(agent_token)["token_use"] == "agent"

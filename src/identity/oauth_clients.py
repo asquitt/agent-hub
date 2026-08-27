@@ -64,7 +64,6 @@ def _created_at_sort_key(record: dict[str, Any]) -> int:
     created_at = record.get("created_at")
     return created_at if isinstance(created_at, int) and not isinstance(created_at, bool) else -1
 
-
 def _normalize_redirect_uris(redirect_uris: list[str] | None) -> list[str]:
     if redirect_uris is None:
         return []
@@ -99,9 +98,9 @@ def _validated_record(record: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if not isinstance(client_name, str) or not client_name:
         return None
-    if not isinstance(owner, str) or not owner:
+    if not isinstance(owner, str) or not owner.strip():
         return None
-    if not isinstance(tenant_id, str) or not tenant_id:
+    if not isinstance(tenant_id, str) or not tenant_id.strip():
         return None
     if not isinstance(created_at, int) or isinstance(created_at, bool):
         return None
@@ -133,6 +132,18 @@ def _validated_record(record: dict[str, Any]) -> dict[str, Any] | None:
         "tenant_id": tenant_id.strip(),
         "created_at": created_at,
     }
+
+
+def _validated_legacy_record(record: dict[str, Any]) -> dict[str, Any] | None:
+    if record.get("owner") not in (None, "") or record.get("tenant_id") not in (None, ""):
+        return None
+    candidate = {**record, "owner": "legacy-owner", "tenant_id": "tenant-default"}
+    validated = _validated_record(candidate)
+    if validated is None:
+        return None
+    validated.pop("owner")
+    validated.pop("tenant_id")
+    return validated
 
 
 def _public_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -173,12 +184,12 @@ class OAuthClientStore:
         self,
         *,
         client_name: str,
-        grant_types: list[str] | None = None,
-        scope: str | None = None,
-        redirect_uris: list[str] | None = None,
         owner: str,
         tenant_id: str,
         authorized_scopes: Iterable[str],
+        grant_types: list[str] | None = None,
+        scope: str | None = None,
+        redirect_uris: list[str] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(client_name, str) or not client_name.strip():
             raise ValueError("client_name is required")
@@ -240,6 +251,74 @@ class OAuthClientStore:
         if not hmac.compare_digest(provided_hash, record["client_secret_hash"]):
             return None
         return _public_record(record)
+
+    def bind_legacy_client_authority(
+        self,
+        *,
+        client_id: str,
+        client_secret: str,
+        owner: str,
+        tenant_id: str,
+        authorized_scopes: Iterable[str],
+    ) -> dict[str, Any] | None:
+        """Bind owner and tenant to a BASE-shaped record after secret proof."""
+        if not client_id or not client_secret:
+            return None
+        normalized_owner = _normalize_authority(owner, field_name="owner")
+        normalized_tenant_id = _normalize_authority(tenant_id, field_name="tenant_id")
+        registrar_scopes = {str(item).strip() for item in authorized_scopes if str(item).strip()}
+        provided_hash = hashlib.sha256(client_secret.encode("utf-8")).hexdigest()
+
+        with _STORE_LOCK:
+            records = self._read_records()
+            matches = [index for index, record in enumerate(records) if record.get("client_id") == client_id]
+            if len(matches) != 1:
+                return None
+            record_index = matches[0]
+            raw_record = records[record_index]
+
+            bound_record = _validated_record(raw_record)
+            if bound_record is not None:
+                return None
+
+            legacy_record = _validated_legacy_record(raw_record)
+            if legacy_record is None or not hmac.compare_digest(provided_hash, legacy_record["client_secret_hash"]):
+                return None
+            if any(not _scope_allowed(item, registrar_scopes) for item in str(legacy_record["scope"]).split()):
+                return None
+            authority_binding_id = f"oab_{secrets.token_hex(16)}"
+            bound_record = {
+                **legacy_record,
+                "owner": normalized_owner,
+                "tenant_id": normalized_tenant_id,
+                "authority_binding": {
+                    "event_id": authority_binding_id,
+                    "event_type": "oauth.client_authority_bound",
+                    "client_id": client_id,
+                    "actor": normalized_owner,
+                    "tenant_id": normalized_tenant_id,
+                    "bound_at_epoch": utc_now_epoch(),
+                },
+            }
+            records[record_index] = bound_record
+            write_collection(
+                db_path=self._path(),
+                scope=_COLLECTION_SCOPE,
+                collection_name=_COLLECTION_NAME,
+                rows=records,
+            )
+            return {**_public_record(bound_record), "authority_binding_id": authority_binding_id}
+
+    def get_authority_binding(self, client_id: str) -> dict[str, Any] | None:
+        """Return durable evidence for a legacy authority transition."""
+        with _STORE_LOCK:
+            matches = [record for record in self._read_records() if record.get("client_id") == client_id]
+        if len(matches) != 1:
+            return None
+        binding = matches[0].get("authority_binding")
+        if not isinstance(binding, dict):
+            return None
+        return dict(binding)
 
     def get_client(self, client_id: str) -> dict[str, Any] | None:
         with _STORE_LOCK:

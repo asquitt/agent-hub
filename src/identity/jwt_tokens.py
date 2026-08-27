@@ -39,6 +39,10 @@ from src.identity.jwt_constants import (
     VALID_OVERSIGHT_LEVELS,
 )
 
+TOKEN_USE_AGENT = "agent"
+TOKEN_USE_OAUTH_CLIENT = "oauth_client"
+_VALID_TOKEN_USES = frozenset({TOKEN_USE_AGENT, TOKEN_USE_OAUTH_CLIENT})
+
 
 def _jwt_signing_secret() -> str:
     secret = os.getenv("AGENTHUB_IDENTITY_SIGNING_SECRET")
@@ -53,6 +57,7 @@ def issue_jwt(
     agent_id: str,
     tenant_id: str | None = None,
     identity_generation: str | None = None,
+    token_use: str | None = None,
     scopes: list[str] | None = None,
     audience: str | None = None,
     ttl_seconds: int = DEFAULT_JWT_TTL_SECONDS,
@@ -95,6 +100,11 @@ def issue_jwt(
         if not normalized_generation:
             raise ValueError("identity_generation must not be empty")
         payload["identity_generation"] = normalized_generation
+    if token_use is not None:
+        normalized_token_use = str(token_use).strip()
+        if normalized_token_use not in _VALID_TOKEN_USES:
+            raise ValueError(f"invalid token_use: {normalized_token_use}")
+        payload["token_use"] = normalized_token_use
     if scopes:
         payload[CLAIM_SCOPE] = " ".join(sorted(scopes))
     if audience:
@@ -194,6 +204,11 @@ def verify_jwt(
         if not isinstance(raw_generation, str) or not raw_generation.strip():
             raise ValueError("JWT has invalid identity_generation claim")
         claims["identity_generation"] = raw_generation.strip()
+
+    if "token_use" in claims:
+        raw_token_use = claims["token_use"]
+        if not isinstance(raw_token_use, str) or raw_token_use not in _VALID_TOKEN_USES:
+            raise ValueError("JWT has invalid token_use claim")
 
     # Normalize scope claim to list
     raw_scope = claims.get(CLAIM_SCOPE)

@@ -15,8 +15,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import AuthContext, require_api_key
-from src.identity.jwt_tokens import issue_jwt
+from src.identity.jwt_tokens import TOKEN_USE_OAUTH_CLIENT, issue_jwt
 from src.identity.oauth_clients import OAUTH_CLIENT_STORE
+from src.runtime.audit_streaming import EVENT_OAUTH_CLIENT_AUTHORITY_BOUND, emit_event
 
 router = APIRouter(tags=["oauth"])
 
@@ -86,6 +87,12 @@ class RegisterClientRequest(BaseModel):
     redirect_uris: list[str] = Field(default_factory=list, max_length=10)
 
 
+class BindClientAuthorityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_secret: str = Field(min_length=1, max_length=512)
+
+
 @router.post("/v1/oauth/register")
 def post_register_client(
     request: RegisterClientRequest,
@@ -125,6 +132,39 @@ def post_register_client(
             status_code=400,
             detail={"error": "invalid_client_metadata", "error_description": str(exc)},
         ) from exc
+    return result
+
+
+@router.post("/v1/oauth/clients/{client_id}/authority/register")
+def post_bind_client_authority(
+    client_id: str,
+    request: BindClientAuthorityRequest,
+    context: AuthContext = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Bind a pre-authority OAuth record after proving its client secret."""
+    if not context.allows_scope("oauth.register"):
+        raise HTTPException(status_code=403, detail="oauth.register scope is required")
+    result = OAUTH_CLIENT_STORE.bind_legacy_client_authority(
+        client_id=client_id,
+        client_secret=request.client_secret,
+        owner=context.owner,
+        tenant_id=context.tenant_id,
+        authorized_scopes=context.scopes,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "invalid_client", "error_description": "client authority binding failed"},
+        )
+    emit_event(
+        event_type=EVENT_OAUTH_CLIENT_AUTHORITY_BOUND,
+        actor=context.owner,
+        resource=client_id,
+        detail={
+            "tenant_id": context.tenant_id,
+            "authority_binding_id": result["authority_binding_id"],
+        },
+    )
     return result
 
 
@@ -182,13 +222,11 @@ def post_token(
         subject=str(client["owner"]),
         agent_id=client_id,
         tenant_id=str(client["tenant_id"]),
+        token_use=TOKEN_USE_OAUTH_CLIENT,
         scopes=granted_scopes or None,
         issuer=_DEFAULT_ISSUER,
         ttl_seconds=3600,
-        extra_claims={
-            "tenant_id": str(client["tenant_id"]),
-            "principal_type": "oauth_client",
-        },
+        extra_claims={"principal_type": "oauth_client"},
     )
 
     response: dict[str, Any] = {

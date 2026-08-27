@@ -13,8 +13,13 @@ from fastapi.testclient import TestClient
 
 from src.api.app import app
 from src.common.sqlite_collections import write_collection
-from src.identity.jwt_tokens import verify_jwt
+from src.identity.jwt_tokens import issue_jwt, verify_jwt
 from src.identity.oauth_clients import OAUTH_CLIENT_STORE, OAuthClientStore
+from src.runtime.audit_streaming import (
+    EVENT_OAUTH_CLIENT_AUTHORITY_BOUND,
+    query_events,
+    reset_for_tests as reset_audit_for_tests,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -32,14 +37,26 @@ def isolate_oauth_clients(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
                     "scopes": ["oauth.register", "read"],
                     "roles": ["member"],
                 },
+                "read-only-key": {
+                    "owner": "owner-read-only",
+                    "scopes": ["read"],
+                    "roles": ["member"],
+                },
             }
         ),
     )
     monkeypatch.setenv(
         "AGENTHUB_OWNER_TENANTS_JSON",
-        json.dumps({"owner-dev": ["tenant-default"], "owner-limited": ["tenant-a"]}),
+        json.dumps(
+            {
+                "owner-dev": ["tenant-default"],
+                "owner-limited": ["tenant-a"],
+                "owner-read-only": ["tenant-a"],
+            }
+        ),
     )
     OAUTH_CLIENT_STORE.reset_for_tests(db_path=identity_db)
+    reset_audit_for_tests()
     return identity_db
 
 
@@ -97,7 +114,7 @@ def test_registration_rejects_scope_outside_registrar_authority() -> None:
     assert response.json()["detail"]["error"] == "invalid_scope"
 
 
-def test_client_and_token_preserve_registrar_owner_and_tenant() -> None:
+def test_client_and_token_preserve_registrar_authority() -> None:
     with TestClient(app) as client:
         registration_response = client.post(
             "/v1/oauth/register",
@@ -120,6 +137,7 @@ def test_client_and_token_preserve_registrar_owner_and_tenant() -> None:
     assert claims["agent_id"] == registration["client_id"]
     assert claims["tenant_id"] == "tenant-a"
     assert claims["principal_type"] == "oauth_client"
+    assert claims["token_use"] == "oauth_client"
 
 
 def test_token_rejects_unimplemented_grant() -> None:
@@ -256,6 +274,205 @@ def test_malformed_persisted_client_fails_closed(isolate_oauth_clients: Path) ->
     store = OAuthClientStore(db_path=isolate_oauth_clients)
     assert store.authenticate_client("client_malformed", secret) is None
     assert store.get_client("client_malformed") is None
+
+
+def test_base_client_can_bind_authority_and_mint_replacement_token(isolate_oauth_clients: Path) -> None:
+    secret = "legacy-client-secret"
+    write_collection(
+        db_path=isolate_oauth_clients,
+        scope="identity",
+        collection_name="oauth_clients",
+        rows=[
+            {
+                "client_id": "client_legacy",
+                "client_secret_hash": hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+                "client_name": "legacy-client",
+                "grant_types": ["client_credentials"],
+                "scope": "read",
+                "redirect_uris": [],
+                "created_at": 1,
+            }
+        ],
+    )
+    old_tenantless_token = issue_jwt(
+        subject="client_legacy",
+        agent_id="client_legacy",
+        scopes=["read"],
+        issuer="urn:agenthub:registry",
+    )["token"]
+
+    with TestClient(app) as client:
+        before = client.post(
+            "/v1/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": "client_legacy",
+                "client_secret": secret,
+            },
+        )
+        unauthenticated = client.post(
+            "/v1/oauth/clients/client_legacy/authority/register",
+            json={"client_secret": secret},
+            headers={"X-Tenant-ID": "tenant-a", "Idempotency-Key": "reject-unauthenticated-binding"},
+        )
+        under_scoped = client.post(
+            "/v1/oauth/clients/client_legacy/authority/register",
+            json={"client_secret": secret},
+            headers={
+                "X-API-Key": "read-only-key",
+                "X-Tenant-ID": "tenant-a",
+                "Idempotency-Key": "reject-under-scoped-binding",
+            },
+        )
+        wrong_secret = client.post(
+            "/v1/oauth/clients/client_legacy/authority/register",
+            json={"client_secret": "wrong-secret"},
+            headers={
+                "X-API-Key": "limited-oauth-key",
+                "X-Tenant-ID": "tenant-a",
+                "Idempotency-Key": "reject-wrong-legacy-secret",
+            },
+        )
+        assert query_events(event_type=EVENT_OAUTH_CLIENT_AUTHORITY_BOUND) == []
+
+        bound = client.post(
+            "/v1/oauth/clients/client_legacy/authority/register",
+            json={"client_secret": secret},
+            headers={
+                "X-API-Key": "limited-oauth-key",
+                "X-Tenant-ID": "tenant-a",
+                "Idempotency-Key": "bind-client-legacy-authority",
+            },
+        )
+        replay = client.post(
+            "/v1/oauth/clients/client_legacy/authority/register",
+            json={"client_secret": secret},
+            headers={
+                "X-API-Key": "limited-oauth-key",
+                "X-Tenant-ID": "tenant-a",
+                "Idempotency-Key": "reject-client-authority-replay",
+            },
+        )
+        cross_owner = client.post(
+            "/v1/oauth/clients/client_legacy/authority/register",
+            json={"client_secret": secret},
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "X-Tenant-ID": "tenant-default",
+                "Idempotency-Key": "reject-cross-owner-authority-rebind",
+            },
+        )
+        after = client.post(
+            "/v1/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": "client_legacy",
+                "client_secret": secret,
+            },
+        )
+        old_verification = client.post(
+            "/v1/identity/tokens/jwt/verify",
+            json={"token": old_tenantless_token},
+            headers={"X-API-Key": "dev-owner-key", "X-Tenant-ID": "tenant-default"},
+        )
+
+    assert before.status_code == 401
+    assert unauthenticated.status_code == 401
+    assert under_scoped.status_code == 403
+    assert wrong_secret.status_code == 401
+    assert bound.status_code == 200, bound.text
+    assert bound.json()["owner"] == "owner-limited"
+    assert bound.json()["tenant_id"] == "tenant-a"
+    assert replay.status_code == 401
+    assert cross_owner.status_code == 401
+    assert after.status_code == 200, after.text
+    assert old_verification.status_code == 200, old_verification.text
+    assert old_verification.json()["valid"] is False
+    claims = verify_jwt(after.json()["access_token"], issuer="urn:agenthub:registry")
+    assert claims["sub"] == "owner-limited"
+    assert claims["tenant_id"] == "tenant-a"
+    assert claims["token_use"] == "oauth_client"
+
+    durable_binding = OAuthClientStore(db_path=isolate_oauth_clients).get_authority_binding("client_legacy")
+    assert durable_binding is not None
+    assert durable_binding["event_id"] == bound.json()["authority_binding_id"]
+    assert durable_binding["event_type"] == EVENT_OAUTH_CLIENT_AUTHORITY_BOUND
+    assert durable_binding["client_id"] == "client_legacy"
+    assert durable_binding["actor"] == "owner-limited"
+    assert durable_binding["tenant_id"] == "tenant-a"
+
+    events = query_events(event_type=EVENT_OAUTH_CLIENT_AUTHORITY_BOUND)
+    assert len(events) == 1
+    assert events[0]["actor"] == "owner-limited"
+    assert events[0]["resource"] == "client_legacy"
+    assert events[0]["detail"]["authority_binding_id"] == durable_binding["event_id"]
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "OAUTH_TEST_DB": str(isolate_oauth_clients),
+            "OAUTH_TEST_CLIENT_ID": "client_legacy",
+            "OAUTH_TEST_CLIENT_SECRET": secret,
+        }
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json, os; "
+                "from src.identity.oauth_clients import OAuthClientStore; "
+                "store = OAuthClientStore(os.environ['OAUTH_TEST_DB']); "
+                "print(json.dumps({'client': store.authenticate_client("
+                "os.environ['OAUTH_TEST_CLIENT_ID'], os.environ['OAUTH_TEST_CLIENT_SECRET']), "
+                "'audit': store.get_authority_binding(os.environ['OAUTH_TEST_CLIENT_ID'])}, sort_keys=True))"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        env=env,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    restarted = json.loads(completed.stdout)
+    assert restarted["client"]["owner"] == "owner-limited"
+    assert restarted["client"]["tenant_id"] == "tenant-a"
+    assert restarted["audit"] == durable_binding
+
+
+def test_base_client_binding_rejects_scope_outside_actor_authority(isolate_oauth_clients: Path) -> None:
+    secret = "scope-amplifier-secret"
+    write_collection(
+        db_path=isolate_oauth_clients,
+        scope="identity",
+        collection_name="oauth_clients",
+        rows=[
+            {
+                "client_id": "client_scope_amplifier",
+                "client_secret_hash": hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+                "client_name": "legacy-scope-amplifier",
+                "grant_types": ["client_credentials"],
+                "scope": "runtime.execute",
+                "redirect_uris": [],
+                "created_at": 1,
+            }
+        ],
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/oauth/clients/client_scope_amplifier/authority/register",
+            json={"client_secret": secret},
+            headers={
+                "X-API-Key": "limited-oauth-key",
+                "X-Tenant-ID": "tenant-a",
+                "Idempotency-Key": "reject-legacy-scope-amplifier",
+            },
+        )
+
+    assert response.status_code == 401
+    assert OAuthClientStore(db_path=isolate_oauth_clients).get_authority_binding("client_scope_amplifier") is None
+    assert query_events(event_type=EVENT_OAUTH_CLIENT_AUTHORITY_BOUND) == []
 
 
 def test_store_rejects_unsupported_grants_directly(isolate_oauth_clients: Path) -> None:

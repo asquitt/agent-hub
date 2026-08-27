@@ -15,7 +15,7 @@ from src.identity.jwt_constants import (
     MIN_JWT_TTL_SECONDS,
     VALID_OVERSIGHT_LEVELS,
 )
-from src.identity.jwt_tokens import get_jwks, issue_jwt
+from src.identity.jwt_tokens import TOKEN_USE_AGENT, get_jwks, issue_jwt
 from src.identity.storage import get_agent_identity_auth_snapshot
 
 router = APIRouter(prefix="/v1/identity/tokens", tags=["identity-tokens"])
@@ -98,6 +98,7 @@ def post_issue_jwt(
             agent_id=request.agent_id,
             tenant_id=context.tenant_id,
             identity_generation=identity_generation,
+            token_use=TOKEN_USE_AGENT,
             scopes=requested_scopes,
             ttl_seconds=request.ttl_seconds,
             audience=request.audience,
