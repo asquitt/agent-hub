@@ -15,6 +15,7 @@ from src.policy import (
     evaluate_contract_match_policy,
     evaluate_discovery_policy,
 )
+from src.protocol.mcp_contracts import mcp_tool_input_schema
 
 
 @dataclass
@@ -382,37 +383,16 @@ def mcp_tool_declarations() -> list[dict[str, Any]]:
         {
             "name": "search_capabilities",
             "description": "Search capability catalog with structured constraints.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "constraints": {"type": "object"},
-                },
-                "required": ["query"],
-            },
+            "inputSchema": mcp_tool_input_schema("search_capabilities"),
         },
         {
             "name": "get_agent_manifest",
             "description": "Get agent manifest by id and version.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "agent_id": {"type": "string"},
-                    "version": {"type": "string"},
-                },
-                "required": ["agent_id"],
-            },
+            "inputSchema": mcp_tool_input_schema("get_agent_manifest"),
         },
         {
             "name": "check_compatibility",
             "description": "Check schema compatibility with target agent capabilities.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "my_schema": {"type": "object"},
-                    "agent_id": {"type": "string"},
-                },
-                "required": ["my_schema", "agent_id"],
-            },
+            "inputSchema": mcp_tool_input_schema("check_compatibility"),
         },
     ]

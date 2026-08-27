@@ -21,6 +21,19 @@ from src.protocol.mcp_server import (
 router = APIRouter(tags=["mcp"])
 
 
+def _accepted_media_types(value: str) -> set[str]:
+    accepted: set[str] = set()
+    for item in value.split(","):
+        parts = [part.strip().lower() for part in item.split(";")]
+        if not parts[0]:
+            continue
+        quality = next((part for part in parts[1:] if part.startswith("q=")), None)
+        if quality in {"q=0", "q=0.0"}:
+            continue
+        accepted.add(parts[0])
+    return accepted
+
+
 def _protocol_error(status_code: int, code: int, message: str) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -40,13 +53,12 @@ async def post_mcp(request: Request) -> Response:
         return _protocol_error(403, -32000, "Origin not allowed")
 
     accept = request.headers.get("Accept", "")
-    if accept not in {"", "*/*"} and not (
-        "application/json" in accept and "text/event-stream" in accept
-    ):
+    accepted_media = _accepted_media_types(accept)
+    if not {"application/json", "text/event-stream"}.issubset(accepted_media):
         return _protocol_error(406, -32000, "Accept must include application/json and text/event-stream")
 
     content_type = request.headers.get("Content-Type", "")
-    if not content_type.lower().startswith("application/json"):
+    if content_type.partition(";")[0].strip().lower() != "application/json":
         return _protocol_error(415, -32700, "Content-Type must be application/json")
 
     context = _auth_context(request)

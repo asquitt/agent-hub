@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 from fastapi.testclient import TestClient
 
@@ -303,6 +304,16 @@ def test_mcp_transport_and_input_fail_closed() -> None:
             json=_rpc("tools/list"),
             headers={**headers, "MCP-Protocol-Version": "1900-01-01"},
         )
+        wildcard_accept = client.post(
+            "/mcp",
+            json=_initialize(),
+            headers={**headers, "Accept": "*/*"},
+        )
+        jsonp_content_type = client.post(
+            "/mcp",
+            content=json.dumps(_initialize()),
+            headers={**headers, "Content-Type": "application/jsonp"},
+        )
         malformed = client.post("/mcp", json={"jsonrpc": "1.0", "id": 2}, headers=headers)
         malformed_initialize = client.post(
             "/mcp",
@@ -338,6 +349,8 @@ def test_mcp_transport_and_input_fail_closed() -> None:
     assert invalid_origin.status_code == 403
     assert invalid_origin_without_auth.status_code == 403
     assert invalid_version.status_code == 400
+    assert wildcard_accept.status_code == 406
+    assert jsonp_content_type.status_code == 415
     assert malformed.status_code == 400
     assert malformed.json()["error"]["code"] == -32600
     assert malformed_initialize.status_code == 200
@@ -395,3 +408,75 @@ def test_mcp_targeted_oauth_token_cannot_replay_to_generic_api() -> None:
         )
 
     assert replay.status_code == 401
+
+
+def test_mcp_resource_boundary_rejects_agent_jwt_and_generic_bearer_replay() -> None:
+    with TestClient(app) as client:
+        registered = client.post(
+            "/v1/identity/agents",
+            json={"agent_id": "resource-bound-agent"},
+            headers={"X-API-Key": "platform-key", "X-Tenant-ID": "tenant-a"},
+        )
+        assert registered.status_code == 200, registered.text
+        agent_token_response = client.post(
+            "/v1/identity/tokens/jwt",
+            json={
+                "agent_id": "resource-bound-agent",
+                "audience": MCP_RESOURCE,
+                "scopes": ["discovery.read", "discovery.search"],
+            },
+            headers={"X-API-Key": "platform-key", "X-Tenant-ID": "tenant-a"},
+        )
+        assert agent_token_response.status_code == 200, agent_token_response.text
+        agent_token = agent_token_response.json()["token"]
+
+        generic_token_response = client.post(
+            "/v1/auth/tokens",
+            json={"scopes": ["discovery.search"], "ttl_seconds": 300},
+            headers={"X-API-Key": "platform-key", "X-Tenant-ID": "tenant-a"},
+        )
+        assert generic_token_response.status_code == 200, generic_token_response.text
+        generic_token = generic_token_response.json()["access_token"]
+
+        agent_replay = client.get(
+            "/v1/discovery/mcp-tools",
+            headers={"Authorization": f"Bearer {agent_token}", "X-Tenant-ID": "tenant-a"},
+        )
+        generic_replay = client.post(
+            "/mcp",
+            json=_initialize(),
+            headers=_mcp_headers(generic_token),
+        )
+
+    assert agent_replay.status_code == 401
+    assert generic_replay.status_code == 401
+
+
+def test_mcp_advertised_schema_matches_nested_runtime_validation() -> None:
+    with TestClient(app) as client:
+        registration = _oauth_registration(client)
+        token = _oauth_token(client, registration, resource=MCP_RESOURCE).json()["access_token"]
+        headers = _mcp_headers(token)
+        tools = client.post("/mcp", json=_rpc("tools/list"), headers=headers)
+        search_tool = next(
+            tool for tool in tools.json()["result"]["tools"] if tool["name"] == "search_capabilities"
+        )
+        arguments = {"query": "invoice", "constraints": {"unknown": "accepted-by-loose-schema"}}
+
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(arguments, search_tool["inputSchema"])
+
+        rejected = client.post(
+            "/mcp",
+            json=_rpc(
+                "tools/call",
+                params={"name": "search_capabilities", "arguments": arguments},
+            ),
+            headers=headers,
+        )
+
+    assert rejected.status_code == 200
+    assert rejected.json()["result"]["isError"] is True
+    assert rejected.json()["result"]["content"] == [
+        {"type": "text", "text": "invalid tool arguments"}
+    ]

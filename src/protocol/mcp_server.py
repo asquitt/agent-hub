@@ -12,6 +12,11 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.discovery.service import DISCOVERY_SERVICE, mcp_tool_declarations
+from src.protocol.mcp_contracts import (
+    CompatibilityArguments,
+    ManifestArguments,
+    SearchArguments,
+)
 from src.registry.store import STORE
 
 
@@ -46,43 +51,12 @@ class _InitializeParams(BaseModel):
     meta: dict[str, Any] = Field(default_factory=dict, alias="_meta")
 
 
-class _DiscoveryConstraints(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    max_cost_usd: float | None = Field(default=None, ge=0)
-    max_latency_ms: int | None = Field(default=None, gt=0)
-    min_trust_score: float | None = Field(default=None, ge=0, le=1)
-    required_permissions: list[str] = Field(default_factory=list)
-    allowed_protocols: list[str] = Field(default_factory=list)
-
-
 class _ToolCallParams(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str = Field(min_length=1)
     arguments: dict[str, Any] = Field(default_factory=dict)
     meta: dict[str, Any] = Field(default_factory=dict, alias="_meta")
-
-
-class _SearchArguments(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    query: str = Field(min_length=2)
-    constraints: _DiscoveryConstraints = Field(default_factory=_DiscoveryConstraints)
-
-
-class _ManifestArguments(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: str = Field(min_length=1)
-    version: str | None = Field(default=None, min_length=1)
-
-
-class _CompatibilityArguments(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    my_schema: dict[str, Any]
-    agent_id: str = Field(min_length=1)
 
 
 @dataclass(frozen=True)
@@ -211,7 +185,7 @@ def _execute_tool(
 
     try:
         if name == "search_capabilities":
-            parsed = _SearchArguments.model_validate(arguments)
+            parsed = SearchArguments.model_validate(arguments)
             return _tool_result(
                 DISCOVERY_SERVICE.semantic_discovery(
                     query=parsed.query,
@@ -221,7 +195,7 @@ def _execute_tool(
             )
 
         if name == "get_agent_manifest":
-            parsed = _ManifestArguments.model_validate(arguments)
+            parsed = ManifestArguments.model_validate(arguments)
             agent = STORE.get_agent(parsed.agent_id, tenant_id=tenant_id)
             if parsed.version is not None:
                 record = STORE.get_version(parsed.agent_id, parsed.version, tenant_id=tenant_id)
@@ -237,7 +211,7 @@ def _execute_tool(
                 }
             )
 
-        parsed = _CompatibilityArguments.model_validate(arguments)
+        parsed = CompatibilityArguments.model_validate(arguments)
         return _tool_result(
             DISCOVERY_SERVICE.compatibility_report(
                 my_schema=parsed.my_schema,

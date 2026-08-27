@@ -120,6 +120,15 @@ OAuth clients should request a resource-bound access token by sending `resource=
 
 This surface currently supports API-key authentication and OAuth `client_credentials`. It does not claim authorization-code, PKCE, browser login, SSE session resumption, or managed remote execution.
 
+Run the official SDK interoperability gate in an isolated client environment so its dependency versions do not replace AgentHub runtime pins:
+
+```bash
+python -m venv .venv-mcp-client
+.venv-mcp-client/bin/python -m pip install -r requirements-mcp-test.txt
+AGENTHUB_OFFICIAL_MCP_PYTHON="$PWD/.venv-mcp-client/bin/python" \
+  python -m pytest -q tests/protocol/test_mcp_official_sdk_s164.py
+```
+
 ## Agent Identity Authentication (S72-S78)
 AgentHub supports three authentication methods, checked in order:
 

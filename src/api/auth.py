@@ -297,6 +297,8 @@ def verify_live_jwt(
         raise HTTPException(status_code=401, detail="JWT missing tenant_id claim")
     if token_tenant_id != tenant_id:
         raise HTTPException(status_code=401, detail="JWT tenant mismatch")
+    if audience is None and "aud" in claims:
+        raise HTTPException(status_code=401, detail="JWT requires audience-bound verification")
 
     token_use = claims.get("token_use")
     principal_type = claims.get("principal_type")
@@ -313,8 +315,6 @@ def verify_live_jwt(
     if token_use == TOKEN_USE_OAUTH_CLIENT:
         if "identity_generation" in claims:
             raise HTTPException(status_code=401, detail="JWT OAuth client has invalid identity_generation claim")
-        if audience is None and "aud" in claims:
-            raise HTTPException(status_code=401, detail="JWT OAuth client requires audience-bound verification")
         oauth_client = OAUTH_CLIENT_STORE.get_client(agent_id)
         if oauth_client is None:
             raise HTTPException(status_code=401, detail="JWT OAuth client not found")
@@ -416,6 +416,8 @@ def resolve_auth_context(
 
     # 2. Delegation token — fail loudly if provided but invalid
     if x_delegation_token:
+        if jwt_audience is not None:
+            raise HTTPException(status_code=401, detail="resource-bound endpoint does not accept delegation tokens")
         from src.identity.constants import STATUS_ACTIVE
         from src.identity.delegation_tokens import verify_delegation_token
         from src.identity.storage import get_agent_identity_auth_snapshot
@@ -453,6 +455,11 @@ def resolve_auth_context(
     if authorization:
         agent_prefix = "agentcredential "
         if authorization.lower().startswith(agent_prefix):
+            if jwt_audience is not None:
+                raise HTTPException(
+                    status_code=401,
+                    detail="resource-bound endpoint does not accept agent credentials",
+                )
             from src.identity.constants import STATUS_ACTIVE
             from src.identity.credentials import verify_credential
             from src.identity.storage import get_agent_identity_auth_snapshot
@@ -481,6 +488,8 @@ def resolve_auth_context(
         raw_token = authorization[len(prefix):].strip()
         if raw_token.count(".") == 2:
             return _context_from_jwt(raw_token, tenant_id=tenant_id, audience=jwt_audience)
+        if jwt_audience is not None:
+            raise HTTPException(status_code=401, detail="resource-bound endpoint requires JWT bearer token")
         claims = verify_scoped_token(raw_token)
         token_tenant_id = claims["tenant_id"]
         if token_tenant_id != tenant_id:
