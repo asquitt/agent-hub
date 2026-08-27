@@ -6,16 +6,17 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.api.auth import require_api_key
+from src.api.auth import AuthContext, require_api_key, verify_live_jwt
 from src.common.time import iso_from_epoch
+from src.identity.constants import STATUS_ACTIVE
 from src.identity.jwt_constants import (
     DEFAULT_JWT_TTL_SECONDS,
-    DEFAULT_ISSUER,
     MAX_JWT_TTL_SECONDS,
     MIN_JWT_TTL_SECONDS,
     VALID_OVERSIGHT_LEVELS,
 )
-from src.identity.jwt_tokens import get_jwks, issue_jwt, verify_jwt
+from src.identity.jwt_tokens import TOKEN_USE_AGENT, get_jwks, issue_jwt
+from src.identity.storage import get_agent_identity_auth_snapshot
 
 router = APIRouter(prefix="/v1/identity/tokens", tags=["identity-tokens"])
 
@@ -51,11 +52,41 @@ class VerifyJWTRequest(BaseModel):
 # --- Endpoints ---
 
 
+def _authorize_jwt_issuance(request: IssueJWTRequest, context: AuthContext) -> tuple[list[str], str]:
+    if not isinstance(context, AuthContext):
+        raise HTTPException(status_code=403, detail="JWT issuance requires an authorization context")
+
+    try:
+        identity, identity_generation, identity_tenant_id = get_agent_identity_auth_snapshot(
+            request.agent_id,
+            ensure_generation=True,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="agent identity not found") from exc
+
+    if identity["status"] != STATUS_ACTIVE:
+        raise HTTPException(status_code=403, detail="agent identity is not active")
+    if identity["owner"] != context.owner:
+        raise HTTPException(status_code=403, detail="agent identity belongs to another owner")
+    if identity_tenant_id is None or identity_tenant_id != context.tenant_id:
+        raise HTTPException(status_code=403, detail="agent identity belongs to another tenant")
+    if context.agent_id is not None and context.agent_id != request.agent_id:
+        raise HTTPException(status_code=403, detail="agent principal cannot issue a token for another agent")
+
+    requested_scopes = sorted({scope.strip() for scope in request.scopes if scope.strip()})
+    if any(not context.allows_scope(scope) for scope in requested_scopes):
+        raise HTTPException(status_code=403, detail="requested scopes exceed issuer authority")
+    if identity_generation is None:
+        raise HTTPException(status_code=503, detail="identity authentication generation is unavailable")
+    return requested_scopes, identity_generation
+
+
 @router.post("/jwt")
 def post_issue_jwt(
     request: IssueJWTRequest,
-    owner: str = Depends(require_api_key),
+    context: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
+    requested_scopes, identity_generation = _authorize_jwt_issuance(request, context)
     if request.oversight_level and request.oversight_level not in VALID_OVERSIGHT_LEVELS:
         raise HTTPException(
             status_code=400,
@@ -63,9 +94,12 @@ def post_issue_jwt(
         )
     try:
         result = issue_jwt(
-            subject=owner,
+            subject=context.owner,
             agent_id=request.agent_id,
-            scopes=request.scopes,
+            tenant_id=context.tenant_id,
+            identity_generation=identity_generation,
+            token_use=TOKEN_USE_AGENT,
+            scopes=requested_scopes,
             ttl_seconds=request.ttl_seconds,
             audience=request.audience,
             agent_capabilities=request.agent_capabilities,
@@ -95,17 +129,23 @@ def post_issue_jwt(
 @router.post("/jwt/verify")
 def post_verify_jwt(
     request: VerifyJWTRequest,
-    _owner: str = Depends(require_api_key),
+    context: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        claims = verify_jwt(
+        claims, _ = verify_live_jwt(
             request.token,
+            tenant_id=context.tenant_id,
             audience=request.audience,
             require_agent_id=request.require_agent_id,
         )
         return {
             "valid": True,
             "claims": claims,
+        }
+    except HTTPException as exc:
+        return {
+            "valid": False,
+            "error": str(exc.detail),
         }
     except ValueError as exc:
         return {

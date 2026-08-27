@@ -1,15 +1,24 @@
 name: Quality Gates
 
+# CI is manual pending billing restoration.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
-  pytest-targeted:
+  pytest-full:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      AGENTHUB_ACCESS_ENFORCEMENT_MODE: enforce
+      AGENTHUB_API_KEYS_JSON: '{"dev-owner-key":"owner-dev","partner-owner-key":"owner-partner","platform-owner-key":"owner-platform","test-key":"owner-dev","test-key-001":"test-owner"}'
+      AGENTHUB_AUTH_TOKEN_SECRET: ci-test-auth-secret
+      AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON: '{"partner-east":"ci-fed-token-east","partner-west":"ci-fed-token-west","test-domain":"ci-test-token","test.local":"ci-local-token"}'
+      AGENTHUB_IDENTITY_SIGNING_SECRET: ci-test-identity-secret
+      AGENTHUB_POLICY_SIGNING_SECRET: ci-test-policy-secret
+      AGENTHUB_PROVENANCE_SIGNING_SECRET: ci-test-provenance-secret
+      AGENTHUB_VAULT_KEY: ci-test-vault-key
+      PYTHONHASHSEED: "0"
+      PYTHONPATH: .
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,35 +34,25 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install -e .
 
+      - name: Install isolated official MCP SDK client
+        run: |
+          python -m venv .venv-mcp-client
+          .venv-mcp-client/bin/python -m pip install -r requirements-mcp-test.txt
+          echo "AGENTHUB_OFFICIAL_MCP_PYTHON=${GITHUB_WORKSPACE}/.venv-mcp-client/bin/python" >> "$GITHUB_ENV"
+
       - name: Startup preflight doctor
-        run: |
-          AGENTHUB_ACCESS_ENFORCEMENT_MODE=enforce \
-          AGENTHUB_API_KEYS_JSON='{"dev-owner-key":"owner-dev"}' \
-          AGENTHUB_AUTH_TOKEN_SECRET='ci-doctor-auth-secret' \
-          AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON='{"partner-east":"ci-fed-token"}' \
-          AGENTHUB_PROVENANCE_SIGNING_SECRET='ci-doctor-provenance-secret' \
-          python -m agenthub.cli doctor --local --json
+        run: python -m agenthub.cli doctor --local --json
 
-      - name: Run targeted hardening tests
-        run: pytest tests/auth/test_access_enforcement_s53.py tests/operator/test_operator_ui.py tests/gate/test_architecture_guardrails_s53.py -q
+      - name: Verify deterministic test collection
+        run: python -m pytest --collect-only -q
 
-      - name: Run identity and runtime tests
-        run: |
-          AGENTHUB_API_KEYS_JSON='{"test-key-001":"test-owner"}' \
-          AGENTHUB_IDENTITY_SIGNING_SECRET='ci-identity-secret' \
-          PYTHONPATH=. python -m pytest \
-            tests/runtime/test_s79_sandbox_foundation.py \
-            tests/runtime/test_s80_sandbox_lifecycle.py \
-            tests/runtime/test_s81_runtime_policy.py \
-            tests/runtime/test_s81_runtime_metering.py \
-            tests/runtime/test_s82_integration.py \
-            tests/test_s83_production_hardening.py \
-            -q
+      - name: Run full Python test suite
+        run: python -m pytest -q
 
       - name: Dependency vulnerability scan
         run: |
           python -m pip install pip-audit
-          pip-audit --strict || true
+          python -m pip_audit --strict --requirement requirements.txt
 
   playwright-e2e:
     runs-on: ubuntu-latest
@@ -107,14 +106,14 @@ jobs:
   quality-gates:
     if: always()
     needs:
-      - pytest-targeted
+      - pytest-full
       - playwright-e2e
     runs-on: ubuntu-latest
     steps:
       - name: Enforce required upstream checks
         run: |
-          echo "pytest-targeted: ${{ needs.pytest-targeted.result }}"
+          echo "pytest-full: ${{ needs.pytest-full.result }}"
           echo "playwright-e2e: ${{ needs.playwright-e2e.result }}"
-          if [ "${{ needs.pytest-targeted.result }}" != "success" ] || [ "${{ needs.playwright-e2e.result }}" != "success" ]; then
+          if [ "${{ needs.pytest-full.result }}" != "success" ] || [ "${{ needs.playwright-e2e.result }}" != "success" ]; then
             exit 1
           fi

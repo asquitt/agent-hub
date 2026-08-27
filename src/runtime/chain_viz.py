@@ -11,7 +11,7 @@ from typing import Any
 
 from src.common.time import utc_now_epoch
 from src.identity.constants import MAX_DELEGATION_CHAIN_DEPTH
-from src.identity.storage import IDENTITY_STORAGE
+from src.identity.storage import IDENTITY_STORAGE, ResourceAuthContext, require_resource_actor
 
 _log = logging.getLogger("agenthub.chain_viz")
 
@@ -20,15 +20,33 @@ _MAX_SNAPSHOTS = 10_000
 _snapshots: dict[str, dict[str, Any]] = {}
 
 
-def _get_token_record(token_id: str) -> dict[str, Any] | None:
+def _get_token_record(
+    token_id: str,
+    actor: ResourceAuthContext,
+    *,
+    require_agent_participation: bool = True,
+) -> dict[str, Any] | None:
     """Look up a delegation token by ID from storage."""
+    context = require_resource_actor(actor)
     IDENTITY_STORAGE._ensure_ready()
     with IDENTITY_STORAGE._lock:
         conn = IDENTITY_STORAGE._conn
         assert conn is not None
         row = conn.execute(
-            "SELECT * FROM delegation_tokens WHERE token_id = ?",
-            (token_id,),
+            """
+            SELECT * FROM delegation_tokens
+            WHERE token_id = ? AND owner = ? AND tenant_id = ?
+              AND (? = 0 OR ? IS NULL OR issuer_agent_id = ? OR subject_agent_id = ?)
+            """,
+            (
+                token_id,
+                context.owner,
+                context.tenant_id,
+                int(require_agent_participation),
+                context.agent_id,
+                context.agent_id,
+                context.agent_id,
+            ),
         ).fetchone()
         if row is None:
             return None
@@ -46,15 +64,28 @@ def _get_token_record(token_id: str) -> dict[str, Any] | None:
 _MAX_TOKENS_QUERY = 10_000
 
 
-def _list_all_tokens() -> list[dict[str, Any]]:
+def _list_all_tokens(actor: ResourceAuthContext) -> list[dict[str, Any]]:
     """List delegation tokens from storage (capped for safety)."""
+    context = require_resource_actor(actor)
     IDENTITY_STORAGE._ensure_ready()
     with IDENTITY_STORAGE._lock:
         conn = IDENTITY_STORAGE._conn
         assert conn is not None
         rows = conn.execute(
-            "SELECT * FROM delegation_tokens ORDER BY issued_at_epoch DESC LIMIT ?",
-            (_MAX_TOKENS_QUERY,),
+            """
+            SELECT * FROM delegation_tokens
+            WHERE owner = ? AND tenant_id = ?
+              AND (? IS NULL OR issuer_agent_id = ? OR subject_agent_id = ?)
+            ORDER BY issued_at_epoch DESC LIMIT ?
+            """,
+            (
+                context.owner,
+                context.tenant_id,
+                context.agent_id,
+                context.agent_id,
+                context.agent_id,
+                _MAX_TOKENS_QUERY,
+            ),
         ).fetchall()
         result: list[dict[str, Any]] = []
         for row in rows:
@@ -69,7 +100,7 @@ def _list_all_tokens() -> list[dict[str, Any]]:
         return result
 
 
-def _resolve_chain(token_id: str) -> list[dict[str, Any]]:
+def _resolve_chain(token_id: str, actor: ResourceAuthContext) -> list[dict[str, Any]]:
     """Walk parent pointers to build the full chain (root-first)."""
     chain: list[dict[str, Any]] = []
     current_id: str | None = token_id
@@ -78,7 +109,11 @@ def _resolve_chain(token_id: str) -> list[dict[str, Any]]:
         if current_id in visited:
             break  # cycle guard
         visited.add(current_id)
-        record = _get_token_record(current_id)
+        record = _get_token_record(
+            current_id,
+            actor,
+            require_agent_participation=not chain,
+        )
         if record is None:
             break
         chain.append(record)
@@ -87,13 +122,13 @@ def _resolve_chain(token_id: str) -> list[dict[str, Any]]:
     return chain
 
 
-def build_tree_view(token_id: str) -> dict[str, Any]:
+def build_tree_view(token_id: str, *, actor: ResourceAuthContext) -> dict[str, Any]:
     """Build a tree representation of a delegation chain.
 
     Returns a nested structure showing issuer→subject relationships,
     scope attenuation at each level, and status indicators.
     """
-    chain = _resolve_chain(token_id)
+    chain = _resolve_chain(token_id, actor)
     if not chain:
         raise ValueError(f"token not found: {token_id}")
 
@@ -139,13 +174,13 @@ def build_tree_view(token_id: str) -> dict[str, Any]:
     }
 
 
-def analyze_chain_risk(token_id: str) -> dict[str, Any]:
+def analyze_chain_risk(token_id: str, *, actor: ResourceAuthContext) -> dict[str, Any]:
     """Analyze risk factors in a delegation chain.
 
     Checks for: deep chains, wide scopes, expired/revoked links,
     cross-owner delegation, approaching limits.
     """
-    chain = _resolve_chain(token_id)
+    chain = _resolve_chain(token_id, actor)
     if not chain:
         raise ValueError(f"token not found: {token_id}")
 
@@ -205,12 +240,13 @@ def analyze_chain_risk(token_id: str) -> dict[str, Any]:
     }
 
 
-def list_delegation_trees(owner: str) -> list[dict[str, Any]]:
+def list_delegation_trees(actor: ResourceAuthContext) -> list[dict[str, Any]]:
     """List all root delegation tokens (no parent) for an owner.
 
     Returns summary info for each tree including depth and leaf count.
     """
-    all_tokens = _list_all_tokens()
+    context = require_resource_actor(actor)
+    all_tokens = _list_all_tokens(context)
     now = utc_now_epoch()
 
     # Build parent→children index
@@ -227,14 +263,6 @@ def list_delegation_trees(owner: str) -> list[dict[str, Any]]:
     for tok in all_tokens:
         if tok.get("parent_token_id"):
             continue
-        # Check owner match via issuer identity
-        try:
-            issuer_id = IDENTITY_STORAGE.get_identity(tok.get("issuer_agent_id", ""))
-            if issuer_id.get("owner") != owner:
-                continue
-        except (KeyError, ValueError):
-            continue
-
         # Count descendants
         leaf_count = 0
         max_depth = 0
@@ -272,15 +300,24 @@ def list_delegation_trees(owner: str) -> list[dict[str, Any]]:
     return roots
 
 
-def snapshot_chain(token_id: str, label: str = "") -> dict[str, Any]:
+def snapshot_chain(
+    token_id: str,
+    *,
+    actor: ResourceAuthContext,
+    label: str = "",
+) -> dict[str, Any]:
     """Take a point-in-time snapshot of a delegation chain for audit."""
-    tree = build_tree_view(token_id)
-    risk = analyze_chain_risk(token_id)
+    context = require_resource_actor(actor)
+    tree = build_tree_view(token_id, actor=context)
+    risk = analyze_chain_risk(token_id, actor=context)
     snapshot_id = f"snap-{token_id}-{utc_now_epoch()}"
 
     snap: dict[str, Any] = {
         "snapshot_id": snapshot_id,
         "token_id": token_id,
+        "owner": context.owner,
+        "tenant_id": context.tenant_id,
+        "agent_id": context.agent_id,
         "label": label or f"snapshot of {token_id}",
         "captured_at": utc_now_epoch(),
         "tree": tree,
@@ -295,18 +332,26 @@ def snapshot_chain(token_id: str, label: str = "") -> dict[str, Any]:
     return snap
 
 
-def get_snapshot(snapshot_id: str) -> dict[str, Any]:
+def get_snapshot(snapshot_id: str, *, actor: ResourceAuthContext) -> dict[str, Any]:
     """Retrieve a previously captured chain snapshot."""
+    context = require_resource_actor(actor)
     snap = _snapshots.get(snapshot_id)
-    if snap is None:
+    if snap is None or not _actor_owns_snapshot(context, snap):
         raise KeyError(f"snapshot not found: {snapshot_id}")
     return snap
 
 
-def list_snapshots(token_id: str | None = None) -> list[dict[str, Any]]:
+def list_snapshots(
+    *,
+    actor: ResourceAuthContext,
+    token_id: str | None = None,
+) -> list[dict[str, Any]]:
     """List chain snapshots, optionally filtered by token_id."""
+    context = require_resource_actor(actor)
     results: list[dict[str, Any]] = []
     for snap in _snapshots.values():
+        if not _actor_owns_snapshot(context, snap):
+            continue
         if token_id and snap.get("token_id") != token_id:
             continue
         results.append({
@@ -319,6 +364,13 @@ def list_snapshots(token_id: str | None = None) -> list[dict[str, Any]]:
         })
     results.sort(key=lambda s: s["captured_at"], reverse=True)
     return results
+
+
+def _actor_owns_snapshot(actor: ResourceAuthContext, snapshot: dict[str, Any]) -> bool:
+    if snapshot.get("owner") != actor.owner or snapshot.get("tenant_id") != actor.tenant_id:
+        return False
+    recorded_agent = snapshot.get("agent_id")
+    return actor.agent_id is None or recorded_agent == actor.agent_id
 
 
 def _reset() -> None:

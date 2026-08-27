@@ -5,18 +5,40 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agenthub"
 version = "0.1.0"
-description = "AgentHub CLI and local tooling"
+description = "AgentHub CLI, API service, SDK, and tooling"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "fastapi==0.141.1",
+  "starlette==1.6.0",
+  "uvicorn==0.32.1",
+  "pydantic==2.10.3",
   "pyyaml==6.0.3",
   "jsonschema==4.26.0",
+  "slowapi==0.1.9",
+  "PyJWT[crypto]>=2.10.1",
+  "cryptography>=44.0.0",
+  "python-json-logger==3.2.1",
+  "python-multipart==0.0.32",
   "httpx==0.28.1",
   "rich==13.9.4",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest==9.1.1",
 ]
 
 [project.scripts]
 agenthub = "agenthub.cli:main"
 
-[tool.setuptools]
-packages = ["agenthub"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agenthub*", "src*", "sdk*", "tools*", "db*", "specs*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+src = ["ui/*.html"]
+tools = ["capability_search/*.json", "discovery/*.json"]
+db = ["migrations/*.sql", "migrations/runtime/*/*.sql"]
+specs = ["*/*.json", "*/*.yaml", "*/*/*.json", "*/*/*.yaml"]

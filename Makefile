@@ -1,20 +1,34 @@
 PYTHON ?= python3
 
-.PHONY: dev test lint migrate eval trust gate launch-check discovery-load cli-test operator-test versioning-test lease-test knowledge-test billing-test launch-test e2e-install e2e-test compose-up compose-down
+.PHONY: install-runtime install-dev dev test lint package-build packaging-test deployment-test migrate eval trust gate launch-check discovery-load cli-test operator-test versioning-test lease-test knowledge-test billing-test launch-test e2e-install e2e-test compose-up compose-down
+
+install-runtime:
+	$(PYTHON) -m pip install -r requirements-runtime.txt
+
+install-dev:
+	$(PYTHON) -m pip install -r requirements.txt
 
 dev:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
 test:
-	pytest -q
+	$(PYTHON) -m pytest -q
 
 lint:
 	$(PYTHON) -m py_compile agenthub/*.py src/api/*.py src/billing/*.py src/delegation/*.py src/discovery/*.py src/eval/*.py src/gate/*.py src/knowledge/*.py src/launch/*.py src/lease/*.py src/trust/*.py src/versioning/*.py tools/manifest/*.py tools/capability_search/*.py tools/eval/*.py tools/gate/*.py tools/launch/*.py tools/trust/*.py
 
+package-build:
+	$(PYTHON) -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
+
+packaging-test:
+	$(PYTHON) -m pytest tests/packaging/test_p0_wheel_packaging.py -q
+
+deployment-test:
+	$(PYTHON) -m pytest tests/deployment/test_p0_sqlite_deployment_containment.py -q
+
 migrate:
-	@echo "Apply migrations with your Postgres DSN"
-	@echo "psql $$DATABASE_URL -f db/migrations/0001_initial_schema.sql"
-	@echo "psql $$DATABASE_URL -f db/migrations/0002_retention_indexes.sql"
+	@echo "SQLite scope migrations run during application startup."
+	@echo "Postgres migrations are not active until the application has a Postgres persistence adapter."
 
 eval:
 	$(PYTHON) tools/eval/agenthub_eval.py eval --manifest specs/manifest/examples/simple-tool-agent.yaml --agent-id @local:manifest-eval

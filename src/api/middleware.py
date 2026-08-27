@@ -29,6 +29,11 @@ _DEFAULT_RATE = os.environ.get("AGENTHUB_RATE_LIMIT_DEFAULT", "100/minute")
 _EXEMPT_PREFIXES = ("/healthz", "/readyz", "/.well-known", "/docs", "/openapi.json")
 
 
+def is_rate_limit_exempt_path(path: str) -> bool:
+    """Return whether a route must remain reachable outside client rate limits."""
+    return any(path == prefix or path.startswith(f"{prefix}/") for prefix in _EXEMPT_PREFIXES)
+
+
 def _key_func(request: Request) -> str:
     """Key by API key header, falling back to client IP."""
     api_key = request.headers.get("x-api-key", "")
@@ -40,7 +45,9 @@ def _key_func(request: Request) -> str:
 limiter = Limiter(key_func=_key_func, default_limits=[_DEFAULT_RATE])
 
 
-def rate_limit_exceeded_handler(_request: Request, exc: RateLimitExceeded) -> JSONResponse:
+def rate_limit_exceeded_handler(_request: Request, exc: Exception) -> JSONResponse:
+    if not isinstance(exc, RateLimitExceeded):
+        raise exc
     return JSONResponse(
         status_code=429,
         content={"detail": f"rate limit exceeded: {exc.detail}"},
@@ -51,7 +58,7 @@ def rate_limit_exceeded_handler(_request: Request, exc: RateLimitExceeded) -> JS
 # Request Timeout
 # ---------------------------------------------------------------------------
 
-_TIMEOUT_SECONDS = int(os.environ.get("AGENTHUB_REQUEST_TIMEOUT_SECONDS", "30"))
+_TIMEOUT_SECONDS = float(os.environ.get("AGENTHUB_REQUEST_TIMEOUT_SECONDS", "30"))
 
 
 class RequestTimeoutMiddleware(BaseHTTPMiddleware):
@@ -65,7 +72,7 @@ class RequestTimeoutMiddleware(BaseHTTPMiddleware):
         except asyncio.TimeoutError:
             return JSONResponse(
                 status_code=504,
-                content={"detail": f"request timed out after {_TIMEOUT_SECONDS}s"},
+                content={"detail": f"request timed out after {_TIMEOUT_SECONDS:g}s"},
             )
 
 

@@ -19,7 +19,7 @@ from src.identity.constants import (
     STATUS_ACTIVE,
     WILDCARD_SCOPE,
 )
-from src.identity.storage import IDENTITY_STORAGE
+from src.identity.storage import IDENTITY_STORAGE, ResourceAuthContext, require_resource_actor
 from src.identity.types import AgentCredential, CredentialIssuanceResult, CredentialVerification
 
 
@@ -38,19 +38,27 @@ def _generate_secret() -> str:
     return secrets.token_urlsafe(SECRET_BYTE_LENGTH)
 
 
+def _optional_resource_actor(value: object) -> ResourceAuthContext | None:
+    if not all(hasattr(value, field) for field in ("owner", "tenant_id", "agent_id")):
+        return None
+    return require_resource_actor(value)
+
+
+def _require_scope_attenuation(actor: ResourceAuthContext, scopes: list[str]) -> None:
+    allows_scope = getattr(actor, "allows_scope", None)
+    if not callable(allows_scope):
+        raise PermissionError("credential issuance requires explicit scope authority")
+    if any(not allows_scope(scope) for scope in scopes):
+        raise PermissionError("requested scopes exceed issuer authority")
+
+
 def issue_credential(
     *,
     agent_id: str,
     scopes: list[str],
     ttl_seconds: int = DEFAULT_CREDENTIAL_TTL_SECONDS,
-    owner: str,
+    owner: str | ResourceAuthContext,
 ) -> CredentialIssuanceResult:
-    identity = IDENTITY_STORAGE.get_identity(agent_id)
-    if identity["status"] != STATUS_ACTIVE:
-        raise PermissionError(f"agent identity is {identity['status']}, cannot issue credential")
-    if identity["owner"] != owner:
-        raise PermissionError("owner mismatch: cannot issue credential for agent owned by another")
-
     ttl = max(MIN_CREDENTIAL_TTL_SECONDS, min(int(ttl_seconds), MAX_CREDENTIAL_TTL_SECONDS))
     now = utc_now_epoch()
     credential_id = f"cred-{uuid.uuid4().hex[:16]}"
@@ -58,14 +66,32 @@ def issue_credential(
     credential_hash = _hash_secret(raw_secret)
     normalized_scopes = sorted({s.strip() for s in scopes if s.strip()})
 
-    IDENTITY_STORAGE.insert_credential(
-        credential_id=credential_id,
-        agent_id=agent_id,
-        credential_hash=credential_hash,
-        scopes=normalized_scopes,
-        issued_at_epoch=now,
-        expires_at_epoch=now + ttl,
-    )
+    actor = _optional_resource_actor(owner)
+    if actor is not None:
+        _require_scope_attenuation(actor, normalized_scopes)
+        IDENTITY_STORAGE.insert_credential_for_actor(
+            actor=actor,
+            credential_id=credential_id,
+            agent_id=agent_id,
+            credential_hash=credential_hash,
+            scopes=normalized_scopes,
+            issued_at_epoch=now,
+            expires_at_epoch=now + ttl,
+        )
+    else:
+        identity = IDENTITY_STORAGE.get_identity(agent_id)
+        if identity["status"] != STATUS_ACTIVE:
+            raise PermissionError(f"agent identity is {identity['status']}, cannot issue credential")
+        if identity["owner"] != owner:
+            raise PermissionError("owner mismatch: cannot issue credential for agent owned by another")
+        IDENTITY_STORAGE.insert_credential(
+            credential_id=credential_id,
+            agent_id=agent_id,
+            credential_hash=credential_hash,
+            scopes=normalized_scopes,
+            issued_at_epoch=now,
+            expires_at_epoch=now + ttl,
+        )
 
     return CredentialIssuanceResult(
         credential_id=credential_id,
@@ -105,10 +131,41 @@ def verify_credential(secret: str) -> CredentialVerification:
 def rotate_credential(
     *,
     credential_id: str,
-    owner: str,
+    owner: str | ResourceAuthContext,
     new_scopes: list[str] | None = None,
     new_ttl_seconds: int = DEFAULT_CREDENTIAL_TTL_SECONDS,
 ) -> CredentialIssuanceResult:
+    actor = _optional_resource_actor(owner)
+    if actor is not None:
+        ttl = max(MIN_CREDENTIAL_TTL_SECONDS, min(int(new_ttl_seconds), MAX_CREDENTIAL_TTL_SECONDS))
+        now = utc_now_epoch()
+        new_credential_id = f"cred-{uuid.uuid4().hex[:16]}"
+        raw_secret = _generate_secret()
+        credential_hash = _hash_secret(raw_secret)
+        normalized_scopes = None
+        if new_scopes is not None:
+            normalized_scopes = sorted({s.strip() for s in new_scopes if s.strip()})
+        current_credential = IDENTITY_STORAGE.get_credential_for_actor(credential_id, actor)
+        effective_scopes = current_credential["scopes"] if normalized_scopes is None else normalized_scopes
+        _require_scope_attenuation(actor, effective_scopes)
+        old_cred = IDENTITY_STORAGE.rotate_credential_for_actor(
+            actor=actor,
+            credential_id=credential_id,
+            new_credential_id=new_credential_id,
+            credential_hash=credential_hash,
+            scopes=effective_scopes,
+            issued_at_epoch=now,
+            expires_at_epoch=now + ttl,
+        )
+        return CredentialIssuanceResult(
+            credential_id=new_credential_id,
+            agent_id=old_cred["agent_id"],
+            secret=raw_secret,
+            scopes=effective_scopes,
+            expires_at_epoch=now + ttl,
+            status=CRED_STATUS_ACTIVE,
+        )
+
     old_cred = IDENTITY_STORAGE.get_credential(credential_id)
     if old_cred["status"] != CRED_STATUS_ACTIVE:
         raise ValueError(f"cannot rotate credential in status: {old_cred['status']}")
@@ -151,9 +208,13 @@ def rotate_credential(
 def revoke_credential(
     *,
     credential_id: str,
-    owner: str,
+    owner: str | ResourceAuthContext,
     reason: str = "manual_revocation",
 ) -> AgentCredential:
+    actor = _optional_resource_actor(owner)
+    if actor is not None:
+        return IDENTITY_STORAGE.revoke_credential_for_actor(credential_id, actor, reason)
+
     cred = IDENTITY_STORAGE.get_credential(credential_id)
     if cred["status"] == CRED_STATUS_REVOKED:
         return cred
@@ -165,8 +226,12 @@ def revoke_credential(
     return IDENTITY_STORAGE.update_credential_status(credential_id, CRED_STATUS_REVOKED, reason=reason)
 
 
-def get_credential_metadata(credential_id: str) -> dict[str, Any]:
-    cred = IDENTITY_STORAGE.get_credential(credential_id)
+def get_credential_metadata(
+    credential_id: str,
+    *,
+    actor: ResourceAuthContext,
+) -> dict[str, Any]:
+    cred = IDENTITY_STORAGE.get_credential_for_actor(credential_id, actor)
     return {
         "credential_id": cred["credential_id"],
         "agent_id": cred["agent_id"],

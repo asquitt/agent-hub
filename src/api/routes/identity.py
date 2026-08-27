@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.api.auth import require_api_key
+from src.api.auth import AuthContext, require_api_key
 from src.identity.blended import get_blended_identity, verify_on_behalf_of
 from src.identity.checksum import compute_config_checksum, verify_config_integrity
 from src.common.time import iso_from_epoch
@@ -35,15 +35,36 @@ from src.identity.revocation import (
     revoke_agent,
 )
 from src.identity.storage import (
-    bind_human_principal,
-    get_agent_identity,
-    list_active_sessions,
-    register_agent_identity,
-    set_configuration_checksum,
-    update_agent_identity_status,
+    assign_quarantined_agent_identity_for_actor,
+    bind_human_principal_for_actor,
+    get_agent_identity_for_actor,
+    list_active_sessions_for_actor,
+    list_quarantined_agent_identities_for_actor,
+    register_agent_identity_for_actor,
+    set_configuration_checksum_for_actor,
+    update_agent_identity_status_for_actor,
 )
 
 router = APIRouter(prefix="/v1/identity", tags=["identity"])
+
+
+def require_quarantine_operator(
+    actor: AuthContext = Depends(require_api_key),
+) -> AuthContext:
+    if "admin" not in actor.roles:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "auth.admin_required", "message": "admin role required"},
+        )
+    if actor.agent_id is not None:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "auth.owner_operator_required",
+                "message": "owner-level operator required",
+            },
+        )
+    return actor
 
 
 # --- Request Models ---
@@ -166,10 +187,44 @@ class CreateAttestationRequest(BaseModel):
 # --- Endpoints ---
 
 
+@router.get("/quarantine")
+def get_quarantined_agent_identities(
+    actor: AuthContext = Depends(require_quarantine_operator),
+) -> dict[str, Any]:
+    try:
+        identities = list_quarantined_agent_identities_for_actor(actor)
+        return {"identities": [dict(identity) for identity in identities]}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.post("/quarantine/{agent_id}/assign")
+def post_assign_quarantined_agent_identity(
+    agent_id: str,
+    selected_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+    actor: AuthContext = Depends(require_quarantine_operator),
+) -> dict[str, Any]:
+    if selected_tenant_id is None or not selected_tenant_id.strip():
+        raise HTTPException(status_code=400, detail="explicit X-Tenant-ID header required")
+    try:
+        identity = assign_quarantined_agent_identity_for_actor(
+            actor=actor,
+            agent_id=agent_id,
+            selected_tenant_id=selected_tenant_id,
+        )
+        return dict(identity)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/agents")
 def post_register_agent_identity(
     request: RegisterAgentIdentityRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     if request.credential_type not in VALID_CREDENTIAL_TYPES:
         raise HTTPException(
@@ -177,9 +232,9 @@ def post_register_agent_identity(
             detail=f"invalid credential_type, must be one of: {sorted(VALID_CREDENTIAL_TYPES)}",
         )
     try:
-        identity = register_agent_identity(
+        identity = register_agent_identity_for_actor(
+            actor=actor,
             agent_id=request.agent_id,
-            owner=owner,
             credential_type=request.credential_type,
             public_key_pem=request.public_key_pem,
             metadata=request.metadata,
@@ -189,15 +244,17 @@ def post_register_agent_identity(
         return dict(identity)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/agents/{agent_id}")
 def get_agent_identity_endpoint(
     agent_id: str,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        identity = get_agent_identity(agent_id)
+        identity = get_agent_identity_for_actor(agent_id, actor)
         return dict(identity)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -207,18 +264,10 @@ def get_agent_identity_endpoint(
 def patch_agent_identity(
     agent_id: str,
     request: UpdateAgentIdentityRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        identity = get_agent_identity(agent_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    if identity["owner"] != owner:
-        raise HTTPException(status_code=403, detail="owner mismatch")
-
-    try:
-        updated = update_agent_identity_status(agent_id, request.status)
+        updated = update_agent_identity_status_for_actor(agent_id, request.status, actor)
         return dict(updated)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -230,14 +279,14 @@ def patch_agent_identity(
 def post_issue_credential(
     agent_id: str,
     request: IssueCredentialRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
         result = issue_credential(
             agent_id=agent_id,
             scopes=request.scopes,
             ttl_seconds=request.ttl_seconds,
-            owner=owner,
+            owner=actor,
         )
         return {
             "credential_id": result["credential_id"],
@@ -252,17 +301,16 @@ def post_issue_credential(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-
 @router.post("/credentials/{credential_id}/rotate")
 def post_rotate_credential(
     credential_id: str,
     request: RotateCredentialRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
         result = rotate_credential(
             credential_id=credential_id,
-            owner=owner,
+            owner=actor,
             new_scopes=request.new_scopes,
             new_ttl_seconds=request.new_ttl_seconds,
         )
@@ -287,12 +335,12 @@ def post_rotate_credential(
 def post_revoke_credential(
     credential_id: str,
     request: RevokeCredentialRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
         cred = revoke_credential(
             credential_id=credential_id,
-            owner=owner,
+            owner=actor,
             reason=request.reason,
         )
         return dict(cred)
@@ -305,10 +353,10 @@ def post_revoke_credential(
 @router.get("/credentials/{credential_id}")
 def get_credential_metadata_endpoint(
     credential_id: str,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        return get_credential_metadata(credential_id)
+        return get_credential_metadata(credential_id, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -316,10 +364,10 @@ def get_credential_metadata_endpoint(
 @router.get("/agents/{agent_id}/active-sessions")
 def get_active_sessions(
     agent_id: str,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        sessions = list_active_sessions(agent_id)
+        sessions = list_active_sessions_for_actor(agent_id, actor)
         return {
             "agent_id": sessions["agent_id"],
             "credentials": [dict(c) for c in sessions["credentials"]],
@@ -335,16 +383,10 @@ def get_active_sessions(
 def put_bind_human_principal(
     agent_id: str,
     request: BindHumanPrincipalRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        identity = get_agent_identity(agent_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if identity["owner"] != owner:
-        raise HTTPException(status_code=403, detail="owner mismatch")
-    try:
-        updated = bind_human_principal(agent_id, request.human_principal_id)
+        updated = bind_human_principal_for_actor(agent_id, request.human_principal_id, actor)
         return dict(updated)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -354,16 +396,10 @@ def put_bind_human_principal(
 def put_configuration_checksum(
     agent_id: str,
     request: SetConfigurationChecksumRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        identity = get_agent_identity(agent_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if identity["owner"] != owner:
-        raise HTTPException(status_code=403, detail="owner mismatch")
-    try:
-        updated = set_configuration_checksum(agent_id, request.checksum)
+        updated = set_configuration_checksum_for_actor(agent_id, request.checksum, actor)
         return dict(updated)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -373,10 +409,10 @@ def put_configuration_checksum(
 def get_verify_configuration_checksum(
     agent_id: str,
     checksum: str,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        identity = get_agent_identity(agent_id)
+        identity = get_agent_identity_for_actor(agent_id, actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     stored = identity.get("configuration_checksum")
@@ -393,10 +429,11 @@ def get_verify_configuration_checksum(
 @router.get("/agents/{agent_id}/blended")
 def get_blended_identity_endpoint(
     agent_id: str,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Get the blended identity (agent + human principal) for an agent."""
     try:
+        get_agent_identity_for_actor(agent_id, actor)
         return get_blended_identity(agent_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -406,10 +443,11 @@ def get_blended_identity_endpoint(
 def post_verify_on_behalf_of(
     agent_id: str,
     request: VerifyOnBehalfOfRequest,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Verify that an agent's on-behalf-of claim matches its stored binding."""
     try:
+        get_agent_identity_for_actor(agent_id, actor)
         return verify_on_behalf_of(
             agent_id=agent_id,
             claimed_principal_id=request.claimed_principal_id,
@@ -425,15 +463,13 @@ def post_verify_on_behalf_of(
 def post_compute_config_checksum(
     agent_id: str,
     request: VerifyConfigIntegrityRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Compute a config checksum from a manifest and optionally store it."""
     try:
-        identity = get_agent_identity(agent_id)
+        get_agent_identity_for_actor(agent_id, actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if identity["owner"] != owner:
-        raise HTTPException(status_code=403, detail="owner mismatch")
     checksum = compute_config_checksum(request.manifest)
     return {"agent_id": agent_id, "checksum": checksum}
 
@@ -442,10 +478,11 @@ def post_compute_config_checksum(
 def post_verify_config_integrity(
     agent_id: str,
     request: VerifyConfigIntegrityRequest,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Verify that a manifest matches the agent's stored configuration checksum."""
     try:
+        get_agent_identity_for_actor(agent_id, actor)
         return verify_config_integrity(agent_id=agent_id, manifest=request.manifest)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -457,7 +494,7 @@ def post_verify_config_integrity(
 @router.post("/delegation-tokens")
 def post_issue_delegation_token(
     request: IssueDelegationTokenRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
         result = issue_delegation_token(
@@ -466,7 +503,7 @@ def post_issue_delegation_token(
             delegated_scopes=request.delegated_scopes,
             ttl_seconds=request.ttl_seconds,
             parent_token_id=request.parent_token_id,
-            owner=owner,
+            actor=actor,
         )
         return result
     except KeyError as exc:
@@ -491,22 +528,24 @@ def post_verify_delegation_token(
 @router.get("/delegation-tokens/{token_id}/chain")
 def get_delegation_token_chain(
     token_id: str,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        return get_delegation_chain(token_id)
+        return get_delegation_chain(token_id, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post("/delegation-tokens/{token_id}/revoke")
 def post_revoke_delegation_token(
     token_id: str,
     _request: RevokeDelegationTokenRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        return revoke_delegation_token(token_id, owner)
+        return revoke_delegation_token(token_id, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -519,20 +558,27 @@ def post_revoke_delegation_token(
 @router.get("/revocations")
 def get_revocations(
     agent_id: str | None = None,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
-    events = list_revocation_events(agent_id=agent_id)
-    return {"events": events}
+    try:
+        return {"events": list_revocation_events(actor=actor, agent_id=agent_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/revocations/bulk")
 def post_bulk_revoke(
     request: BulkRevokeRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
+    try:
+        for agent_id in request.agent_ids:
+            get_agent_identity_for_actor(agent_id, actor)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return bulk_revoke(
         agent_ids=request.agent_ids,
-        owner=owner,
+        actor=actor,
         reason=request.reason,
     )
 
@@ -541,10 +587,11 @@ def post_bulk_revoke(
 def post_revoke_agent(
     agent_id: str,
     request: RevokeAgentRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        return revoke_agent(agent_id=agent_id, owner=owner, reason=request.reason)
+        get_agent_identity_for_actor(agent_id, actor)
+        return revoke_agent(agent_id=agent_id, actor=actor, reason=request.reason)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -594,15 +641,16 @@ def get_trusted_domains(
 def post_create_attestation(
     agent_id: str,
     request: CreateAttestationRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
+        get_agent_identity_for_actor(agent_id, actor)
         return create_agent_attestation(
             agent_id=agent_id,
             domain_id=request.domain_id,
             claims=request.claims,
             ttl_seconds=request.ttl_seconds,
-            owner=owner,
+            owner=actor.owner,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -621,4 +669,3 @@ def get_verify_attestation(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-

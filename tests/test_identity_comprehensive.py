@@ -1,112 +1,106 @@
-"""Comprehensive identity functional tests — all 5 goal areas.
-
-Goal 1: Delegated authority (scoped, time-limited agent permissions)
-Goal 2: Revocable permission tokens (kill switch)
-Goal 3: Agent-to-agent authentication (credential-based identity)
-Goal 4: Cross-organization agent identity federation
-Goal 5: Permission delegation chains with audit trail
-"""
+"""End-to-end identity tests covering the five original IAM goals."""
 
 from __future__ import annotations
 
 import json
-import os
 import uuid
+from collections.abc import Iterator
+from pathlib import Path
 
-os.environ.setdefault("AGENTHUB_API_KEYS_JSON", json.dumps({"test-key-001": "test-owner"}))
-os.environ.setdefault("AGENTHUB_IDENTITY_SIGNING_SECRET", "test-signing-secret-comprehensive")
-os.environ.setdefault(
-    "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON",
-    json.dumps({"partner-east": "east-token-001", "partner-west": "west-token-001"}),
-)
-
+import pytest
 from starlette.testclient import TestClient
 
 from src.api.app import app
+from src.billing.storage import reset_for_tests as reset_billing
+from src.cost_governance.storage import reset_for_tests as reset_cost
 from src.delegation.storage import reset_for_tests as reset_delegation
 from src.identity.storage import reset_for_tests as reset_identity
 from src.lease.service import reset_state_for_tests as reset_leases
+from src.runtime.storage import reset_for_tests as reset_runtime
 
 HEADERS = {"X-API-Key": "test-key-001"}
 
-client = TestClient(app)
-reset_identity()
-reset_delegation()
-reset_leases()
 
-passed = 0
-failed = 0
-
-
-def _pass(name: str) -> None:
-    global passed
-    passed += 1
-    print(f"  PASS: {name}")
-
-
-def _fail(name: str, reason: str) -> None:
-    global failed
-    failed += 1
-    print(f"  FAIL: {name} — {reason}")
-
-
-def _h() -> dict:
-    """Headers with idempotency key."""
+def _write_headers() -> dict[str, str]:
     return {**HEADERS, "Idempotency-Key": str(uuid.uuid4())}
 
 
-# ============================================================
-# GOAL 1: Delegated authority framework
-# ============================================================
-print("\n=== GOAL 1: Delegated Authority Framework ===")
+@pytest.fixture()
+def identity_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    monkeypatch.setenv("AGENTHUB_ACCESS_ENFORCEMENT_MODE", "enforce")
+    monkeypatch.setenv("AGENTHUB_API_KEYS_JSON", json.dumps({"test-key-001": "test-owner"}))
+    monkeypatch.setenv("AGENTHUB_AUTH_TOKEN_SECRET", "test-auth-secret-comprehensive")
+    monkeypatch.setenv("AGENTHUB_IDENTITY_SIGNING_SECRET", "test-signing-secret-comprehensive")
+    monkeypatch.setenv("AGENTHUB_POLICY_SIGNING_SECRET", "test-policy-secret-comprehensive")
+    monkeypatch.setenv("AGENTHUB_PROVENANCE_SIGNING_SECRET", "test-provenance-secret-comprehensive")
+    monkeypatch.setenv("AGENTHUB_VAULT_KEY", "test-vault-key-comprehensive")
+    monkeypatch.setenv(
+        "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON",
+        json.dumps({"partner-east": "east-token-001", "partner-west": "west-token-001"}),
+    )
+
+    identity_db = tmp_path / "identity.db"
+    delegation_db = tmp_path / "delegation.db"
+    lease_db = tmp_path / "lease.db"
+    runtime_db = tmp_path / "runtime.db"
+    billing_db = tmp_path / "billing.db"
+    cost_db = tmp_path / "cost.db"
+    monkeypatch.setenv("AGENTHUB_IDENTITY_DB_PATH", str(identity_db))
+    monkeypatch.setenv("AGENTHUB_DELEGATION_DB_PATH", str(delegation_db))
+    monkeypatch.setenv("AGENTHUB_DELEGATION_RECORDS_PATH", str(tmp_path / "delegations.json"))
+    monkeypatch.setenv("AGENTHUB_DELEGATION_BALANCES_PATH", str(tmp_path / "balances.json"))
+    monkeypatch.setenv("AGENTHUB_LEASE_DB_PATH", str(lease_db))
+    monkeypatch.setenv("AGENTHUB_RUNTIME_DB_PATH", str(runtime_db))
+    monkeypatch.setenv("AGENTHUB_BILLING_DB_PATH", str(billing_db))
+    monkeypatch.setenv("AGENTHUB_COST_DB_PATH", str(cost_db))
+    monkeypatch.setenv("AGENTHUB_COST_EVENTS_PATH", str(tmp_path / "cost-events.json"))
+    monkeypatch.setenv("AGENTHUB_TRUST_USAGE_EVENTS_PATH", str(tmp_path / "usage-events.json"))
+    monkeypatch.setenv("AGENTHUB_FEDERATION_AUDIT_PATH", str(tmp_path / "federation-audit.json"))
+
+    reset_identity(db_path=identity_db)
+    reset_delegation(db_path=delegation_db)
+    reset_leases()
+    reset_runtime(db_path=runtime_db)
+    reset_billing(db_path=billing_db)
+    reset_cost(db_path=cost_db)
+
+    with TestClient(app) as client:
+        yield client
 
 
-def test_agent_registration():
-    """Register agent identities with scoped credentials."""
-    resp = client.post(
+def _register_agent(client: TestClient, agent_id: str) -> None:
+    response = client.post(
         "/v1/identity/agents",
-        json={"agent_id": "agent-alice", "credential_type": "api_key"},
+        json={"agent_id": agent_id, "credential_type": "api_key"},
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["agent_id"] == "agent-alice"
-    assert data["status"] == "active"
-    _pass("agent registration")
+    assert response.status_code == 200, response.text
+    assert response.json()["agent_id"] == agent_id
+    assert response.json()["status"] == "active"
 
 
-def test_credential_issuance_with_scopes():
-    """Issue credentials with specific scopes (time-limited)."""
-    resp = client.post(
-        "/v1/identity/agents/agent-alice/credentials",
-        json={"scopes": ["read", "write", "delegate"], "ttl_seconds": 7200},
+def _issue_credential(client: TestClient, agent_id: str, scopes: list[str], ttl_seconds: int = 3600) -> dict:
+    response = client.post(
+        f"/v1/identity/agents/{agent_id}/credentials",
+        json={"scopes": scopes, "ttl_seconds": ttl_seconds},
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert "credential_id" in data
-    assert "secret" in data
-    assert data["scopes"] == ["delegate", "read", "write"]
-    _pass("credential issuance with scopes")
-    return data
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "credential_id" in payload
+    assert "secret" in payload
+    return payload
 
 
-def test_delegation_token_with_scope_attenuation():
-    """Issue delegation token with attenuated scopes (subset of parent)."""
-    # Register delegate agent
-    client.post(
-        "/v1/identity/agents",
-        json={"agent_id": "agent-bob", "credential_type": "api_key"},
-        headers=HEADERS,
-    )
-    client.post(
-        "/v1/identity/agents/agent-bob/credentials",
-        json={"scopes": ["read", "write"], "ttl_seconds": 3600},
-        headers=HEADERS,
-    )
+def _verify_delegated_authority(client: TestClient) -> dict:
+    _register_agent(client, "agent-alice")
+    alice_credential = _issue_credential(client, "agent-alice", ["read", "write", "delegate"], 7200)
+    assert alice_credential["scopes"] == ["delegate", "read", "write"]
 
-    # Alice delegates to Bob with attenuated scopes (only "read")
-    resp = client.post(
+    _register_agent(client, "agent-bob")
+    _issue_credential(client, "agent-bob", ["read", "write"])
+
+    token_response = client.post(
         "/v1/identity/delegation-tokens",
         json={
             "issuer_agent_id": "agent-alice",
@@ -116,18 +110,12 @@ def test_delegation_token_with_scope_attenuation():
         },
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["delegated_scopes"] == ["read"]
-    assert "signed_token" in data
-    _pass("delegation token with scope attenuation")
-    return data
+    assert token_response.status_code == 200, token_response.text
+    token = token_response.json()
+    assert token["delegated_scopes"] == ["read"]
+    assert "signed_token" in token
 
-
-def test_scope_escalation_blocked():
-    """Scope escalation is blocked — child cannot have more scopes than parent."""
-    # Try to delegate "admin" scope that Alice doesn't have
-    resp = client.post(
+    escalation = client.post(
         "/v1/identity/delegation-tokens",
         json={
             "issuer_agent_id": "agent-alice",
@@ -137,15 +125,10 @@ def test_scope_escalation_blocked():
         },
         headers=HEADERS,
     )
-    # System correctly rejects scope escalation
-    assert resp.status_code in (403, 400), f"expected 403/400 but got {resp.status_code}"
-    assert "scope escalation" in resp.text.lower() or "not in parent" in resp.text.lower()
-    _pass("scope escalation blocked")
+    assert escalation.status_code in (400, 403), escalation.text
+    assert "scope escalation" in escalation.text.lower() or "not in parent" in escalation.text.lower()
 
-
-def test_delegation_in_delegation_service():
-    """Delegation service records identity verification context."""
-    resp = client.post(
+    delegation = client.post(
         "/v1/delegations",
         json={
             "requester_agent_id": "agent-alice",
@@ -154,67 +137,36 @@ def test_delegation_in_delegation_service():
             "estimated_cost_usd": 2.0,
             "max_budget_usd": 10.0,
         },
-        headers=_h(),
+        headers=_write_headers(),
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    ctx = data["identity_context"]
-    assert ctx["requester_verified"] is True
-    assert ctx["delegate_verified"] is True
-    _pass("delegation with identity verification")
+    assert delegation.status_code == 200, delegation.text
+    assert delegation.json()["identity_context"]["requester_verified"] is True
+    assert delegation.json()["identity_context"]["delegate_verified"] is True
+    return alice_credential
 
 
-test_agent_registration()
-cred = test_credential_issuance_with_scopes()
-token_data = test_delegation_token_with_scope_attenuation()
-test_scope_escalation_blocked()
-test_delegation_in_delegation_service()
-
-
-# ============================================================
-# GOAL 2: Revocable permission tokens (kill switch)
-# ============================================================
-print("\n=== GOAL 2: Revocable Permission Tokens (Kill Switch) ===")
-
-
-def test_credential_revocation():
-    """Revoke individual credential."""
-    resp = client.post(
-        f"/v1/identity/credentials/{cred['credential_id']}/revoke",
+def _verify_revocation(client: TestClient, alice_credential: dict) -> None:
+    revoked = client.post(
+        f"/v1/identity/credentials/{alice_credential['credential_id']}/revoke",
         json={"reason": "compromised"},
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["status"] == "revoked"
-    _pass("credential revocation")
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["status"] == "revoked"
 
-
-def test_agent_kill_switch():
-    """Kill switch: revoke agent + all credentials + all tokens + leases."""
-    # Register a new agent with lease
-    client.post(
-        "/v1/identity/agents",
-        json={"agent_id": "agent-charlie", "credential_type": "api_key"},
-        headers=HEADERS,
-    )
-    client.post(
-        "/v1/identity/agents/agent-charlie/credentials",
-        json={"scopes": ["execute"], "ttl_seconds": 3600},
-        headers=HEADERS,
-    )
-    # Create a lease for charlie
-    client.post(
+    _register_agent(client, "agent-charlie")
+    _issue_credential(client, "agent-charlie", ["execute"])
+    lease = client.post(
         "/v1/capabilities/lease",
         json={
             "requester_agent_id": "agent-charlie",
             "capability_ref": "tool://calculator",
             "ttl_seconds": 3600,
         },
-        headers={**HEADERS, "Idempotency-Key": str(uuid.uuid4())},
+        headers=_write_headers(),
     )
-    # Issue delegation token from charlie
-    client.post(
+    assert lease.status_code == 200, lease.text
+    token = client.post(
         "/v1/identity/delegation-tokens",
         json={
             "issuer_agent_id": "agent-charlie",
@@ -224,120 +176,48 @@ def test_agent_kill_switch():
         },
         headers=HEADERS,
     )
+    assert token.status_code == 200, token.text
 
-    # Kill switch
-    resp = client.post(
+    killed = client.post(
         "/v1/identity/agents/agent-charlie/revoke",
         json={"reason": "security_incident"},
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["revoked_credentials"] >= 1
-    assert data["revoked_tokens"] >= 1
-    assert data["revoked_leases"] >= 1
-    _pass("agent kill switch (credentials + tokens + leases)")
+    assert killed.status_code == 200, killed.text
+    assert killed.json()["revoked_credentials"] >= 1
+    assert killed.json()["revoked_tokens"] >= 1
+    assert killed.json()["revoked_leases"] >= 1
 
-
-def test_bulk_revoke():
-    """Bulk kill switch for security incidents."""
-    # Register multiple agents
-    for aid in ["agent-d1", "agent-d2", "agent-d3"]:
-        client.post(
-            "/v1/identity/agents",
-            json={"agent_id": aid, "credential_type": "api_key"},
-            headers=HEADERS,
-        )
-        client.post(
-            f"/v1/identity/agents/{aid}/credentials",
-            json={"scopes": ["read"], "ttl_seconds": 3600},
-            headers=HEADERS,
-        )
-
-    resp = client.post(
+    for agent_id in ("agent-d1", "agent-d2", "agent-d3"):
+        _register_agent(client, agent_id)
+        _issue_credential(client, agent_id, ["read"])
+    bulk = client.post(
         "/v1/identity/revocations/bulk",
         json={"agent_ids": ["agent-d1", "agent-d2", "agent-d3"], "reason": "breach"},
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["total_revoked"] == 3
-    _pass("bulk revoke (3 agents)")
+    assert bulk.status_code == 200, bulk.text
+    assert bulk.json()["total_revoked"] == 3
+
+    audit = client.get("/v1/identity/revocations", headers=HEADERS)
+    assert audit.status_code == 200, audit.text
+    assert len(audit.json()["events"]) >= 4
 
 
-def test_revocation_audit_trail():
-    """Revocation events are auditable."""
-    resp = client.get("/v1/identity/revocations", headers=HEADERS)
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert len(data["events"]) >= 4  # charlie + d1 + d2 + d3
-    _pass("revocation audit trail")
-
-
-test_credential_revocation()
-test_agent_kill_switch()
-test_bulk_revoke()
-test_revocation_audit_trail()
-
-
-# ============================================================
-# GOAL 3: Agent-to-agent authentication
-# ============================================================
-print("\n=== GOAL 3: Agent-to-Agent Authentication ===")
-
-
-def test_agent_credential_auth():
-    """Agent authenticates using AgentCredential scheme."""
-    # Register fresh agent
-    client.post(
-        "/v1/identity/agents",
-        json={"agent_id": "agent-eve", "credential_type": "api_key"},
-        headers=HEADERS,
-    )
-    cred_resp = client.post(
-        "/v1/identity/agents/agent-eve/credentials",
-        json={"scopes": ["read", "execute"], "ttl_seconds": 3600},
-        headers=HEADERS,
-    )
-    assert cred_resp.status_code == 200
-    secret = cred_resp.json()["secret"]
-
-    # Authenticate using AgentCredential header
-    resp = client.get(
+def _verify_agent_authentication(client: TestClient) -> None:
+    _register_agent(client, "agent-eve")
+    eve_credential = _issue_credential(client, "agent-eve", ["read", "execute"])
+    authenticated = client.get(
         "/v1/identity/agents/agent-eve",
-        headers={"Authorization": f"AgentCredential {secret}"},
+        headers={"Authorization": f"AgentCredential {eve_credential['secret']}"},
     )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["agent_id"] == "agent-eve"
-    _pass("agent credential authentication")
+    assert authenticated.status_code == 200, authenticated.text
+    assert authenticated.json()["agent_id"] == "agent-eve"
 
-
-def test_delegation_token_auth():
-    """Agent authenticates via delegation token header."""
-    # Register fresh agents
-    client.post(
-        "/v1/identity/agents",
-        json={"agent_id": "agent-frank", "credential_type": "api_key"},
-        headers=HEADERS,
-    )
-    client.post(
-        "/v1/identity/agents/agent-frank/credentials",
-        json={"scopes": ["read"], "ttl_seconds": 3600},
-        headers=HEADERS,
-    )
-    client.post(
-        "/v1/identity/agents",
-        json={"agent_id": "agent-grace", "credential_type": "api_key"},
-        headers=HEADERS,
-    )
-    client.post(
-        "/v1/identity/agents/agent-grace/credentials",
-        json={"scopes": ["read"], "ttl_seconds": 3600},
-        headers=HEADERS,
-    )
-
-    # Issue delegation token
-    tok_resp = client.post(
+    for agent_id in ("agent-frank", "agent-grace"):
+        _register_agent(client, agent_id)
+        _issue_credential(client, agent_id, ["read"])
+    token_response = client.post(
         "/v1/identity/delegation-tokens",
         json={
             "issuer_agent_id": "agent-frank",
@@ -347,63 +227,31 @@ def test_delegation_token_auth():
         },
         headers=HEADERS,
     )
-    signed_token = tok_resp.json()["signed_token"]
-
-    # Grace authenticates using delegation token
-    resp = client.get(
+    assert token_response.status_code == 200, token_response.text
+    delegated_auth = client.get(
         "/v1/identity/agents/agent-grace",
-        headers={"X-Delegation-Token": signed_token},
+        headers={"X-Delegation-Token": token_response.json()["signed_token"]},
     )
-    assert resp.status_code == 200, resp.text
-    _pass("delegation token authentication")
+    assert delegated_auth.status_code == 200, delegated_auth.text
 
-
-def test_credential_rotation():
-    """Rotate credential without downtime."""
-    resp = client.post(
-        "/v1/identity/agents/agent-eve/credentials",
-        json={"scopes": ["read", "execute"], "ttl_seconds": 3600},
-        headers=HEADERS,
-    )
-    old_cred_id = resp.json()["credential_id"]
-
-    resp = client.post(
-        f"/v1/identity/credentials/{old_cred_id}/rotate",
+    old_credential = _issue_credential(client, "agent-eve", ["read", "execute"])
+    rotated = client.post(
+        f"/v1/identity/credentials/{old_credential['credential_id']}/rotate",
         json={},
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["credential_id"] != old_cred_id
-    assert "secret" in data
-    _pass("credential rotation")
+    assert rotated.status_code == 200, rotated.text
+    assert rotated.json()["credential_id"] != old_credential["credential_id"]
+    assert "secret" in rotated.json()
+
+    sessions = client.get("/v1/identity/agents/agent-eve/active-sessions", headers=HEADERS)
+    assert sessions.status_code == 200, sessions.text
+    assert sessions.json()["agent_id"] == "agent-eve"
+    assert len(sessions.json()["credentials"]) >= 1
 
 
-def test_active_sessions():
-    """List active credentials/sessions for an agent."""
-    resp = client.get("/v1/identity/agents/agent-eve/active-sessions", headers=HEADERS)
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["agent_id"] == "agent-eve"
-    assert len(data["credentials"]) >= 1
-    _pass("active sessions listing")
-
-
-test_agent_credential_auth()
-test_delegation_token_auth()
-test_credential_rotation()
-test_active_sessions()
-
-
-# ============================================================
-# GOAL 4: Cross-organization agent identity federation
-# ============================================================
-print("\n=== GOAL 4: Cross-Org Agent Identity Federation ===")
-
-
-def test_trust_registry():
-    """Register and manage trusted domains."""
-    resp = client.post(
+def _verify_federation(client: TestClient) -> None:
+    domain = client.post(
         "/v1/identity/trust-registry/domains",
         json={
             "domain_id": "company-x",
@@ -413,58 +261,30 @@ def test_trust_registry():
         },
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["domain_id"] == "company-x"
-    assert data["trust_level"] == "verified"
-    _pass("trust registry — domain registration")
+    assert domain.status_code == 200, domain.text
+    assert domain.json()["domain_id"] == "company-x"
+    assert domain.json()["trust_level"] == "verified"
 
-
-def test_agent_attestation():
-    """Create agent attestation binding agent to trusted domain."""
-    # Register test-owner as agent for federation actor
-    client.post(
-        "/v1/identity/agents",
-        json={"agent_id": "test-owner", "credential_type": "api_key"},
-        headers=HEADERS,
-    )
-
-    resp = client.post(
+    _register_agent(client, "test-owner")
+    attestation = client.post(
         "/v1/identity/agents/test-owner/attest",
-        json={
-            "domain_id": "company-x",
-            "ttl_seconds": 7200,
-            "claims": {"role": "data-processor"},
-        },
+        json={"domain_id": "company-x", "ttl_seconds": 7200, "claims": {"role": "data-processor"}},
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["domain_id"] == "company-x"
-    assert "signature" in data
-    assert "attestation_id" in data
-    _pass("agent attestation creation")
-    return data
+    assert attestation.status_code == 200, attestation.text
+    attestation_data = attestation.json()
+    assert attestation_data["domain_id"] == "company-x"
+    assert "signature" in attestation_data
 
-
-def test_attestation_verification():
-    """Verify agent attestation is valid."""
-    att = test_agent_attestation.__attestation
-    resp = client.get(
-        f"/v1/identity/attestations/{att['attestation_id']}/verify",
+    verified = client.get(
+        f"/v1/identity/attestations/{attestation_data['attestation_id']}/verify",
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["valid"] is True
-    assert data["domain_id"] == "company-x"
-    _pass("attestation verification")
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["valid"] is True
+    assert verified.json()["domain_id"] == "company-x"
 
-
-def test_federated_execution_with_attestation():
-    """Federated execution with agent attestation verification."""
-    att = test_agent_attestation.__attestation
-    resp = client.post(
+    execution = client.post(
         "/v1/federation/execute",
         json={
             "domain_id": "partner-east",
@@ -474,59 +294,27 @@ def test_federated_execution_with_attestation():
             "policy_context": {"decision": "allow"},
             "estimated_cost_usd": 2.0,
             "max_budget_usd": 20.0,
-            "agent_attestation_id": att["attestation_id"],
+            "agent_attestation_id": attestation_data["attestation_id"],
         },
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    ctx = data["identity_context"]
-    assert ctx["actor_verified"] is True
-    assert ctx["attestation_verified"] is True
-    assert ctx["attestation_id"] == att["attestation_id"]
-    _pass("federated execution with attestation")
+    assert execution.status_code == 200, execution.text
+    context = execution.json()["identity_context"]
+    assert context["actor_verified"] is True
+    assert context["attestation_verified"] is True
+    assert context["attestation_id"] == attestation_data["attestation_id"]
+
+    domains = client.get("/v1/identity/trust-registry/domains", headers=HEADERS)
+    assert domains.status_code == 200, domains.text
+    assert len(domains.json()["domains"]) >= 1
 
 
-def test_list_trusted_domains():
-    """List all trusted domains in registry."""
-    resp = client.get("/v1/identity/trust-registry/domains", headers=HEADERS)
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert len(data["domains"]) >= 1
-    _pass("list trusted domains")
+def _verify_delegation_chain(client: TestClient) -> None:
+    for agent_id in ("agent-chain-a", "agent-chain-b", "agent-chain-c"):
+        _register_agent(client, agent_id)
+        _issue_credential(client, agent_id, ["read", "write"])
 
-
-test_trust_registry()
-att_data = test_agent_attestation()
-test_agent_attestation.__attestation = att_data  # type: ignore[attr-defined]
-test_attestation_verification()
-test_federated_execution_with_attestation()
-test_list_trusted_domains()
-
-
-# ============================================================
-# GOAL 5: Permission delegation chains with audit trail
-# ============================================================
-print("\n=== GOAL 5: Permission Delegation Chains with Audit Trail ===")
-
-
-def test_delegation_chain():
-    """Build multi-hop delegation chain: A → B → C."""
-    # Register fresh agents for chain test
-    for aid in ["agent-chain-a", "agent-chain-b", "agent-chain-c"]:
-        client.post(
-            "/v1/identity/agents",
-            json={"agent_id": aid, "credential_type": "api_key"},
-            headers=HEADERS,
-        )
-        client.post(
-            f"/v1/identity/agents/{aid}/credentials",
-            json={"scopes": ["read", "write"], "ttl_seconds": 3600},
-            headers=HEADERS,
-        )
-
-    # A delegates to B
-    resp = client.post(
+    first_hop = client.post(
         "/v1/identity/delegation-tokens",
         json={
             "issuer_agent_id": "agent-chain-a",
@@ -536,59 +324,40 @@ def test_delegation_chain():
         },
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    tok_ab = resp.json()
+    assert first_hop.status_code == 200, first_hop.text
 
-    # B delegates to C with attenuated scopes
-    resp = client.post(
+    second_hop = client.post(
         "/v1/identity/delegation-tokens",
         json={
             "issuer_agent_id": "agent-chain-b",
             "subject_agent_id": "agent-chain-c",
             "delegated_scopes": ["read"],
-            "parent_token_id": tok_ab["token_id"],
+            "parent_token_id": first_hop.json()["token_id"],
             "ttl_seconds": 1800,
         },
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    tok_bc = resp.json()
+    assert second_hop.status_code == 200, second_hop.text
+    chain_token = second_hop.json()
 
-    # Verify chain
-    resp = client.get(
-        f"/v1/identity/delegation-tokens/{tok_bc['token_id']}/chain",
+    chain = client.get(
+        f"/v1/identity/delegation-tokens/{chain_token['token_id']}/chain",
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    chain = resp.json()
-    assert chain["chain_depth"] >= 1
-    assert len(chain["chain"]) >= 2
-    _pass("delegation chain A → B → C")
-    return tok_bc
+    assert chain.status_code == 200, chain.text
+    assert chain.json()["chain_depth"] >= 1
+    assert len(chain.json()["chain"]) >= 2
 
-
-def test_chain_scope_attenuation():
-    """Chain enforces scope attenuation — C cannot have more than B."""
-    chain_token = test_delegation_chain.__chain_token
-
-    # Verify the chain token
-    resp = client.post(
+    verified = client.post(
         "/v1/identity/delegation-tokens/verify",
         json={"signed_token": chain_token["signed_token"]},
         headers=HEADERS,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert "read" in data["delegated_scopes"]
-    # "write" should NOT be in C's scopes since B only delegated "read"
-    assert "write" not in data["delegated_scopes"]
-    _pass("chain scope attenuation enforced")
+    assert verified.status_code == 200, verified.text
+    assert "read" in verified.json()["delegated_scopes"]
+    assert "write" not in verified.json()["delegated_scopes"]
 
-
-def test_delegation_with_token_in_service():
-    """Use delegation token in the delegation service."""
-    chain_token = test_delegation_chain.__chain_token
-    resp = client.post(
+    delegated = client.post(
         "/v1/delegations",
         json={
             "requester_agent_id": "agent-chain-b",
@@ -598,49 +367,24 @@ def test_delegation_with_token_in_service():
             "max_budget_usd": 10.0,
             "delegation_token": chain_token["signed_token"],
         },
-        headers=_h(),
+        headers=_write_headers(),
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["identity_context"]["delegation_token_id"] is not None
-    _pass("delegation with token in service")
+    assert delegated.status_code == 200, delegated.text
+    assert delegated.json()["identity_context"]["delegation_token_id"] is not None
+
+    federation_audit = client.get("/v1/federation/audit?limit=10", headers=HEADERS)
+    assert federation_audit.status_code == 200, federation_audit.text
+    assert len(federation_audit.json()["data"]) >= 1
+
+    alice = client.get("/v1/identity/agents/agent-alice", headers=HEADERS)
+    assert alice.status_code == 200, alice.text
+    assert alice.json()["status"] == "active"
 
 
-def test_federation_audit():
-    """Federation audit trail records all executions."""
-    resp = client.get("/v1/federation/audit?limit=10", headers=HEADERS)
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert len(data["data"]) >= 1
-    _pass("federation audit trail")
-
-
-def test_identity_aware_policy():
-    """Policy engine evaluates identity-aware policies."""
-    # This is tested implicitly through delegation and federation calls
-    # that verify agent identity status before allowing operations
-    resp = client.get("/v1/identity/agents/agent-alice", headers=HEADERS)
-    assert resp.status_code == 200
-    # Alice was not revoked, so status should still be active
-    # (her credential was revoked, but her identity is still active)
-    data = resp.json()
-    assert data["status"] == "active"
-    _pass("identity-aware policy evaluation")
-
-
-chain_tok = test_delegation_chain()
-test_delegation_chain.__chain_token = chain_tok  # type: ignore[attr-defined]
-test_chain_scope_attenuation()
-test_delegation_with_token_in_service()  # uses __chain_token
-test_federation_audit()
-test_identity_aware_policy()
-
-# ============================================================
-# SUMMARY
-# ============================================================
-print(f"\n{'='*60}")
-print(f"RESULTS: {passed} passed, {failed} failed out of {passed + failed} tests")
-print(f"{'='*60}")
-if failed > 0:
-    raise SystemExit(1)
-print("\nAll identity IAM features verified!")
+def test_identity_comprehensive_flow(identity_client: TestClient) -> None:
+    """Verify delegated authority, revocation, authentication, federation, and chains."""
+    alice_credential = _verify_delegated_authority(identity_client)
+    _verify_revocation(identity_client, alice_credential)
+    _verify_agent_authentication(identity_client)
+    _verify_federation(identity_client)
+    _verify_delegation_chain(identity_client)

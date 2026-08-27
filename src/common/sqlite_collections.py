@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from src.common.json_store import read_json_list
 
@@ -12,6 +13,7 @@ _LOCKS: dict[str, threading.RLock] = {}
 _LOCKS_LOCK = threading.Lock()
 _CONNECTIONS: dict[str, sqlite3.Connection] = {}
 _CACHE: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+_MutationResult = TypeVar("_MutationResult")
 
 
 def _lock_for(path: Path) -> threading.RLock:
@@ -103,12 +105,13 @@ def read_collection(
     scope: str,
     collection_name: str,
     legacy_path: Path | None = None,
+    refresh: bool = False,
 ) -> list[dict[str, Any]]:
     lock = _lock_for(db_path)
     with lock:
         key = _cache_key(db_path=db_path, scope=scope, collection_name=collection_name)
         cached = _CACHE.get(key)
-        if cached is not None:
+        if cached is not None and not refresh:
             return _clone_rows(cached)
 
         conn = _connect(db_path)
@@ -142,6 +145,62 @@ def read_collection(
         normalized = _normalize_rows(loaded)
         _CACHE[key] = _clone_rows(normalized)
         return _clone_rows(normalized)
+
+
+def mutate_collection(
+    *,
+    db_path: Path,
+    scope: str,
+    collection_name: str,
+    mutator: Callable[
+        [list[dict[str, Any]]],
+        tuple[list[dict[str, Any]] | None, _MutationResult],
+    ],
+) -> _MutationResult:
+    """Atomically compare and mutate one collection across worker processes."""
+    lock = _lock_for(db_path)
+    with lock:
+        key = _cache_key(db_path=db_path, scope=scope, collection_name=collection_name)
+        conn = _connect(db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute(
+                """
+                SELECT payload_json
+                FROM collection_store
+                WHERE scope = ? AND collection_name = ?
+                """,
+                (scope, collection_name),
+            ).fetchone()
+            if current is None:
+                existing: list[dict[str, Any]] = []
+            else:
+                loaded = json.loads(str(current["payload_json"]))
+                existing = _normalize_rows(loaded if isinstance(loaded, list) else [])
+
+            updated, result = mutator(_clone_rows(existing))
+            if updated is None:
+                normalized = existing
+            else:
+                normalized = _normalize_rows(updated)
+                payload_json = json.dumps(normalized, separators=(",", ":"))
+                conn.execute(
+                    """
+                    INSERT INTO collection_store(scope, collection_name, payload_json)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(scope, collection_name) DO UPDATE SET
+                      payload_json = excluded.payload_json,
+                      updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                    """,
+                    (scope, collection_name, payload_json),
+                )
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+
+        _CACHE[key] = _clone_rows(normalized)
+        return result
 
 
 def write_collection(

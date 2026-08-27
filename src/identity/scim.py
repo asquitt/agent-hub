@@ -16,15 +16,15 @@ for agent identities, enabling enterprise IdP integration:
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 from src.identity.constants import STATUS_ACTIVE, STATUS_SUSPENDED, VALID_IDENTITY_STATUSES
 from src.identity.storage import (
-    get_agent_identity,
-    list_agent_identities,
-    register_agent_identity,
-    update_agent_identity_status,
+    ResourceAuthContext,
+    get_agent_identity_for_actor,
+    list_agent_identities_for_actor,
+    register_agent_identity_for_actor,
+    update_agent_identity_status_for_actor,
 )
 
 _log = logging.getLogger("agenthub.scim")
@@ -69,6 +69,7 @@ def identity_to_scim(identity: dict[str, Any]) -> dict[str, Any]:
         SCHEMA_AGENTHUB: {
             "credentialType": identity.get("credential_type"),
             "owner": identity.get("owner"),
+            "tenantId": identity.get("tenant_id"),
             "humanPrincipalId": identity.get("human_principal_id"),
             "configurationChecksum": identity.get("configuration_checksum"),
         },
@@ -77,13 +78,13 @@ def identity_to_scim(identity: dict[str, Any]) -> dict[str, Any]:
 
 def scim_list_users(
     *,
-    owner: str,
+    actor: ResourceAuthContext,
     start_index: int = 1,
     count: int = 100,
     filter_expr: str | None = None,
 ) -> dict[str, Any]:
     """SCIM list users (agents)."""
-    identities = list_agent_identities(owner)
+    identities = list_agent_identities_for_actor(actor)
     identity_dicts = [dict(i) for i in identities]
 
     # Basic filter support
@@ -103,16 +104,16 @@ def scim_list_users(
     }
 
 
-def scim_get_user(agent_id: str) -> dict[str, Any]:
+def scim_get_user(agent_id: str, *, actor: ResourceAuthContext) -> dict[str, Any]:
     """SCIM get user (agent) by ID."""
-    identity = get_agent_identity(agent_id)
+    identity = get_agent_identity_for_actor(agent_id, actor)
     return identity_to_scim(dict(identity))
 
 
 def scim_create_user(
     *,
     scim_resource: dict[str, Any],
-    owner: str,
+    actor: ResourceAuthContext,
 ) -> dict[str, Any]:
     """SCIM create user (agent)."""
     agent_id = scim_resource.get("userName") or scim_resource.get("externalId")
@@ -123,9 +124,9 @@ def scim_create_user(
     credential_type = ext.get("credentialType", "api_key")
     human_principal_id = ext.get("humanPrincipalId")
 
-    identity = register_agent_identity(
+    identity = register_agent_identity_for_actor(
+        actor=actor,
         agent_id=agent_id,
-        owner=owner,
         credential_type=credential_type,
         human_principal_id=human_principal_id,
     )
@@ -136,16 +137,17 @@ def scim_replace_user(
     *,
     agent_id: str,
     scim_resource: dict[str, Any],
+    actor: ResourceAuthContext,
 ) -> dict[str, Any]:
     """SCIM replace user (full update)."""
     active = scim_resource.get("active", True)
     new_status = STATUS_MAP_FROM_SCIM.get(active, STATUS_ACTIVE)
 
-    identity = get_agent_identity(agent_id)
+    identity = get_agent_identity_for_actor(agent_id, actor)
     current_status = identity.get("status", STATUS_ACTIVE)
 
     if current_status != new_status and new_status in VALID_IDENTITY_STATUSES:
-        identity = update_agent_identity_status(agent_id, new_status)
+        identity = update_agent_identity_status_for_actor(agent_id, new_status, actor)
 
     return identity_to_scim(dict(identity))
 
@@ -154,6 +156,7 @@ def scim_patch_user(
     *,
     agent_id: str,
     operations: list[dict[str, Any]],
+    actor: ResourceAuthContext,
 ) -> dict[str, Any]:
     """SCIM patch user (partial update via operations)."""
     for op in operations:
@@ -164,22 +167,22 @@ def scim_patch_user(
         if path == "active" and op_type in {"replace", "add"}:
             new_status = STATUS_MAP_FROM_SCIM.get(bool(value), STATUS_ACTIVE)
             if new_status in VALID_IDENTITY_STATUSES:
-                update_agent_identity_status(agent_id, new_status)
+                update_agent_identity_status_for_actor(agent_id, new_status, actor)
 
-    identity = get_agent_identity(agent_id)
+    identity = get_agent_identity_for_actor(agent_id, actor)
     return identity_to_scim(dict(identity))
 
 
-def scim_delete_user(agent_id: str) -> None:
+def scim_delete_user(agent_id: str, *, actor: ResourceAuthContext) -> None:
     """SCIM delete user (deactivate agent)."""
-    update_agent_identity_status(agent_id, STATUS_SUSPENDED)
+    update_agent_identity_status_for_actor(agent_id, STATUS_SUSPENDED, actor)
     _log.info("SCIM deactivated agent: %s", agent_id)
 
 
 def scim_bulk_operations(
     *,
     operations: list[dict[str, Any]],
-    owner: str,
+    actor: ResourceAuthContext,
 ) -> dict[str, Any]:
     """Process SCIM bulk operations."""
     results: list[dict[str, Any]] = []
@@ -192,7 +195,7 @@ def scim_bulk_operations(
 
         try:
             if method == "POST" and path == "/Users":
-                result = scim_create_user(scim_resource=data, owner=owner)
+                result = scim_create_user(scim_resource=data, actor=actor)
                 results.append({
                     "method": method,
                     "bulkId": bulk_id,
@@ -201,7 +204,7 @@ def scim_bulk_operations(
                 })
             elif method == "PUT" and path.startswith("/Users/"):
                 aid = path.split("/Users/")[1]
-                result = scim_replace_user(agent_id=aid, scim_resource=data)
+                result = scim_replace_user(agent_id=aid, scim_resource=data, actor=actor)
                 results.append({
                     "method": method,
                     "bulkId": bulk_id,
@@ -210,11 +213,27 @@ def scim_bulk_operations(
                 })
             elif method == "DELETE" and path.startswith("/Users/"):
                 aid = path.split("/Users/")[1]
-                scim_delete_user(aid)
+                scim_delete_user(aid, actor=actor)
                 results.append({
                     "method": method,
                     "bulkId": bulk_id,
                     "status": "204",
+                })
+            elif method == "PATCH" and path.startswith("/Users/"):
+                aid = path.split("/Users/", 1)[1]
+                raw_operations = data.get("Operations", [])
+                if not isinstance(raw_operations, list):
+                    raise ValueError("PATCH data.Operations must be an array")
+                result = scim_patch_user(
+                    agent_id=aid,
+                    operations=[dict(item) for item in raw_operations if isinstance(item, dict)],
+                    actor=actor,
+                )
+                results.append({
+                    "method": method,
+                    "bulkId": bulk_id,
+                    "status": "200",
+                    "response": result,
                 })
             else:
                 results.append({
@@ -223,7 +242,14 @@ def scim_bulk_operations(
                     "status": "400",
                     "response": _scim_error(400, f"unsupported: {method} {path}"),
                 })
-        except (KeyError, ValueError) as exc:
+        except (KeyError, PermissionError) as exc:
+            results.append({
+                "method": method,
+                "bulkId": bulk_id,
+                "status": "404",
+                "response": _scim_error(404, str(exc)),
+            })
+        except ValueError as exc:
             results.append({
                 "method": method,
                 "bulkId": bulk_id,

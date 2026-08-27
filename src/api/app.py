@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from src.api.access_policy import access_mode, classify_route, evaluate_access, requires_idempotency
-from src.api.auth import resolve_owner_from_headers
+from src.api.auth import AuthContext, resolve_owner_from_headers
 from src.api.route_helpers import append_warning_header, meter_warn, resolve_tenant_id, stable_error
 from src.api.routes import (
     a2a_router,
@@ -43,6 +45,7 @@ from src.api.routes import (
     intent_router,
     knowledge_router,
     marketplace_router,
+    mcp_router,
     misc_router,
     operator_router,
     policy_code_router,
@@ -64,6 +67,14 @@ from src.api.routes import (
 from src.idempotency import storage as idempotency_storage
 
 _log = logging.getLogger("agenthub.app")
+
+
+def _idempotency_actor(context: AuthContext | None) -> str:
+    if context is None:
+        return "anonymous"
+    principal = json.dumps(context.to_dict(), sort_keys=True, separators=(",", ":"))
+    principal_digest = hashlib.sha256(principal.encode("utf-8")).hexdigest()
+    return f"{context.owner}:{principal_digest}"
 
 
 def _close_storage_connections() -> None:
@@ -127,6 +138,7 @@ app.include_router(discovery_router)
 app.include_router(federation_router)
 app.include_router(knowledge_router)
 app.include_router(marketplace_router)
+app.include_router(mcp_router)
 app.include_router(misc_router)
 app.include_router(procurement_router)
 app.include_router(provenance_router)
@@ -158,25 +170,16 @@ app.include_router(policy_sim_router)
 
 # --- Production middleware ---
 
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=os.environ.get("AGENTHUB_CORS_ORIGINS", "").split(",") if os.environ.get("AGENTHUB_CORS_ORIGINS") else [],
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["X-API-Key", "Authorization", "Content-Type", "Idempotency-Key", "X-Delegation-Token"],
-    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+from src.api.middleware import (  # noqa: E402
+    RequestLoggingMiddleware,
+    RequestTimeoutMiddleware,
+    is_rate_limit_exempt_path,
+    limiter,
+    rate_limit_exceeded_handler as _rl_handler,
 )
-
-# Rate limiting
-from src.api.middleware import limiter, rate_limit_exceeded_handler as _rl_handler  # noqa: E402
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rl_handler)
-
-# Request logging + X-Request-ID
-from src.api.middleware import RequestLoggingMiddleware  # noqa: E402
-
-app.add_middleware(RequestLoggingMiddleware)
 
 # Delegation chain middleware
 from src.api.middleware_delegation import DelegationChainMiddleware  # noqa: E402
@@ -198,26 +201,43 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
     tenant_id = resolve_tenant_id(request.headers.get("X-Tenant-ID"))
     classification = classify_route(method, path)
     mode = access_mode()
+    jwt_audience = None
+    if path == "/mcp":
+        from src.protocol.mcp_server import MCP_PROTOCOL_VERSION, is_allowed_mcp_origin, mcp_resource_url
 
-    from fastapi import HTTPException
+        if not is_allowed_mcp_origin(request.headers.get("Origin")):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32000, "message": "Origin not allowed"},
+                },
+                headers={"MCP-Protocol-Version": MCP_PROTOCOL_VERSION},
+            )
+        jwt_audience = mcp_resource_url()
 
     auth_error: HTTPException | None = None
-    owner: str | None = None
-    try:
-        owner = resolve_owner_from_headers(
-            x_api_key=request.headers.get("X-API-Key"),
-            authorization=request.headers.get("Authorization"),
-            x_delegation_token=request.headers.get("X-Delegation-Token"),
-            strict=False,
-        )
-    except HTTPException as exc:
-        auth_error = exc
+    auth_context = getattr(request.state, "agenthub_auth_context", None)
+    if auth_context is None:
+        try:
+            auth_context = resolve_owner_from_headers(
+                x_api_key=request.headers.get("X-API-Key"),
+                authorization=request.headers.get("Authorization"),
+                x_delegation_token=request.headers.get("X-Delegation-Token"),
+                tenant_id=tenant_id,
+                jwt_audience=jwt_audience,
+                strict=False,
+            )
+        except HTTPException as exc:
+            auth_error = exc
 
-    request.state.agenthub_owner = owner
+    request.state.agenthub_auth_context = auth_context
+    request.state.agenthub_owner = auth_context.owner if auth_context is not None else None
     request.state.agenthub_tenant_id = tenant_id
 
-    violation = evaluate_access(classification=classification, owner=owner, tenant_id=tenant_id)
-    if auth_error is not None and classification != "public" and owner is None:
+    violation = evaluate_access(classification=classification, owner=auth_context, tenant_id=tenant_id)
+    if auth_error is not None and classification != "public" and auth_context is None:
         violation_code = "auth.invalid"
         violation_message = str(auth_error.detail)
     elif violation is not None:
@@ -230,6 +250,10 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
     if violation_code is not None and mode == "enforce":
         status_code = 401 if violation_code in {"auth.required", "auth.invalid"} else 403
         error_response = stable_error(status_code, violation_code, violation_message or "request not permitted")
+        if path == "/mcp" and status_code == 401:
+            from src.protocol.mcp_server import mcp_www_authenticate
+
+            error_response.headers["WWW-Authenticate"] = mcp_www_authenticate()
         # Add CORS headers so browsers can read the error
         origin = request.headers.get("origin", "")
         if origin:
@@ -243,7 +267,7 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
         warning = f"{violation_code}:{violation_message}"
         append_warning_header(response, warning)
         meter_warn(
-            actor=owner or "anonymous",
+            actor=auth_context.owner if auth_context is not None else "anonymous",
             kind="access.warn",
             method=method,
             path=path,
@@ -266,15 +290,25 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
 
     mode = access_mode()
     tenant_id = resolve_tenant_id(request.headers.get("X-Tenant-ID"))
-    owner = getattr(request.state, "agenthub_owner", None)
-    if owner is None:
-        owner = resolve_owner_from_headers(
-            x_api_key=request.headers.get("X-API-Key"),
-            authorization=request.headers.get("Authorization"),
-            x_delegation_token=request.headers.get("X-Delegation-Token"),
-            strict=False,
-        )
-    actor = owner or "anonymous"
+    classification = classify_route(method, path)
+    auth_context = getattr(request.state, "agenthub_auth_context", None)
+    if auth_context is None:
+        try:
+            auth_context = resolve_owner_from_headers(
+                x_api_key=request.headers.get("X-API-Key"),
+                authorization=request.headers.get("Authorization"),
+                x_delegation_token=request.headers.get("X-Delegation-Token"),
+                tenant_id=tenant_id,
+                strict=True,
+            )
+        except HTTPException:
+            return await call_next(request)
+    if auth_context is None and classification != "public":
+        return await call_next(request)
+    request.state.agenthub_auth_context = auth_context
+    request.state.agenthub_owner = auth_context.owner if auth_context is not None else None
+    request.state.agenthub_tenant_id = tenant_id
+    actor = _idempotency_actor(auth_context)
 
     key = request.headers.get("Idempotency-Key")
     if key is None or not key.strip():
@@ -378,3 +412,43 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
             idempotency_key=key,
         )
         raise
+
+
+# Register outer middleware after function middleware so reliability controls
+# cover access, idempotency, delegation, and route execution. Starlette wraps
+# the last middleware added around the existing stack.
+for _route in app.routes:
+    _path = getattr(_route, "path", "")
+    _endpoint = getattr(_route, "endpoint", None)
+    if _endpoint is not None and is_rate_limit_exempt_path(_path):
+        limiter.exempt(_endpoint)
+
+app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(RequestTimeoutMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=(
+        os.environ.get("AGENTHUB_CORS_ORIGINS", "").split(",")
+        if os.environ.get("AGENTHUB_CORS_ORIGINS")
+        else []
+    ),
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "X-API-Key",
+        "Authorization",
+        "Content-Type",
+        "Idempotency-Key",
+        "X-Delegation-Token",
+        "MCP-Protocol-Version",
+        "X-Tenant-ID",
+    ],
+    expose_headers=[
+        "X-Request-ID",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "MCP-Protocol-Version",
+        "WWW-Authenticate",
+    ],
+)

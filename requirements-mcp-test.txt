@@ -1,0 +1,3 @@
+# The official MCP SDK requires a newer Pydantic than AgentHub currently pins.
+# Install this exact client into a separate test-only virtual environment.
+mcp==2.1.1

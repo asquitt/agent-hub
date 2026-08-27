@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.api.auth import require_api_key
+from src.api.auth import AuthContext, require_api_key
 from src.identity.scim import (
     scim_bulk_operations,
     scim_create_user,
@@ -76,10 +76,10 @@ def get_users(
     startIndex: int = Query(default=1, ge=1),
     count: int = Query(default=100, ge=1, le=200),
     filter: str | None = Query(default=None),
-    caller: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     return scim_list_users(
-        owner=caller,
+        actor=actor,
         start_index=startIndex,
         count=count,
         filter_expr=filter,
@@ -89,10 +89,10 @@ def get_users(
 @router.get("/scim/v2/Users/{agent_id}")
 def get_user(
     agent_id: str,
-    _caller: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        return scim_get_user(agent_id)
+        return scim_get_user(agent_id, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -100,10 +100,10 @@ def get_user(
 @router.post("/scim/v2/Users", status_code=201)
 def post_user(
     body: dict[str, Any],
-    caller: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        return scim_create_user(scim_resource=body, owner=caller)
+        return scim_create_user(scim_resource=body, actor=actor)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -112,10 +112,10 @@ def post_user(
 def put_user(
     agent_id: str,
     body: dict[str, Any],
-    _caller: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        return scim_replace_user(agent_id=agent_id, scim_resource=body)
+        return scim_replace_user(agent_id=agent_id, scim_resource=body, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -124,11 +124,11 @@ def put_user(
 def patch_user(
     agent_id: str,
     body: ScimPatchRequest,
-    _caller: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
         ops = [{"op": o.op, "path": o.path, "value": o.value} for o in body.Operations]
-        return scim_patch_user(agent_id=agent_id, operations=ops)
+        return scim_patch_user(agent_id=agent_id, operations=ops, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -136,10 +136,10 @@ def patch_user(
 @router.delete("/scim/v2/Users/{agent_id}", status_code=204)
 def delete_user(
     agent_id: str,
-    _caller: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> Response:
     try:
-        scim_delete_user(agent_id)
+        scim_delete_user(agent_id, actor=actor)
         return Response(status_code=204)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -151,7 +151,7 @@ def delete_user(
 @router.post("/scim/v2/Bulk")
 def post_bulk(
     body: ScimBulkRequest,
-    caller: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     ops = [{"method": o.method, "path": o.path, "bulkId": o.bulkId, "data": o.data or {}} for o in body.Operations]
-    return scim_bulk_operations(operations=ops, owner=caller)
+    return scim_bulk_operations(operations=ops, actor=actor)
