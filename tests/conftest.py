@@ -37,6 +37,7 @@ TEST_ENV_DEFAULTS = {
         sort_keys=True,
     ),
     "AGENTHUB_IDENTITY_SIGNING_SECRET": "test-global-identity-secret",
+    "AGENTHUB_ENABLE_UNSAFE_FINANCIAL_MUTATIONS": "true",
     "AGENTHUB_PROVENANCE_SIGNING_SECRET": "test-global-provenance-secret",
     "AGENTHUB_POLICY_SIGNING_SECRET": "test-global-policy-secret",
     "AGENTHUB_VAULT_KEY": "test-global-vault-key",
@@ -52,7 +53,9 @@ def pytest_configure() -> None:
 
 
 @pytest.fixture(autouse=True)
-def isolate_idempotency_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def isolate_idempotency_storage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
     from src.api.middleware import limiter
 
     db_path = tmp_path / "idempotency.db"

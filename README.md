@@ -1,14 +1,14 @@
 # AgentHub
 
-AgentHub is the IAM layer for autonomous systems — agent identity, credential lifecycle, delegated authority, revocable permissions, and cross-organization federation. Built on a reliability-first interoperability and runtime infrastructure for autonomous agents.
+AgentHub is a local control-plane prototype for agent identity, delegated authority, capability discovery, revocation, and policy research. It is not production-ready and does not yet execute remote agent workloads.
 
 ## Current Status
-- Core segment plan (`S01` through `S16`) is complete.
-- Post-core continuation segments (`S17` through `S54`) are complete.
-- UI redesign and operator diagnostics (`S55` through `S71`) are complete.
-- **Agent Identity & Authorization (`S72` through `S78`) is complete** — the IAM layer that turns AgentHub from "agent directory" into "Okta for agents."
-- **Managed Agent Runtime (`S79` through `S82`) is complete** — sandboxed execution control plane with resource profiles, lifecycle management, policy enforcement, cost metering, and compliance audit trails.
-- **Production Hardening (`S83` through `S90`) is complete** — rate limiting, CORS, request timeouts, structured JSON logging, deep health checks, Dockerfile hardening, and expanded CI coverage.
+- The repository contains many historical segments, but segment completion is not equivalent to production or customer readiness.
+- S163-S165 provide the current evidence-backed baseline: P0 containment, an authenticated inbound MCP discovery endpoint, and durable local identity authority.
+- Identity, revocation, and discovery behavior is proven only in the documented local single-process SQLite boundary.
+- Runtime, delegation, federation execution, webhook delivery, and customer journeys remain simulators or control-plane state machines; they do not prove external execution.
+- Billing, marketplace settlement, procurement charging, and synthetic delegation charging are disabled by default pending transactional-integrity proof.
+- Hosted CI, public deployment, multi-replica safety, production migrations, real customer outcomes, and a governed remote tool invocation are not proven.
 - Source of truth for delivery status and evidence:
   - `docs/DELIVERABLE_LOG.md`
   - `docs/evidence/`
@@ -20,7 +20,7 @@ AgentHub is the IAM layer for autonomous systems — agent identity, credential 
 AgentHub is organized as two connected layers:
 
 - Agent DevHub (human-facing): registry, versioning, trust/evals, release review/promotion workflows, operator views.
-- Agent Runtime Infrastructure (agent-native): capability discovery, delegation contracts, leases, procurement, marketplace, federation, billing, compliance, reliability controls.
+- Agent Runtime Infrastructure (agent-native): capability discovery plus prototype contracts and policy primitives. Real governed remote invocation remains unfinished.
 
 ## Implemented Platform Domains
 | Domain | Primary Endpoints | Notes |
@@ -28,30 +28,29 @@ AgentHub is organized as two connected layers:
 | Marketing Site | `GET /` | Public-facing value proposition, product positioning, and primary CTA navigation |
 | Registry + Versioning | `POST /v1/agents`, `GET /v1/agents/{agent_id}/versions`, `GET /v1/agents/{agent_id}/compare/{base_version}/{target_version}` | Canonical manifest registration and behavioral diffing |
 | Capability Search + Discovery | `POST /v1/capabilities/search`, `POST /v1/discovery/search`, `POST /mcp` | Policy-aware discovery plus an authenticated MCP Streamable HTTP gateway backed by the canonical discovery service |
-| Delegation Runtime | `POST /v1/delegations`, `GET /v1/delegations/{delegation_id}/status`, `GET /v1/delegations/contract` | Durable delegation contract with lifecycle/audit state |
+| Delegation Simulator | `POST /v1/delegations`, `GET /v1/delegations/{delegation_id}/status`, `GET /v1/delegations/contract` | Development-only synthetic lifecycle; disabled by default because no delegate is invoked |
 | Lease + Install Control | `POST /v1/capabilities/lease`, `POST /v1/capabilities/leases/{lease_id}/promote`, `POST /v1/capabilities/installs/{install_id}/rollback` | Lease-first capability acquisition and promotion gates |
 | Trust + Evals + Provenance | `GET /v1/agents/{agent_id}/trust`, `POST /v1/provenance/manifests/sign`, `POST /v1/provenance/artifacts/verify` | Trust scoring, tiered eval integration, signed provenance envelopes |
 | Operator + DevHub | `GET /operator`, `GET /v1/operator/dashboard`, `GET /v1/operator/startup-diagnostics`, `GET /v1/operator/startup-diagnostics/history`, `POST /v1/devhub/reviews/{review_id}/promote` | Operator diagnostics UI, startup readiness diagnostics, and release collaboration lifecycle |
-| Marketplace + Procurement + Billing | `POST /v1/marketplace/purchase`, `POST /v1/procurement/approvals`, `POST /v1/billing/invoices/generate` | Commercial flows with policy controls and reconciliation |
-| Federation + Compliance + Reliability | `POST /v1/federation/execute`, `GET /v1/compliance/controls`, `GET /v1/reliability/slo-dashboard` | Domain federation, evidence export, SRE/SLO reporting |
+| Marketplace + Procurement + Billing | `POST /v1/marketplace/purchase`, `POST /v1/procurement/approvals`, `POST /v1/billing/invoices/generate` | Prototype commercial records; financial mutations are disabled by default |
+| Federation + Compliance + Reliability | `POST /v1/federation/execute`, `GET /v1/compliance/controls`, `GET /v1/reliability/slo-dashboard` | Local federation simulation, evidence export, and SRE/SLO primitives |
 | Agent Identity & Credentials | `POST /v1/identity/agents`, `POST /v1/identity/agents/{id}/credentials`, `POST /v1/identity/credentials/{id}/rotate`, `POST /v1/identity/credentials/{id}/revoke` | Agent identity registration, scoped credential issuance, rotation, and revocation |
 | Delegation Tokens & Chains | `POST /v1/identity/delegation-tokens`, `POST /v1/identity/delegation-tokens/verify`, `GET /v1/identity/delegation-tokens/{id}/chain` | Scope-attenuated delegation tokens with multi-hop chain validation (max depth 5) |
 | Revocation & Kill Switch | `POST /v1/identity/agents/{id}/revoke`, `POST /v1/identity/revocations/bulk`, `GET /v1/identity/revocations` | Instant agent kill switch with cascade to credentials, tokens, and leases |
 | Trust Registry & Federation | `POST /v1/identity/trust-registry/domains`, `POST /v1/identity/agents/{id}/attest`, `GET /v1/identity/attestations/{id}/verify` | Cross-org trust registry, signed agent attestations, federated identity verification |
-| Managed Agent Runtime | `POST /v1/runtime/sandboxes`, `POST /v1/runtime/sandboxes/{id}/execute`, `POST /v1/runtime/sandboxes/{id}/complete`, `POST /v1/runtime/sandboxes/{id}/terminate` | Sandboxed execution control plane with resource profiles, lifecycle state machine, policy enforcement, cost metering |
-| Runtime Integration | `POST /v1/runtime/sandboxes/delegated`, `POST /v1/runtime/sandboxes/leased`, `GET /v1/runtime/audit/evidence` | Delegation-linked and lease-linked sandbox provisioning, compliance audit evidence export |
+| Runtime State Simulator | `POST /v1/runtime/sandboxes`, `POST /v1/runtime/sandboxes/{id}/execute`, `POST /v1/runtime/sandboxes/{id}/complete`, `POST /v1/runtime/sandboxes/{id}/terminate` | Local lifecycle records only; no OS isolation or workload execution |
+| Runtime Integration Simulator | `POST /v1/runtime/sandboxes/delegated`, `POST /v1/runtime/sandboxes/leased`, `GET /v1/runtime/audit/evidence` | Development records for delegation/lease integration, not execution evidence |
 
 ## Architecture Principles
 - Deterministic workflows first, autonomy only when measured lift is proven.
 - Canonical internal contract with protocol adapters (MCP first, A2A second).
 - Policy-first filtering before semantic ranking.
 - Lease-first acquisition with explicit promotion checks.
-- Strict cost guardrails, metering, and auditable actions.
+- Cost-policy prototypes and metering records; financial integrity remains unfinished.
 - Idempotent write safety and replay-aware runtime semantics.
 - Structured outputs and early schema validation.
 - Credential-based identity with scope attenuation — child scopes must be subset of parent.
-- Cascade revocation — revoking an agent instantly invalidates all credentials, delegation tokens, and leases.
-- Backward compatible — existing endpoints work without identity params (legacy flow).
+- Revocation-aware local identity artifacts with documented boundary limitations.
 
 See `docs/RESEARCH_INSIGHTS.md` for the full rationale and constraints.
 
@@ -172,8 +171,8 @@ curl -s -X POST http://127.0.0.1:8000/v1/identity/agents/my-agent/revoke \
   -d '{"reason": "security_incident"}'
 ```
 
-## Managed Agent Runtime (S79-S82)
-Sandboxed execution control plane for agent workloads. Resource profiles define CPU, memory, timeout, network, and disk I/O limits. Sandboxes follow a state machine: pending -> provisioning -> ready -> executing -> completed/failed/terminated.
+## Runtime State Simulator (S79-S82)
+These endpoints persist a development lifecycle state machine. The in-process driver does not execute the submitted workload, gVisor and Firecracker drivers are not implemented, and completion output is caller supplied. Do not use these records as execution, isolation, metering, or customer-outcome evidence.
 
 Provision a sandbox and run an execution:
 ```bash
@@ -310,13 +309,13 @@ Stop:
 make compose-down
 ```
 
-Compose includes:
-- API container (`8000`)
-- Postgres (`5432`)
-- Redis (`6379`)
+Compose includes one API container (`8000`) and one local data volume. The API uses SQLite and rejects declared multi-worker or multi-replica topology. Postgres and Redis are not connected or included.
 
 ## Useful Configuration Variables
 - `AGENTHUB_ACCESS_ENFORCEMENT_MODE` (`warn` or `enforce`)
+- `AGENTHUB_API_WORKERS` and `AGENTHUB_API_REPLICAS` (must both remain `1` while SQLite owns state)
+- `AGENTHUB_SINGLETON_LOCK_PATH` (process-ownership lock for the local SQLite deployment)
+- `AGENTHUB_ENABLE_UNSAFE_FINANCIAL_MUTATIONS` (development-only opt-in; disabled by default)
 - `AGENTHUB_CORS_ORIGINS` (comma-separated allowed origins; defaults to `*`)
 - `AGENTHUB_RATE_LIMIT_DEFAULT` (rate limit per API key; defaults to `100/minute`)
 - `AGENTHUB_REQUEST_TIMEOUT_SECONDS` (HTTP request timeout; defaults to `30`)
@@ -344,7 +343,7 @@ Compose includes:
 - `src/`: API and domain services (policy, delegation, billing, trust, discovery, federation, identity, etc.)
 - `src/identity/`: Agent identity module — credentials, delegation tokens, revocation, federation trust registry
 - `src/api/routes/identity.py`: Identity API endpoints (17 endpoints under `/v1/identity/*`)
-- `src/runtime/`: Managed agent runtime — sandbox lifecycle, resource profiles, policy, metering, audit
+- `src/runtime/`: Development runtime state simulator, policy prototypes, metering records, and audit helpers
 - `src/api/routes/runtime.py`: Runtime API endpoints (16 endpoints under `/v1/runtime/*`)
 - `agenthub/`: CLI package
 - `tests/`: integration, domain, and operator/UI-adjacent tests

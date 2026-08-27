@@ -1,13 +1,14 @@
 """Delegation create, status, contract, multi-party ceremony routes."""
+
 from __future__ import annotations
 
 import copy
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.api.auth import require_api_key, require_api_key_owner
+from src.api.auth import require_api_key
 from src.delegation.multiparty import (
     cast_vote,
     create_ceremony,
@@ -23,9 +24,12 @@ from src.api.route_helpers import (
     require_idempotency_key,
     resolve_tenant_id,
 )
-from src.cost_governance.service import record_metering_event
 from src.delegation import storage as delegation_storage
-from src.delegation.service import create_delegation, delegation_contract, get_delegation_status
+from src.delegation.service import (
+    create_delegation,
+    delegation_contract,
+    get_delegation_status,
+)
 from src.policy import evaluate_delegation_policy
 from src.reliability.service import DEFAULT_WINDOW_SIZE, build_slo_dashboard
 
@@ -71,12 +75,16 @@ def post_delegation(
 
     owns_reservation = reservation_state == "reserved"
     if not owns_reservation:
-        raise HTTPException(status_code=500, detail="unable to reserve idempotency slot")
+        raise HTTPException(
+            status_code=500, detail="unable to reserve idempotency slot"
+        )
 
     sre_dashboard = build_slo_dashboard(window_size=DEFAULT_WINDOW_SIZE)
     circuit_breaker = sre_dashboard["circuit_breaker"]
     if circuit_breaker["state"] == "open":
-        delegation_storage.clear_idempotency(owner=idempotency_owner, idempotency_key=key)
+        delegation_storage.clear_idempotency(
+            owner=idempotency_owner, idempotency_key=key
+        )
         raise HTTPException(
             status_code=503,
             detail={
@@ -86,7 +94,9 @@ def post_delegation(
             },
         )
 
-    delegate_trust_score, delegate_permissions = delegate_policy_signals(request.delegate_agent_id)
+    delegate_trust_score, delegate_permissions = delegate_policy_signals(
+        request.delegate_agent_id
+    )
     try:
         policy_decision = evaluate_delegation_policy(
             actor="runtime.delegation",
@@ -111,7 +121,14 @@ def post_delegation(
             },
         )
         if not policy_decision["allowed"]:
-            status = 400 if all(code.startswith("budget.") for code in policy_decision["violated_constraints"]) else 403
+            status = (
+                400
+                if all(
+                    code.startswith("budget.")
+                    for code in policy_decision["violated_constraints"]
+                )
+                else 403
+            )
             raise HTTPException(
                 status_code=status,
                 detail={
@@ -126,6 +143,8 @@ def post_delegation(
             task_spec=request.task_spec,
             estimated_cost_usd=request.estimated_cost_usd,
             max_budget_usd=request.max_budget_usd,
+            owner=owner,
+            tenant_id=tenant_id,
             simulated_actual_cost_usd=request.simulated_actual_cost_usd,
             auto_reauthorize=request.auto_reauthorize,
             policy_decision=policy_decision,
@@ -147,27 +166,45 @@ def post_delegation(
             },
         }
     except ValueError as exc:
-        delegation_storage.clear_idempotency(owner=idempotency_owner, idempotency_key=key)
+        delegation_storage.clear_idempotency(
+            owner=idempotency_owner, idempotency_key=key
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HTTPException:
-        delegation_storage.clear_idempotency(owner=idempotency_owner, idempotency_key=key)
+        delegation_storage.clear_idempotency(
+            owner=idempotency_owner, idempotency_key=key
+        )
         raise
     except Exception:
-        delegation_storage.clear_idempotency(owner=idempotency_owner, idempotency_key=key)
+        delegation_storage.clear_idempotency(
+            owner=idempotency_owner, idempotency_key=key
+        )
         raise
 
-    delegation_storage.finalize_idempotency(owner=idempotency_owner, idempotency_key=key, response=response)
+    delegation_storage.finalize_idempotency(
+        owner=idempotency_owner, idempotency_key=key, response=response
+    )
     return response
 
 
 @router.get("/v1/delegations/contract")
-def get_delegation_contract_endpoint(_owner: str = Depends(require_api_key)) -> dict[str, Any]:
+def get_delegation_contract_endpoint(
+    _owner: str = Depends(require_api_key),
+) -> dict[str, Any]:
     return delegation_contract()
 
 
 @router.get("/v1/delegations/{delegation_id}/status")
-def get_delegation_status_endpoint(delegation_id: str) -> dict[str, Any]:
-    row = get_delegation_status(delegation_id)
+def get_delegation_status_endpoint(
+    delegation_id: str,
+    owner: str = Depends(require_api_key),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    row = get_delegation_status(
+        delegation_id,
+        owner=owner,
+        tenant_id=resolve_tenant_id(x_tenant_id),
+    )
     if not row:
         raise HTTPException(status_code=404, detail="delegation not found")
     return row

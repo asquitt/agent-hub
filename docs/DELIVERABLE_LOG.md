@@ -10,6 +10,8 @@
 - `BLOCKED`
 - `DONE`
 
+`DONE` means the bounded segment acceptance criteria have evidence. It does not imply production readiness, deployment, provider behavior, or customer outcome.
+
 ## Segment Tracker
 | Segment | Deliverable(s) | Status | Last Updated | Owner | Plan Doc Updated? | Evidence File |
 |---|---|---|---|---|---|---|
@@ -88,25 +90,26 @@
 | S69 | Marketing homepage + operator/customer visual redesign | DONE | 2026-02-13 05:52 UTC | Platform | Yes | docs/evidence/S69.md |
 | S70 | UI redesign refinement + Playwright visual capture | DONE | 2026-02-13 06:29 UTC | Platform | Yes | docs/evidence/S70.md |
 | S71 | UI redesign pass v3 + screenshot refresh | DONE | 2026-02-13 06:41 UTC | Platform | Yes | docs/evidence/S71.md |
-| S72 | Agent identity foundation + credential lifecycle | DONE | 2026-02-13 | Platform | Yes | — |
-| S73 | Delegation tokens + scope attenuation | DONE | 2026-02-13 | Platform | Yes | — |
-| S74 | Revocation cascade + kill switch | DONE | 2026-02-13 | Platform | Yes | — |
-| S75 | Trust registry + federation attestation | DONE | 2026-02-13 | Platform | Yes | — |
-| S76 | Wire identity into auth middleware | DONE | 2026-02-13 | Platform | Yes | — |
-| S77 | Wire identity into policy + delegation + federation | DONE | 2026-02-13 | Platform | Yes | — |
-| S78 | Identity tests + README update | DONE | 2026-02-13 | Platform | Yes | — |
-| S79 | Runtime sandbox foundation — types, storage, profiles | DONE | 2026-02-14 | Platform | Yes | — |
-| S80 | Sandbox lifecycle — state machine, execution, logs/metrics | DONE | 2026-02-14 | Platform | Yes | — |
-| S81 | Runtime policy enforcement + cost metering | DONE | 2026-02-14 | Platform | Yes | — |
-| S82 | Runtime integration — delegation/lease/compliance wiring | DONE | 2026-02-14 | Platform | Yes | — |
-| S83 | Rate limiting middleware (slowapi, 100/min default) | DONE | 2026-02-14 | Platform | Yes | — |
-| S84 | CORS configuration (configurable origins, custom headers) | DONE | 2026-02-14 | Platform | Yes | — |
-| S85 | Request timeout middleware (30s default, 504 on expiry) | DONE | 2026-02-14 | Platform | Yes | — |
-| S86 | Structured JSON logging + X-Request-ID injection | DONE | 2026-02-14 | Platform | Yes | — |
-| S87 | Deep health checks (/healthz DB connectivity, /readyz) | DONE | 2026-02-14 | Platform | Yes | — |
-| S88 | Fix bare exception handlers (auth, identity, runtime) | DONE | 2026-02-14 | Platform | Yes | — |
-| S89 | Dockerfile hardening (non-root, HEALTHCHECK, workers) | DONE | 2026-02-14 | Platform | Yes | — |
-| S90 | CI expansion (identity/runtime tests, pip-audit) | DONE | 2026-02-14 | Platform | Yes | — |
+| S72 | Agent identity foundation + credential lifecycle | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; superseded in part by S163/S165 |
+| S73 | Delegation tokens + scope attenuation | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; superseded in part by S165 |
+| S74 | Revocation cascade + kill switch | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; superseded in part by S163/S165 |
+| S75 | Trust registry + federation attestation | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence |
+| S76 | Wire identity into auth middleware | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; superseded in part by S163 |
+| S77 | Wire identity into policy + delegation + federation | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence |
+| S78 | Identity tests + README update | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; superseded in part by S163/S165 |
+| S79 | Runtime sandbox foundation — types, storage, profiles | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; state simulator only |
+| S80 | Sandbox lifecycle — state machine, execution, logs/metrics | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; no workload execution |
+| S81 | Runtime policy enforcement + cost metering | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; no real call boundary |
+| S82 | Runtime integration — delegation/lease/compliance wiring | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; synthetic integration only |
+| S83 | Rate limiting middleware (slowapi, 100/min default) | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; locally superseded by S163 |
+| S84 | CORS configuration (configurable origins, custom headers) | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence |
+| S85 | Request timeout middleware (30s default, 504 on expiry) | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; locally superseded by S163 |
+| S86 | Structured JSON logging + X-Request-ID injection | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence |
+| S87 | Deep health checks (/healthz DB connectivity, /readyz) | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; locally superseded by S163 |
+| S88 | Fix bare exception handlers (auth, identity, runtime) | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence |
+| S89 | Dockerfile hardening (non-root, HEALTHCHECK, workers) | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; partially superseded by S163 |
+| S90 | CI expansion (identity/runtime tests, pip-audit) | BLOCKED | 2026-08-27 | Platform | No | Missing segment evidence; hosted CI remains manual-only |
 | S163 | P0 release containment and identity-security baseline | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S163.md |
 | S164 | MCP Streamable HTTP discovery gateway | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S164.md |
 | S165 | Durable capability-token, DID, and VC authority | DONE | 2026-08-27 | Identity | Yes | docs/evidence/S165.md |
+| S166 | Product-truth and unsafe-surface containment | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S166.md |

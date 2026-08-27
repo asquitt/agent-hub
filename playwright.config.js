@@ -27,6 +27,10 @@ module.exports = defineConfig({
     env: {
       PYTHONUNBUFFERED: "1",
       AGENTHUB_ACCESS_ENFORCEMENT_MODE: "enforce",
+      // Historical browser flows exercise explicit development simulators.
+      // Deployed/default behavior remains fail-closed and is covered in Python gates.
+      AGENTHUB_ENABLE_UNSAFE_FINANCIAL_MUTATIONS: "true",
+      AGENTHUB_SINGLETON_LOCK_PATH: runtimePath("agenthub-singleton.lock"),
       AGENTHUB_API_KEYS_JSON: JSON.stringify({
         "dev-owner-key": "owner-dev",
         "partner-owner-key": "owner-partner",

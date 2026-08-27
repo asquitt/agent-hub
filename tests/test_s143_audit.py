@@ -1,4 +1,5 @@
 """S143 — Audit event streaming and webhook dispatch tests."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,9 @@ import os
 os.environ.setdefault("AGENTHUB_API_KEYS_JSON", json.dumps({"test-key": "owner-dev"}))
 os.environ.setdefault("AGENTHUB_IDENTITY_SIGNING_SECRET", "test-secret-s143")
 os.environ.setdefault("AGENTHUB_AUTH_TOKEN_SECRET", "test-auth-s143")
-os.environ.setdefault("AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON", json.dumps({"test.local": "tok"}))
+os.environ.setdefault(
+    "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON", json.dumps({"test.local": "tok"})
+)
 os.environ.setdefault("AGENTHUB_PROVENANCE_SIGNING_SECRET", "test-prov-s143")
 os.environ.setdefault("AGENTHUB_POLICY_SIGNING_SECRET", "test-policy-secret")
 os.environ.setdefault("AGENTHUB_VAULT_KEY", "test-vault-key")
@@ -52,8 +55,16 @@ def test_emit_invalid_type() -> None:
 
 def test_query_events() -> None:
     _reset()
-    client.post("/v1/audit/events", json={"event_type": "credential.issued", "agent_id": "a1"}, headers=HEADERS)
-    client.post("/v1/audit/events", json={"event_type": "policy.denied", "agent_id": "a2"}, headers=HEADERS)
+    client.post(
+        "/v1/audit/events",
+        json={"event_type": "credential.issued", "agent_id": "a1"},
+        headers=HEADERS,
+    )
+    client.post(
+        "/v1/audit/events",
+        json={"event_type": "policy.denied", "agent_id": "a2"},
+        headers=HEADERS,
+    )
 
     r = client.get("/v1/audit/events", headers=HEADERS)
     assert r.status_code == 200
@@ -62,8 +73,16 @@ def test_query_events() -> None:
 
 def test_query_events_filter() -> None:
     _reset()
-    client.post("/v1/audit/events", json={"event_type": "credential.issued", "agent_id": "a1"}, headers=HEADERS)
-    client.post("/v1/audit/events", json={"event_type": "policy.denied", "agent_id": "a2"}, headers=HEADERS)
+    client.post(
+        "/v1/audit/events",
+        json={"event_type": "credential.issued", "agent_id": "a1"},
+        headers=HEADERS,
+    )
+    client.post(
+        "/v1/audit/events",
+        json={"event_type": "policy.denied", "agent_id": "a2"},
+        headers=HEADERS,
+    )
 
     r = client.get("/v1/audit/events?event_type=policy.denied", headers=HEADERS)
     assert r.status_code == 200
@@ -73,8 +92,12 @@ def test_query_events_filter() -> None:
 
 def test_query_events_by_severity() -> None:
     _reset()
-    client.post("/v1/audit/events", json={"event_type": "credential.issued"}, headers=HEADERS)  # info
-    client.post("/v1/audit/events", json={"event_type": "anomaly.detected"}, headers=HEADERS)  # critical
+    client.post(
+        "/v1/audit/events", json={"event_type": "credential.issued"}, headers=HEADERS
+    )  # info
+    client.post(
+        "/v1/audit/events", json={"event_type": "anomaly.detected"}, headers=HEADERS
+    )  # critical
 
     r = client.get("/v1/audit/events?severity=critical", headers=HEADERS)
     assert r.status_code == 200
@@ -86,7 +109,11 @@ def test_register_webhook() -> None:
     _reset()
     r = client.post(
         "/v1/audit/webhooks",
-        json={"url": "https://example.com/hook", "secret": "s3cret", "description": "test hook"},
+        json={
+            "url": "https://example.com/hook",
+            "secret": "s3cret",
+            "description": "test hook",
+        },
         headers=HEADERS,
     )
     assert r.status_code == 200
@@ -98,8 +125,12 @@ def test_register_webhook() -> None:
 
 def test_list_webhooks() -> None:
     _reset()
-    client.post("/v1/audit/webhooks", json={"url": "https://a.com/hook"}, headers=HEADERS)
-    client.post("/v1/audit/webhooks", json={"url": "https://b.com/hook"}, headers=HEADERS)
+    client.post(
+        "/v1/audit/webhooks", json={"url": "https://a.com/hook"}, headers=HEADERS
+    )
+    client.post(
+        "/v1/audit/webhooks", json={"url": "https://b.com/hook"}, headers=HEADERS
+    )
 
     r = client.get("/v1/audit/webhooks", headers=HEADERS)
     assert r.status_code == 200
@@ -108,7 +139,9 @@ def test_list_webhooks() -> None:
 
 def test_deactivate_activate_webhook() -> None:
     _reset()
-    r = client.post("/v1/audit/webhooks", json={"url": "https://a.com/hook"}, headers=HEADERS)
+    r = client.post(
+        "/v1/audit/webhooks", json={"url": "https://a.com/hook"}, headers=HEADERS
+    )
     wh_id = r.json()["webhook_id"]
 
     r = client.post(f"/v1/audit/webhooks/{wh_id}/deactivate", headers=HEADERS)
@@ -131,13 +164,24 @@ def test_webhook_event_dispatch() -> None:
     wh_id = r.json()["webhook_id"]
 
     # Emit matching event
-    client.post("/v1/audit/events", json={"event_type": "credential.issued", "agent_id": "a1"}, headers=HEADERS)
+    client.post(
+        "/v1/audit/events",
+        json={"event_type": "credential.issued", "agent_id": "a1"},
+        headers=HEADERS,
+    )
 
     # Check delivery log
     r = client.get(f"/v1/audit/deliveries?webhook_id={wh_id}", headers=HEADERS)
     assert r.status_code == 200
     assert r.json()["total"] >= 1
-    assert r.json()["deliveries"][0]["status"] == "delivered"
+    assert r.json()["deliveries"][0]["status"] == "not_attempted"
+    assert r.json()["deliveries"][0]["delivery_attempted"] is False
+
+    stats = client.get("/v1/audit/stats", headers=HEADERS)
+    assert stats.status_code == 200
+    assert stats.json()["delivery_intents"] == 1
+    assert stats.json()["delivery_attempts"] == 0
+    assert stats.json()["total_deliveries"] == 0
 
 
 def test_webhook_filter_no_match() -> None:
@@ -151,7 +195,9 @@ def test_webhook_filter_no_match() -> None:
     wh_id = r.json()["webhook_id"]
 
     # Emit non-matching event
-    client.post("/v1/audit/events", json={"event_type": "credential.issued"}, headers=HEADERS)
+    client.post(
+        "/v1/audit/events", json={"event_type": "credential.issued"}, headers=HEADERS
+    )
 
     # No deliveries for this webhook
     r = client.get(f"/v1/audit/deliveries?webhook_id={wh_id}", headers=HEADERS)
@@ -161,22 +207,30 @@ def test_webhook_filter_no_match() -> None:
 
 def test_test_webhook() -> None:
     _reset()
-    r = client.post("/v1/audit/webhooks", json={"url": "https://a.com/hook"}, headers=HEADERS)
+    r = client.post(
+        "/v1/audit/webhooks", json={"url": "https://a.com/hook"}, headers=HEADERS
+    )
     wh_id = r.json()["webhook_id"]
 
     r = client.post(f"/v1/audit/webhooks/{wh_id}/test", headers=HEADERS)
     assert r.status_code == 200
-    assert r.json()["delivered"] is True
+    assert r.json()["delivered"] is False
+    assert r.json()["delivery_attempted"] is False
+    assert r.json()["reason"] == "webhook_transport_not_implemented"
 
 
 def test_dead_letter_and_retry() -> None:
     _reset()
     # Register webhook
-    r = client.post("/v1/audit/webhooks", json={"url": "https://a.com/hook"}, headers=HEADERS)
+    r = client.post(
+        "/v1/audit/webhooks", json={"url": "https://a.com/hook"}, headers=HEADERS
+    )
     wh_id = r.json()["webhook_id"]
 
     # Emit event
-    r = client.post("/v1/audit/events", json={"event_type": "credential.issued"}, headers=HEADERS)
+    r = client.post(
+        "/v1/audit/events", json={"event_type": "credential.issued"}, headers=HEADERS
+    )
     event_id = r.json()["id"]
 
     # Simulate failure
@@ -200,14 +254,27 @@ def test_dead_letter_and_retry() -> None:
         headers=HEADERS,
     )
     assert r.status_code == 200
-    assert r.json()["retried"] is True
+    assert r.json()["retried"] is False
+    assert r.json()["delivery_attempted"] is False
 
 
 def test_event_stats() -> None:
     _reset()
-    client.post("/v1/audit/events", json={"event_type": "credential.issued", "agent_id": "a1"}, headers=HEADERS)
-    client.post("/v1/audit/events", json={"event_type": "policy.denied", "agent_id": "a1"}, headers=HEADERS)
-    client.post("/v1/audit/events", json={"event_type": "anomaly.detected", "agent_id": "a2"}, headers=HEADERS)
+    client.post(
+        "/v1/audit/events",
+        json={"event_type": "credential.issued", "agent_id": "a1"},
+        headers=HEADERS,
+    )
+    client.post(
+        "/v1/audit/events",
+        json={"event_type": "policy.denied", "agent_id": "a1"},
+        headers=HEADERS,
+    )
+    client.post(
+        "/v1/audit/events",
+        json={"event_type": "anomaly.detected", "agent_id": "a2"},
+        headers=HEADERS,
+    )
 
     r = client.get("/v1/audit/stats", headers=HEADERS)
     assert r.status_code == 200
@@ -234,12 +301,16 @@ def test_severity_filter_webhook() -> None:
     wh_id = r.json()["webhook_id"]
 
     # Emit info event — should not dispatch
-    client.post("/v1/audit/events", json={"event_type": "credential.issued"}, headers=HEADERS)
+    client.post(
+        "/v1/audit/events", json={"event_type": "credential.issued"}, headers=HEADERS
+    )
     r = client.get(f"/v1/audit/deliveries?webhook_id={wh_id}", headers=HEADERS)
     assert r.json()["total"] == 0
 
     # Emit critical event — should dispatch
-    client.post("/v1/audit/events", json={"event_type": "anomaly.detected"}, headers=HEADERS)
+    client.post(
+        "/v1/audit/events", json={"event_type": "anomaly.detected"}, headers=HEADERS
+    )
     r = client.get(f"/v1/audit/deliveries?webhook_id={wh_id}", headers=HEADERS)
     assert r.json()["total"] == 1
 

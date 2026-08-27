@@ -25,10 +25,26 @@ DELEGATION_CONTRACT_V2 = {
         "settlement": 900,
     },
     "retry_matrix": {
-        "transient_network_error": {"max_retries": 2, "backoff_ms": [100, 250], "idempotency_required": True},
-        "delegate_timeout": {"max_retries": 1, "backoff_ms": [200], "idempotency_required": True},
-        "policy_denied": {"max_retries": 0, "backoff_ms": [], "idempotency_required": True},
-        "hard_stop_budget": {"max_retries": 0, "backoff_ms": [], "idempotency_required": True},
+        "transient_network_error": {
+            "max_retries": 2,
+            "backoff_ms": [100, 250],
+            "idempotency_required": True,
+        },
+        "delegate_timeout": {
+            "max_retries": 1,
+            "backoff_ms": [200],
+            "idempotency_required": True,
+        },
+        "policy_denied": {
+            "max_retries": 0,
+            "backoff_ms": [],
+            "idempotency_required": True,
+        },
+        "hard_stop_budget": {
+            "max_retries": 0,
+            "backoff_ms": [],
+            "idempotency_required": True,
+        },
     },
     "circuit_breakers": {
         "soft_alert_pct": 80,
@@ -37,11 +53,14 @@ DELEGATION_CONTRACT_V2 = {
     },
 }
 
+
 def _stage(name: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"stage": name, "timestamp": utc_now_iso(), "details": details or {}}
 
 
-def _apply_budget_controls(estimated: float, actual: float, auto_reauthorize: bool) -> tuple[str, dict[str, Any]]:
+def _apply_budget_controls(
+    estimated: float, actual: float, auto_reauthorize: bool
+) -> tuple[str, dict[str, Any]]:
     ratio = actual / max(estimated, 0.000001)
     controls = budget_state_from_ratio(ratio=ratio, auto_reauthorize=auto_reauthorize)
 
@@ -72,6 +91,9 @@ def create_delegation(
     task_spec: str,
     estimated_cost_usd: float,
     max_budget_usd: float,
+    *,
+    owner: str,
+    tenant_id: str,
     simulated_actual_cost_usd: float | None = None,
     auto_reauthorize: bool = True,
     policy_decision: dict[str, Any] | None = None,
@@ -110,15 +132,34 @@ def create_delegation(
         raise ValueError("insufficient requester balance for escrow")
 
     delegation_id = str(uuid.uuid4())
-    storage.upsert_queue_state(delegation_id=delegation_id, status="queued", increment_attempt=True)
-    actual_cost = float(simulated_actual_cost_usd if simulated_actual_cost_usd is not None else estimated_cost_usd * 0.92)
+    storage.upsert_queue_state(
+        delegation_id=delegation_id, status="queued", increment_attempt=True
+    )
+    actual_cost = float(
+        simulated_actual_cost_usd
+        if simulated_actual_cost_usd is not None
+        else estimated_cost_usd * 0.92
+    )
 
     lifecycle: list[dict[str, Any]] = []
     audit_trail: list[dict[str, Any]] = []
 
     try:
-        lifecycle.append(_stage("discovery", {"requester": requester_agent_id, "delegate": delegate_agent_id}))
-        lifecycle.append(_stage("negotiation", {"estimated_cost_usd": estimated_cost_usd, "max_budget_usd": max_budget_usd}))
+        lifecycle.append(
+            _stage(
+                "discovery",
+                {"requester": requester_agent_id, "delegate": delegate_agent_id},
+            )
+        )
+        lifecycle.append(
+            _stage(
+                "negotiation",
+                {
+                    "estimated_cost_usd": estimated_cost_usd,
+                    "max_budget_usd": max_budget_usd,
+                },
+            )
+        )
 
         storage.deduct_balance(requester_agent_id, estimated_cost_usd)
 
@@ -130,8 +171,10 @@ def create_delegation(
             from src.runtime.sandbox import create_sandbox as _create_rt_sandbox
 
             rt_sandbox = _create_rt_sandbox(
-                agent_id=delegate_agent_id, owner=requester_agent_id,
-                profile_name="micro", delegation_id=delegation_id,
+                agent_id=delegate_agent_id,
+                owner=requester_agent_id,
+                profile_name="micro",
+                delegation_id=delegation_id,
             )
             sandbox_id = rt_sandbox["sandbox_id"]
         except (ImportError, RuntimeError):
@@ -144,16 +187,44 @@ def create_delegation(
 
         start = time.perf_counter()
         if sandbox_id:
-            lifecycle.append(_stage("execution", {"sandbox_id": sandbox_id, "network": "disabled", "status": "started"}))
+            lifecycle.append(
+                _stage(
+                    "execution",
+                    {
+                        "sandbox_id": sandbox_id,
+                        "network": "disabled",
+                        "status": "started",
+                    },
+                )
+            )
         else:
-            with tempfile.TemporaryDirectory(prefix="agenthub-delegation-sandbox-") as _tmpdir:
-                lifecycle.append(_stage("execution", {"sandbox_path": _tmpdir, "network": "disabled", "status": "started"}))
+            with tempfile.TemporaryDirectory(
+                prefix="agenthub-delegation-sandbox-"
+            ) as _tmpdir:
+                lifecycle.append(
+                    _stage(
+                        "execution",
+                        {
+                            "sandbox_path": _tmpdir,
+                            "network": "disabled",
+                            "status": "started",
+                        },
+                    )
+                )
 
         default_metering = [
-            {"event": "llm_call", "tokens": 350, "cost_usd": round(actual_cost * 0.4, 6)},
-            {"event": "tool_call", "tool": "delegate_tool", "cost_usd": round(actual_cost * 0.6, 6)},
+            {
+                "event": "llm_call",
+                "tokens": 350,
+                "cost_usd": round(actual_cost * 0.4, 6),
+            },
+            {
+                "event": "tool_call",
+                "tool": "delegate_tool",
+                "cost_usd": round(actual_cost * 0.6, 6),
+            },
         ]
-        for row in (metering_events or default_metering):
+        for row in metering_events or default_metering:
             audit_trail.append(
                 {
                     "timestamp": utc_now_iso(),
@@ -165,9 +236,13 @@ def create_delegation(
 
         latency_ms = round((time.perf_counter() - start) * 1000, 3)
 
-        lifecycle.append(_stage("delivery", {"output_schema_valid": True, "latency_ms": latency_ms}))
+        lifecycle.append(
+            _stage("delivery", {"output_schema_valid": True, "latency_ms": latency_ms})
+        )
 
-        budget_status, controls = _apply_budget_controls(estimated_cost_usd, actual_cost, auto_reauthorize)
+        budget_status, controls = _apply_budget_controls(
+            estimated_cost_usd, actual_cost, auto_reauthorize
+        )
 
         settlement_status = "completed"
         if budget_status == "hard_stop":
@@ -193,9 +268,22 @@ def create_delegation(
         )
 
         delegation_success = settlement_status == "completed"
-        lifecycle.append(_stage("feedback", {"success": delegation_success, "quality_score": 1.0 if delegation_success else 0.0}))
+        lifecycle.append(
+            _stage(
+                "feedback",
+                {
+                    "success": delegation_success,
+                    "quality_score": 1.0 if delegation_success else 0.0,
+                },
+            )
+        )
 
-        record_usage_event(agent_id=delegate_agent_id, success=delegation_success, cost_usd=actual_cost, latency_ms=latency_ms)
+        record_usage_event(
+            agent_id=delegate_agent_id,
+            success=delegation_success,
+            cost_usd=actual_cost,
+            latency_ms=latency_ms,
+        )
         record_metering_event(
             actor=requester_agent_id,
             operation="delegation.create",
@@ -208,10 +296,14 @@ def create_delegation(
             },
         )
 
-        storage.upsert_queue_state(delegation_id=delegation_id, status=settlement_status)
+        storage.upsert_queue_state(
+            delegation_id=delegation_id, status=settlement_status
+        )
         queue_state = storage.get_queue_state(delegation_id)
         row = {
             "delegation_id": delegation_id,
+            "owner": owner,
+            "tenant_id": tenant_id,
             "requester_agent_id": requester_agent_id,
             "delegate_agent_id": delegate_agent_id,
             "task_spec": task_spec,
@@ -230,25 +322,40 @@ def create_delegation(
             "identity_context": {
                 "requester_verified": requester_identity is not None,
                 "delegate_verified": delegate_identity is not None,
-                "delegation_token_id": delegation_token_info["token_id"] if delegation_token_info else None,
-                "delegation_token_scopes": delegation_token_info["delegated_scopes"] if delegation_token_info else None,
+                "delegation_token_id": delegation_token_info["token_id"]
+                if delegation_token_info
+                else None,
+                "delegation_token_scopes": delegation_token_info["delegated_scopes"]
+                if delegation_token_info
+                else None,
             },
         }
 
         storage.append_record(row)
         return row
     except Exception as exc:
-        storage.upsert_queue_state(delegation_id=delegation_id, status="failed", last_error=str(exc))
+        storage.upsert_queue_state(
+            delegation_id=delegation_id, status="failed", last_error=str(exc)
+        )
         raise
 
 
-def get_delegation_status(delegation_id: str) -> dict[str, Any] | None:
+def get_delegation_status(
+    delegation_id: str,
+    *,
+    owner: str,
+    tenant_id: str,
+) -> dict[str, Any] | None:
     row = storage.get_record(delegation_id)
     if not row:
+        return None
+    if row.get("owner") != owner or row.get("tenant_id") != tenant_id:
         return None
     queue_state = storage.get_queue_state(delegation_id) or row.get("queue_state")
     return {
         "delegation_id": row["delegation_id"],
+        "owner": row["owner"],
+        "tenant_id": row["tenant_id"],
         "status": row["status"],
         "contract": row.get("contract", DELEGATION_CONTRACT_V2),
         "requester_agent_id": row["requester_agent_id"],
