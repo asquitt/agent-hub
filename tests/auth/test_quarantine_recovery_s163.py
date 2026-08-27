@@ -161,6 +161,9 @@ def test_populated_pre_0006_database_requires_explicit_recovery_and_persists_aud
     assert assigned["owner"] == "legacy-owner"
     assert assigned["tenant_id"] == "tenant-recovery"
     assert assigned["tenancy_status"] == "active"
+    _, generation, tenant_id = storage.get_identity_auth_snapshot("legacy-agent")
+    assert generation
+    assert tenant_id == "tenant-recovery"
 
     storage.reconfigure(db_path)
     with sqlite3.connect(db_path) as restarted:

@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from src.api.app import app
@@ -13,6 +14,10 @@ from src.identity import storage as identity_storage
 from src.identity.credentials import issue_credential
 from src.identity.delegation_tokens import get_delegation_chain, issue_delegation_token
 from src.identity.revocation import list_revocation_events, revoke_agent
+from src.registry.store import STORE
+
+
+MANIFEST_PATH = Path("specs/manifest/examples/simple-tool-agent.yaml")
 
 
 @pytest.fixture()
@@ -36,6 +41,9 @@ def authorization_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     identity_db = tmp_path / "identity.db"
     monkeypatch.setenv("AGENTHUB_IDENTITY_DB_PATH", str(identity_db))
     identity_storage.reset_for_tests(db_path=identity_db)
+    registry_db = tmp_path / "registry.db"
+    monkeypatch.setenv("AGENTHUB_REGISTRY_DB_PATH", str(registry_db))
+    STORE.reset_for_tests(db_path=registry_db)
 
     from src.runtime.secret_vault import reset_for_tests as reset_vault_for_tests
 
@@ -54,6 +62,13 @@ def _actor(owner: str, tenant_id: str = "tenant-a") -> AuthContext:
         tenant_id=tenant_id,
         auth_method="api_key",
     )
+
+
+def _manifest(agent_id: str) -> dict[str, object]:
+    manifest = yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
+    manifest["identity"]["id"] = agent_id
+    manifest["identity"]["name"] = f"{agent_id}-name"
+    return manifest
 
 
 def _register(
@@ -355,6 +370,60 @@ def test_agent_principal_can_delegate_only_from_itself_to_same_tenant_peer(
             delegated_scopes=["read"],
             actor=agent_actor,
         )
+
+
+def test_real_delegation_token_cannot_write_registry_across_tenants(
+    authorization_runtime: None,
+) -> None:
+    owner_a = _actor("owner-a")
+    identity_storage.register_agent_identity_for_actor(
+        actor=owner_a,
+        agent_id="registry-issuer",
+        credential_type="api_key",
+    )
+    identity_storage.register_agent_identity_for_actor(
+        actor=owner_a,
+        agent_id="registry-worker",
+        credential_type="api_key",
+    )
+    issue_credential(agent_id="registry-issuer", scopes=["write"], owner=owner_a)
+    token = issue_delegation_token(
+        issuer_agent_id="registry-issuer",
+        subject_agent_id="registry-worker",
+        delegated_scopes=["write"],
+        actor=owner_a,
+    )
+    delegation_headers = {"X-Delegation-Token": token["signed_token"]}
+
+    with TestClient(app) as client:
+        allowed = client.post(
+            "/v1/agents",
+            json={"namespace": "@tenant-a", "manifest": _manifest("allowed-registry-agent")},
+            headers={
+                **delegation_headers,
+                "X-Tenant-ID": "tenant-a",
+                "Idempotency-Key": "delegated-registry-write-tenant-a",
+            },
+        )
+        denied = client.post(
+            "/v1/agents",
+            json={"namespace": "@tenant-b", "manifest": _manifest("blocked-registry-agent")},
+            headers={
+                **delegation_headers,
+                "X-Tenant-ID": "tenant-b",
+                "Idempotency-Key": "delegated-registry-write-tenant-b",
+            },
+        )
+        tenant_b = client.get(
+            "/v1/agents",
+            headers=_headers("owner-a-key", "tenant-b"),
+        )
+
+    assert allowed.status_code == 200, allowed.text
+    assert denied.status_code == 401, denied.text
+    assert denied.json()["detail"]["code"] == "auth.required"
+    assert tenant_b.status_code == 200, tenant_b.text
+    assert tenant_b.json()["data"] == []
 
 
 def test_tenantless_legacy_delegation_record_fails_closed(

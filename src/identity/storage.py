@@ -452,10 +452,22 @@ class IdentityStorage:
             assert self._conn is not None
             self._conn.execute("BEGIN IMMEDIATE")
             try:
+                legacy_row = self._conn.execute(
+                    """
+                    SELECT metadata_json FROM agent_identities
+                    WHERE agent_id = ? AND owner = ?
+                      AND tenant_id IS NULL AND tenancy_status = ?
+                    """,
+                    (agent_id, context.owner, TENANCY_QUARANTINED),
+                ).fetchone()
+                if legacy_row is None:
+                    raise KeyError(f"quarantined identity not found: {agent_id}")
+                stored_metadata = _stored_metadata(legacy_row["metadata_json"])
+                stored_metadata[_AUTH_GENERATION_KEY] = uuid4().hex
                 result = self._conn.execute(
                     """
                     UPDATE agent_identities
-                    SET tenant_id = ?, tenancy_status = ?,
+                    SET tenant_id = ?, tenancy_status = ?, metadata_json = ?,
                         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                     WHERE agent_id = ? AND owner = ?
                       AND tenant_id IS NULL AND tenancy_status = ?
@@ -463,6 +475,7 @@ class IdentityStorage:
                     (
                         selected_tenant,
                         TENANCY_ACTIVE,
+                        json.dumps(stored_metadata, sort_keys=True),
                         agent_id,
                         context.owner,
                         TENANCY_QUARANTINED,
