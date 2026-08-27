@@ -7,6 +7,7 @@ Provides:
 - Event filtering by type, agent, severity
 - CloudEvents-compatible envelope format (RFC 9110)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -40,14 +41,24 @@ EVENT_SCIM_DEPROVISIONED = "scim.deprovisioned"
 EVENT_OAUTH_CLIENT_AUTHORITY_BOUND = "oauth.client_authority_bound"
 
 ALL_EVENT_TYPES = {
-    EVENT_CREDENTIAL_ISSUED, EVENT_CREDENTIAL_ROTATED, EVENT_CREDENTIAL_REVOKED,
-    EVENT_DELEGATION_CREATED, EVENT_DELEGATION_REVOKED,
-    EVENT_POLICY_EVALUATED, EVENT_POLICY_DENIED,
-    EVENT_GRANT_CREATED, EVENT_GRANT_CONSUMED, EVENT_GRANT_REVOKED,
-    EVENT_APPROVAL_REQUESTED, EVENT_APPROVAL_DECIDED,
-    EVENT_IDENTITY_CREATED, EVENT_IDENTITY_SUSPENDED,
-    EVENT_ANOMALY_DETECTED, EVENT_FEDERATION_REQUEST,
-    EVENT_SCIM_PROVISIONED, EVENT_SCIM_DEPROVISIONED,
+    EVENT_CREDENTIAL_ISSUED,
+    EVENT_CREDENTIAL_ROTATED,
+    EVENT_CREDENTIAL_REVOKED,
+    EVENT_DELEGATION_CREATED,
+    EVENT_DELEGATION_REVOKED,
+    EVENT_POLICY_EVALUATED,
+    EVENT_POLICY_DENIED,
+    EVENT_GRANT_CREATED,
+    EVENT_GRANT_CONSUMED,
+    EVENT_GRANT_REVOKED,
+    EVENT_APPROVAL_REQUESTED,
+    EVENT_APPROVAL_DECIDED,
+    EVENT_IDENTITY_CREATED,
+    EVENT_IDENTITY_SUSPENDED,
+    EVENT_ANOMALY_DETECTED,
+    EVENT_FEDERATION_REQUEST,
+    EVENT_SCIM_PROVISIONED,
+    EVENT_SCIM_DEPROVISIONED,
     EVENT_OAUTH_CLIENT_AUTHORITY_BOUND,
 }
 
@@ -238,7 +249,7 @@ def activate_webhook(webhook_id: str) -> dict[str, Any]:
 
 
 def test_webhook(webhook_id: str) -> dict[str, Any]:
-    """Send a test event to a webhook."""
+    """Record a test-event delivery intent without claiming network delivery."""
     wh = _webhooks.get(webhook_id)
     if not wh:
         raise KeyError(f"webhook not found: {webhook_id}")
@@ -253,7 +264,9 @@ def test_webhook(webhook_id: str) -> dict[str, Any]:
     return {
         "webhook_id": webhook_id,
         "test_event_id": test_event["id"],
-        "delivered": True,
+        "delivered": False,
+        "delivery_attempted": False,
+        "reason": "webhook_transport_not_implemented",
     }
 
 
@@ -296,7 +309,7 @@ def get_dead_letters(
 
 
 def retry_dead_letter(dead_letter_id: str) -> dict[str, Any]:
-    """Retry a dead letter delivery."""
+    """Record that retry transport is unavailable without claiming delivery."""
     for dl in _dead_letters:
         if dl["dead_letter_id"] == dead_letter_id:
             # Re-dispatch the event
@@ -311,16 +324,15 @@ def retry_dead_letter(dead_letter_id: str) -> dict[str, Any]:
             delivery = _record_delivery(
                 webhook_id=dl["webhook_id"],
                 event_id=event["id"],
-                status="delivered",
+                status="not_attempted",
                 attempt=dl.get("attempt", 1) + 1,
             )
-            wh["delivery_count"] += 1
-            wh["last_delivery_at"] = time.time()
-
-            # Remove from dead letters
-            _dead_letters.remove(dl)
-
-            return {"retried": True, "delivery": delivery}
+            return {
+                "retried": False,
+                "delivery_attempted": False,
+                "reason": "webhook_transport_not_implemented",
+                "delivery": delivery,
+            }
 
     raise KeyError(f"dead letter not found: {dead_letter_id}")
 
@@ -360,12 +372,11 @@ def get_event_stats(
 
 def compute_webhook_signature(payload: str, secret: str) -> str:
     """Compute HMAC-SHA256 signature for webhook payload verification."""
-    return hmac.new(
-        secret.encode(), payload.encode(), hashlib.sha256
-    ).hexdigest()
+    return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
 # ── Internal helpers ─────────────────────────────────────────────────
+
 
 def _dispatch_event(event: dict[str, Any]) -> None:
     """Dispatch event to all matching active webhooks."""
@@ -379,16 +390,13 @@ def _dispatch_event(event: dict[str, Any]) -> None:
         if wh.get("agent_filter") and event.get("agent_id") != wh["agent_filter"]:
             continue
 
-        # In production this would be an async HTTP POST.
-        # Here we record the delivery intent for testing.
+        # Transport is intentionally absent; record intent without claiming delivery.
         _record_delivery(
             webhook_id=wh["webhook_id"],
             event_id=event["id"],
-            status="delivered",
+            status="not_attempted",
             attempt=1,
         )
-        wh["delivery_count"] += 1
-        wh["last_delivery_at"] = time.time()
 
 
 def _record_delivery(

@@ -45,6 +45,17 @@ from src.runtime.storage import RUNTIME_STORAGE
 
 router = APIRouter(tags=["runtime"])
 
+RUNTIME_SIMULATION_BOUNDARY = {
+    "execution_mode": "state_simulation",
+    "workload_executed": False,
+    "isolation_enforced": False,
+    "evidence_boundary": "caller-driven local lifecycle record; not workload execution evidence",
+}
+
+
+def _runtime_simulation_payload(record: dict[str, Any]) -> dict[str, Any]:
+    return {**record, **RUNTIME_SIMULATION_BOUNDARY}
+
 
 # --- Request models ---
 
@@ -189,7 +200,7 @@ def post_create_sandbox(
             delegation_id=request.delegation_id,
             lease_id=request.lease_id,
         )
-        return dict(instance)
+        return _runtime_simulation_payload(dict(instance))
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -201,8 +212,14 @@ def get_list_sandboxes(
     status: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
 ) -> dict[str, Any]:
-    sandboxes = list_sandboxes(owner=owner, agent_id=agent_id, status=status, limit=limit)
-    return {"sandboxes": [dict(s) for s in sandboxes], "total": len(sandboxes)}
+    sandboxes = list_sandboxes(
+        owner=owner, agent_id=agent_id, status=status, limit=limit
+    )
+    return {
+        "sandboxes": [_runtime_simulation_payload(dict(s)) for s in sandboxes],
+        "total": len(sandboxes),
+        **RUNTIME_SIMULATION_BOUNDARY,
+    }
 
 
 @router.get("/v1/runtime/sandboxes/{sandbox_id}")
@@ -212,7 +229,7 @@ def get_sandbox_status(
 ) -> dict[str, Any]:
     try:
         instance = get_sandbox(sandbox_id, owner)
-        return dict(instance)
+        return _runtime_simulation_payload(dict(instance))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -226,8 +243,10 @@ def post_execute_in_sandbox(
     owner: str = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        execution = start_execution(sandbox_id, owner=owner, input_data=request.input_data)
-        return dict(execution)
+        execution = start_execution(
+            sandbox_id, owner=owner, input_data=request.input_data
+        )
+        return _runtime_simulation_payload(dict(execution))
     except (KeyError, ValueError) as exc:
         status = 404 if "not found" in str(exc) else 400
         raise HTTPException(status_code=status, detail=str(exc)) from exc
@@ -253,7 +272,10 @@ def post_complete_execution(
             exit_code=request.exit_code,
             error_message=request.error_message,
         )
-        return dict(execution)
+        return {
+            **_runtime_simulation_payload(dict(execution)),
+            "completion_source": "caller_supplied",
+        }
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -266,7 +288,7 @@ def post_terminate_sandbox(
 ) -> dict[str, Any]:
     try:
         instance = terminate_sandbox(sandbox_id, owner=owner, reason=request.reason)
-        return dict(instance)
+        return _runtime_simulation_payload(dict(instance))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -311,7 +333,9 @@ def get_list_executions(
     status: str | None = None,
 ) -> dict[str, Any]:
     executions = list_executions(
-        sandbox_id=sandbox_id, agent_id=agent_id, status=status,
+        sandbox_id=sandbox_id,
+        agent_id=agent_id,
+        status=status,
     )
     # Filter to only show executions owned by the authenticated user
     owned = [e for e in executions if e["owner"] == owner]
@@ -325,7 +349,7 @@ def get_execution_detail(
 ) -> dict[str, Any]:
     try:
         execution = get_execution(execution_id, owner)
-        return dict(execution)
+        return _runtime_simulation_payload(dict(execution))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -348,7 +372,7 @@ def post_delegated_sandbox(
             profile_name=request.profile_name,
             resource_limits=request.resource_limits,
         )
-        return dict(instance)
+        return _runtime_simulation_payload(dict(instance))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -368,7 +392,7 @@ def post_leased_sandbox(
             profile_name=request.profile_name,
             resource_limits=request.resource_limits,
         )
-        return dict(instance)
+        return _runtime_simulation_payload(dict(instance))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

@@ -22,7 +22,9 @@ def isolate_delegation_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             "@demo:support-orchestrator": 1000.0,
         }
     )
-    monkeypatch.setenv("AGENTHUB_TRUST_USAGE_EVENTS_PATH", str(tmp_path / "usage_events.json"))
+    monkeypatch.setenv(
+        "AGENTHUB_TRUST_USAGE_EVENTS_PATH", str(tmp_path / "usage_events.json")
+    )
 
 
 def client() -> TestClient:
@@ -41,17 +43,30 @@ def test_full_delegation_lifecycle_and_audit_trail() -> None:
                 "max_budget_usd": 20,
                 "simulated_actual_cost_usd": 8,
             },
-            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-lifecycle-1"},
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "Idempotency-Key": "delegation-lifecycle-1",
+            },
         )
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "completed"
         assert payload["policy_decision"]["decision"] == "allow"
         stages = [s["stage"] for s in payload["lifecycle"]]
-        assert stages == ["discovery", "negotiation", "execution", "delivery", "settlement", "feedback"]
+        assert stages == [
+            "discovery",
+            "negotiation",
+            "execution",
+            "delivery",
+            "settlement",
+            "feedback",
+        ]
 
         delegation_id = payload["delegation_id"]
-        status = c.get(f"/v1/delegations/{delegation_id}/status", headers={"X-API-Key": "dev-owner-key"})
+        status = c.get(
+            f"/v1/delegations/{delegation_id}/status",
+            headers={"X-API-Key": "dev-owner-key"},
+        )
         assert status.status_code == 200
         status_payload = status.json()
         assert status_payload["budget_controls"]["soft_alert"] is True
@@ -60,6 +75,56 @@ def test_full_delegation_lifecycle_and_audit_trail() -> None:
         assert payload["queue_state"]["status"] == "completed"
         assert payload["queue_state"]["attempt_count"] == 1
         assert status_payload["queue_state"]["status"] == "completed"
+
+
+def test_delegation_status_is_nondisclosing_across_owner_and_tenant() -> None:
+    with TestClient(app) as c:
+        created = c.post(
+            "/v1/delegations",
+            json={
+                "requester_agent_id": "@demo:invoice-summarizer",
+                "delegate_agent_id": "@demo:support-orchestrator",
+                "task_spec": "Local containment fixture",
+                "estimated_cost_usd": 1,
+                "max_budget_usd": 2,
+                "simulated_actual_cost_usd": 0.5,
+            },
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "X-Tenant-ID": "tenant-default",
+                "Idempotency-Key": "delegation-owner-boundary-s166",
+            },
+        )
+        assert created.status_code == 200
+        delegation_id = created.json()["delegation_id"]
+
+        foreign_owner = c.get(
+            f"/v1/delegations/{delegation_id}/status",
+            headers={
+                "X-API-Key": "partner-owner-key",
+                "X-Tenant-ID": "tenant-default",
+            },
+        )
+        foreign_tenant = c.get(
+            f"/v1/delegations/{delegation_id}/status",
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "X-Tenant-ID": "tenant-foreign",
+            },
+        )
+        same_boundary = c.get(
+            f"/v1/delegations/{delegation_id}/status",
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "X-Tenant-ID": "tenant-default",
+            },
+        )
+
+        assert foreign_owner.status_code == 404
+        assert foreign_tenant.status_code == 404
+        assert same_boundary.status_code == 200
+        assert same_boundary.json()["owner"] == "owner-dev"
+        assert same_boundary.json()["tenant_id"] == "tenant-default"
 
 
 def test_budget_hard_ceiling_rejects_request() -> None:
@@ -73,12 +138,17 @@ def test_budget_hard_ceiling_rejects_request() -> None:
                 "estimated_cost_usd": 50,
                 "max_budget_usd": 20,
             },
-            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-budget-hardceiling-1"},
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "Idempotency-Key": "delegation-budget-hardceiling-1",
+            },
         )
         assert response.status_code == 400
         detail = response.json()["detail"]
         assert detail["policy_decision"]["decision"] == "deny"
-        assert "budget.hard_stop_120" in detail["policy_decision"]["violated_constraints"]
+        assert (
+            "budget.hard_stop_120" in detail["policy_decision"]["violated_constraints"]
+        )
 
 
 def test_circuit_breakers_100_and_120_thresholds() -> None:
@@ -94,7 +164,10 @@ def test_circuit_breakers_100_and_120_thresholds() -> None:
                 "simulated_actual_cost_usd": 10,
                 "auto_reauthorize": False,
             },
-            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-circuit-100"},
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "Idempotency-Key": "delegation-circuit-100",
+            },
         )
         assert at_100.status_code == 200
         assert at_100.json()["status"] == "pending_reauthorization"
@@ -110,7 +183,10 @@ def test_circuit_breakers_100_and_120_thresholds() -> None:
                 "max_budget_usd": 20,
                 "simulated_actual_cost_usd": 12.5,
             },
-            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-circuit-120"},
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "Idempotency-Key": "delegation-circuit-120",
+            },
         )
         assert at_120.status_code == 200
         assert at_120.json()["status"] == "failed_hard_stop"
@@ -130,13 +206,21 @@ def test_policy_boundary_enforces_trust_and_permissions() -> None:
                 "min_delegate_trust_score": 0.9,
                 "required_permissions": ["payments.execute"],
             },
-            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-policy-boundary-1"},
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "Idempotency-Key": "delegation-policy-boundary-1",
+            },
         )
         assert blocked.status_code == 403
         detail = blocked.json()["detail"]
         assert detail["policy_decision"]["decision"] == "deny"
-        assert "trust.floor_not_met" in detail["policy_decision"]["violated_constraints"]
-        assert "permissions.missing_required" in detail["policy_decision"]["violated_constraints"]
+        assert (
+            "trust.floor_not_met" in detail["policy_decision"]["violated_constraints"]
+        )
+        assert (
+            "permissions.missing_required"
+            in detail["policy_decision"]["violated_constraints"]
+        )
 
 
 def test_delegation_idempotent_replay_returns_same_response() -> None:
@@ -166,7 +250,10 @@ def test_delegation_idempotency_replay_survives_runtime_reconfigure() -> None:
         "max_budget_usd": 20,
         "simulated_actual_cost_usd": 8,
     }
-    headers = {"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-durable-replay-1"}
+    headers = {
+        "X-API-Key": "dev-owner-key",
+        "Idempotency-Key": "delegation-durable-replay-1",
+    }
     with TestClient(app) as c:
         first = c.post("/v1/delegations", json=payload, headers=headers)
         assert first.status_code == 200
@@ -217,7 +304,9 @@ def test_delegation_idempotency_storm_returns_single_durable_response() -> None:
 
     records = delegation_storage.load_records()
     assert len(records) == 1
-    queue_state = delegation_storage.get_queue_state(str(first_response["delegation_id"]))
+    queue_state = delegation_storage.get_queue_state(
+        str(first_response["delegation_id"])
+    )
     assert queue_state is not None
     assert queue_state["attempt_count"] == 1
     assert queue_state["status"] == "completed"
@@ -234,7 +323,10 @@ def test_delegation_idempotency_key_reuse_with_different_payload_rejected() -> N
                 "estimated_cost_usd": 8,
                 "max_budget_usd": 20,
             },
-            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-replay-2"},
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "Idempotency-Key": "delegation-replay-2",
+            },
         )
         assert first.status_code == 200
 
@@ -247,14 +339,19 @@ def test_delegation_idempotency_key_reuse_with_different_payload_rejected() -> N
                 "estimated_cost_usd": 9,
                 "max_budget_usd": 20,
             },
-            headers={"X-API-Key": "dev-owner-key", "Idempotency-Key": "delegation-replay-2"},
+            headers={
+                "X-API-Key": "dev-owner-key",
+                "Idempotency-Key": "delegation-replay-2",
+            },
         )
         assert second.status_code == 409
 
 
 def test_delegation_contract_v2_endpoint() -> None:
     with TestClient(app) as c:
-        response = c.get("/v1/delegations/contract", headers={"X-API-Key": "dev-owner-key"})
+        response = c.get(
+            "/v1/delegations/contract", headers={"X-API-Key": "dev-owner-key"}
+        )
         assert response.status_code == 200
         payload = response.json()
         assert payload["version"] == "delegation-contract-v2"

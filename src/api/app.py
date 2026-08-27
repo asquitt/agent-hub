@@ -13,9 +13,19 @@ from fastapi.responses import JSONResponse, Response
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from src.api.access_policy import access_mode, classify_route, evaluate_access, requires_idempotency
+from src.api.access_policy import (
+    access_mode,
+    classify_route,
+    evaluate_access,
+    requires_idempotency,
+)
 from src.api.auth import AuthContext, resolve_owner_from_headers
-from src.api.route_helpers import append_warning_header, meter_warn, resolve_tenant_id, stable_error
+from src.api.route_helpers import (
+    append_warning_header,
+    meter_warn,
+    resolve_tenant_id,
+    stable_error,
+)
 from src.api.routes import (
     a2a_router,
     access_review_router,
@@ -108,17 +118,27 @@ async def _app_lifespan(_app: FastAPI):
     from src.api.logging import setup_logging
     from src.federation import validate_federation_configuration
     from src.provenance.service import validate_provenance_configuration
+    from src.persistence.singleton_guard import (
+        acquire_singleton_guard,
+        release_singleton_guard,
+    )
 
     setup_logging()
     validate_auth_configuration()
     validate_federation_configuration()
     validate_provenance_configuration()
-    yield
-    # Graceful shutdown: close all SQLite connections
-    _close_storage_connections()
+    acquire_singleton_guard()
+    try:
+        yield
+    finally:
+        # Graceful shutdown: close SQLite connections before releasing ownership.
+        _close_storage_connections()
+        release_singleton_guard()
 
 
-app = FastAPI(title="AgentHub Registry Service", version="0.1.0", lifespan=_app_lifespan)
+app = FastAPI(
+    title="AgentHub Registry Service", version="0.1.0", lifespan=_app_lifespan
+)
 
 # --- Router registration ---
 app.include_router(a2a_router)
@@ -168,6 +188,10 @@ app.include_router(capability_quotas_router)
 app.include_router(chain_viz_router)
 app.include_router(policy_sim_router)
 
+from src.api.openapi_contract import install_openapi_contract  # noqa: E402
+
+install_openapi_contract(app)
+
 # --- Production middleware ---
 
 from src.api.middleware import (  # noqa: E402
@@ -190,8 +214,7 @@ app.add_middleware(DelegationChainMiddleware)
 # --- Access policy middleware ---
 
 
-@app.middleware("http")
-async def _agenthub_access_policy_middleware(request: Request, call_next):
+async def _dispatch_access_policy_middleware(request: Request, call_next):
     # CORS preflight (OPTIONS) never carries auth headers — let it through
     if request.method.upper() == "OPTIONS":
         return await call_next(request)
@@ -203,7 +226,11 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
     mode = access_mode()
     jwt_audience = None
     if path == "/mcp":
-        from src.protocol.mcp_server import MCP_PROTOCOL_VERSION, is_allowed_mcp_origin, mcp_resource_url
+        from src.protocol.mcp_server import (
+            MCP_PROTOCOL_VERSION,
+            is_allowed_mcp_origin,
+            mcp_resource_url,
+        )
 
         if not is_allowed_mcp_origin(request.headers.get("Origin")):
             return JSONResponse(
@@ -233,10 +260,14 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
             auth_error = exc
 
     request.state.agenthub_auth_context = auth_context
-    request.state.agenthub_owner = auth_context.owner if auth_context is not None else None
+    request.state.agenthub_owner = (
+        auth_context.owner if auth_context is not None else None
+    )
     request.state.agenthub_tenant_id = tenant_id
 
-    violation = evaluate_access(classification=classification, owner=auth_context, tenant_id=tenant_id)
+    violation = evaluate_access(
+        classification=classification, owner=auth_context, tenant_id=tenant_id
+    )
     if auth_error is not None and classification != "public" and auth_context is None:
         violation_code = "auth.invalid"
         violation_message = str(auth_error.detail)
@@ -248,8 +279,12 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
         violation_message = None
 
     if violation_code is not None and mode == "enforce":
-        status_code = 401 if violation_code in {"auth.required", "auth.invalid"} else 403
-        error_response = stable_error(status_code, violation_code, violation_message or "request not permitted")
+        status_code = (
+            401 if violation_code in {"auth.required", "auth.invalid"} else 403
+        )
+        error_response = stable_error(
+            status_code, violation_code, violation_message or "request not permitted"
+        )
         if path == "/mcp" and status_code == 401:
             from src.protocol.mcp_server import mcp_www_authenticate
 
@@ -259,7 +294,9 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
         if origin:
             allowed = os.environ.get("AGENTHUB_CORS_ORIGINS", "*")
             if allowed == "*" or origin in allowed.split(","):
-                error_response.headers["Access-Control-Allow-Origin"] = origin if allowed != "*" else "*"
+                error_response.headers["Access-Control-Allow-Origin"] = (
+                    origin if allowed != "*" else "*"
+                )
         return error_response
 
     response = await call_next(request)
@@ -306,16 +343,22 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
     if auth_context is None and classification != "public":
         return await call_next(request)
     request.state.agenthub_auth_context = auth_context
-    request.state.agenthub_owner = auth_context.owner if auth_context is not None else None
+    request.state.agenthub_owner = (
+        auth_context.owner if auth_context is not None else None
+    )
     request.state.agenthub_tenant_id = tenant_id
     actor = _idempotency_actor(auth_context)
 
     key = request.headers.get("Idempotency-Key")
     if key is None or not key.strip():
         if mode == "enforce":
-            return stable_error(400, "idempotency.missing_key", "missing Idempotency-Key header")
+            return stable_error(
+                400, "idempotency.missing_key", "missing Idempotency-Key header"
+            )
         response = await call_next(request)
-        append_warning_header(response, "idempotency.missing_key:missing Idempotency-Key header")
+        append_warning_header(
+            response, "idempotency.missing_key:missing Idempotency-Key header"
+        )
         meter_warn(
             actor=actor,
             kind="idempotency.warn",
@@ -329,7 +372,14 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
 
     key = key.strip()
     body = await request.body()
-    hash_input = b"|".join([method.encode("utf-8"), path.encode("utf-8"), request.url.query.encode("utf-8"), body])
+    hash_input = b"|".join(
+        [
+            method.encode("utf-8"),
+            path.encode("utf-8"),
+            request.url.query.encode("utf-8"),
+            body,
+        ]
+    )
     request_hash = hashlib.sha256(hash_input).hexdigest()
     reservation = idempotency_storage.reserve(
         tenant_id=tenant_id,
@@ -341,9 +391,17 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
     )
     state = str(reservation.get("state", "reserved"))
     if state == "mismatch":
-        return stable_error(409, "idempotency.key_reused_with_different_payload", "idempotency key reuse with different payload")
+        return stable_error(
+            409,
+            "idempotency.key_reused_with_different_payload",
+            "idempotency key reuse with different payload",
+        )
     if state == "pending":
-        return stable_error(409, "idempotency.in_progress", "request with idempotency key is still in progress")
+        return stable_error(
+            409,
+            "idempotency.in_progress",
+            "request with idempotency key is still in progress",
+        )
     if state == "response":
         replay = reservation["response"]
         replay_response = Response(
@@ -414,8 +472,28 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
         raise
 
 
+# --- Unsafe financial mutation containment ---
+
+
+@app.middleware("http")
+async def _agenthub_financial_mutation_middleware(request: Request, call_next):
+    from src.api.financial_mutations import financial_mutation_gate
+
+    blocked = financial_mutation_gate(request.method, request.url.path)
+    if blocked is not None:
+        return blocked
+    return await call_next(request)
+
+
+# Register access after financial containment so Starlette executes access first,
+# then the financial gate, then idempotency reservation and route code.
+@app.middleware("http")
+async def _agenthub_access_policy_middleware(request: Request, call_next):
+    return await _dispatch_access_policy_middleware(request, call_next)
+
+
 # Register outer middleware after function middleware so reliability controls
-# cover access, idempotency, delegation, and route execution. Starlette wraps
+# cover access, financial containment, idempotency, delegation, and route execution. Starlette wraps
 # the last middleware added around the existing stack.
 for _route in app.routes:
     _path = getattr(_route, "path", "")

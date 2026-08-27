@@ -10,6 +10,8 @@ def test_marketing_home_page_serves_public_site() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "AgentHub" in response.text
-    assert "Build, Trust, and Run Autonomous Agents with Confidence" in response.text
+    assert "Know Which Agent Can Act. Control What Happens Next." in response.text
+    assert "Production readiness is not claimed" in response.text
+    assert "pytest checks" not in response.text
     assert 'href="/operator"' in response.text
     assert 'href="/docs"' in response.text

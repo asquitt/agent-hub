@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 
-os.environ.setdefault("AGENTHUB_API_KEYS_JSON", json.dumps({"test-key-001": "test-owner"}))
+os.environ.setdefault(
+    "AGENTHUB_API_KEYS_JSON", json.dumps({"test-key-001": "test-owner"})
+)
 os.environ.setdefault("AGENTHUB_IDENTITY_SIGNING_SECRET", "test-signing-secret-s82")
 
 from starlette.testclient import TestClient
@@ -36,9 +38,15 @@ def test_delegation_creates_runtime_sandbox():
         task_spec="test-task",
         estimated_cost_usd=10.0,
         max_budget_usd=50.0,
+        owner="owner-dev",
+        tenant_id="tenant-default",
     )
     assert result["delegation_id"]
-    assert result["status"] in ("completed", "pending_reauthorization", "failed_hard_stop")
+    assert result["status"] in (
+        "completed",
+        "pending_reauthorization",
+        "failed_hard_stop",
+    )
     # The lifecycle should include an execution stage with a sandbox_id
     exec_stages = [s for s in result["lifecycle"] if s["stage"] == "execution"]
     assert len(exec_stages) == 1
@@ -69,14 +77,16 @@ def test_delegated_sandbox_success():
 
     delegation_id = str(uuid.uuid4())
     now = utc_now_iso()
-    delegation_storage.append_record({
-        "delegation_id": delegation_id,
-        "requester_agent_id": "agent-d1",
-        "delegate_agent_id": "agent-d2",
-        "status": "running",
-        "created_at": now,
-        "updated_at": now,
-    })
+    delegation_storage.append_record(
+        {
+            "delegation_id": delegation_id,
+            "requester_agent_id": "agent-d1",
+            "delegate_agent_id": "agent-d2",
+            "status": "running",
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
     resp = client.post(
         "/v1/runtime/sandboxes/delegated",
         json={"delegation_id": delegation_id, "agent_id": "agent-d2"},
@@ -99,14 +109,16 @@ def test_delegated_sandbox_completed_rejected():
 
     delegation_id = str(uuid.uuid4())
     now = utc_now_iso()
-    delegation_storage.append_record({
-        "delegation_id": delegation_id,
-        "requester_agent_id": "agent-d1",
-        "delegate_agent_id": "agent-d2",
-        "status": "completed",
-        "created_at": now,
-        "updated_at": now,
-    })
+    delegation_storage.append_record(
+        {
+            "delegation_id": delegation_id,
+            "requester_agent_id": "agent-d1",
+            "delegate_agent_id": "agent-d2",
+            "status": "completed",
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
     resp = client.post(
         "/v1/runtime/sandboxes/delegated",
         json={"delegation_id": delegation_id, "agent_id": "agent-d2"},
@@ -264,12 +276,12 @@ def test_end_to_end_delegation_sandbox_audit():
         task_spec="e2e-task",
         estimated_cost_usd=5.0,
         max_budget_usd=50.0,
+        owner="owner-dev",
+        tenant_id="tenant-default",
     )
     assert d["delegation_id"]
 
-    resp = client.get(
-        f"/v1/runtime/audit/evidence?agent_id=e2e-del", headers=HEADERS
-    )
+    resp = client.get("/v1/runtime/audit/evidence?agent_id=e2e-del", headers=HEADERS)
     assert resp.status_code == 200
     # The delegation should have created a sandbox for e2e-del
     data = resp.json()
