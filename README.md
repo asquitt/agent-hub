@@ -356,17 +356,19 @@ Compose includes:
 - Compliance controls: `docs/compliance/COMPLIANCE_CONTROLS_S47.md`
 - GA rehearsal: `docs/launch/GA_REHEARSAL_RUNBOOK_S52.md`
 
-## CI Required Checks (Branch Protection)
+## CI Execution (Temporarily Manual)
 Workflow: `.github/workflows/quality-gates.yml`
 
-Configure GitHub branch protection for `main`:
+Automatic `push` and `pull_request` triggers are disabled while GitHub Actions billing is blocked. Run the preserved workflow manually with `workflow_dispatch` when hosted execution is available. This is not a hosted green gate.
+
+After billing is restored, re-enable automatic pull-request triggers and configure branch protection for `main`:
 1. Enable `Require status checks to pass before merging`.
 2. Add required checks:
-   - `pytest-targeted`
+   - `pytest-full`
    - `playwright-e2e`
    - `quality-gates`
    - In GitHub UI these may appear as:
-     - `Quality Gates / pytest-targeted`
+     - `Quality Gates / pytest-full`
      - `Quality Gates / playwright-e2e`
      - `Quality Gates / quality-gates`
 3. Keep these checks required for pull requests and direct pushes to protected branches.
