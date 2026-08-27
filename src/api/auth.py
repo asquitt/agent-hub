@@ -271,13 +271,20 @@ def verify_live_jwt(
 ) -> tuple[dict[str, Any], AuthContext]:
     """Verify JWT cryptography plus live agent or OAuth authority."""
     from src.identity.constants import STATUS_ACTIVE
-    from src.identity.jwt_tokens import TOKEN_USE_AGENT, TOKEN_USE_OAUTH_CLIENT, verify_jwt
+    from src.identity.jwt_constants import DEFAULT_ISSUER
+    from src.identity.jwt_tokens import (
+        TOKEN_USE_AGENT,
+        TOKEN_USE_OAUTH_CLIENT,
+        oauth_client_issuer,
+        verify_jwt,
+    )
     from src.identity.oauth_clients import OAUTH_CLIENT_STORE
     from src.identity.storage import get_agent_identity_auth_snapshot
 
     claims = verify_jwt(
         token,
         audience=audience,
+        issuer=None,
         require_agent_id=require_agent_id,
     )
     owner = str(claims.get("sub", ""))
@@ -312,6 +319,11 @@ def verify_live_jwt(
         token_use = principal_type
     if token_use is None and isinstance(claims.get("identity_generation"), str):
         token_use = TOKEN_USE_AGENT
+    if token_use not in {TOKEN_USE_AGENT, TOKEN_USE_OAUTH_CLIENT}:
+        raise HTTPException(status_code=401, detail="JWT missing token_use claim")
+    expected_issuer = oauth_client_issuer() if token_use == TOKEN_USE_OAUTH_CLIENT else DEFAULT_ISSUER
+    if claims.get("iss") != expected_issuer:
+        raise HTTPException(status_code=401, detail="JWT issuer mismatch")
     if token_use == TOKEN_USE_OAUTH_CLIENT:
         if "identity_generation" in claims:
             raise HTTPException(status_code=401, detail="JWT OAuth client has invalid identity_generation claim")
@@ -331,9 +343,6 @@ def verify_live_jwt(
             agent_id=agent_id,
         )
         return claims, context
-    if token_use != TOKEN_USE_AGENT:
-        raise HTTPException(status_code=401, detail="JWT missing token_use claim")
-
     try:
         identity, current_generation, identity_tenant_id = get_agent_identity_auth_snapshot(agent_id)
     except KeyError as exc:

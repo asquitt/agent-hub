@@ -434,6 +434,21 @@ app.add_middleware(
         else []
     ),
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["X-API-Key", "Authorization", "Content-Type", "Idempotency-Key", "X-Delegation-Token"],
-    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    allow_headers=[
+        "X-API-Key",
+        "Authorization",
+        "Content-Type",
+        "Idempotency-Key",
+        "X-Delegation-Token",
+        "MCP-Protocol-Version",
+        "X-Tenant-ID",
+    ],
+    expose_headers=[
+        "X-Request-ID",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "MCP-Protocol-Version",
+        "WWW-Authenticate",
+    ],
 )

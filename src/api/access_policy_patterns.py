@@ -20,6 +20,7 @@ PUBLIC_ROUTES = {
     ("GET", "/.well-known/agent.json"),
     ("GET", "/.well-known/oauth-protected-resource"),
     ("GET", "/.well-known/oauth-authorization-server"),
+    ("GET", "/v1/oauth/authorize"),
     ("GET", "/operator"),
     ("GET", "/operator/versioning"),
     ("GET", "/customer"),

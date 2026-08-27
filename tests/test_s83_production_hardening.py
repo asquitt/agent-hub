@@ -51,6 +51,49 @@ def test_cors_allows_custom_headers():
     print("PASS: CORS allows custom headers")
 
 
+def test_cors_allows_and_exposes_mcp_protocol_headers(monkeypatch):
+    """Allowed browser MCP clients can complete preflight and read auth metadata."""
+    origin = "https://app.example.com"
+    monkeypatch.setenv("AGENTHUB_MCP_ALLOWED_ORIGINS_JSON", json.dumps([origin]))
+    preflight = client.options(
+        "/mcp",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": (
+                "Authorization,Content-Type,MCP-Protocol-Version,X-Tenant-ID"
+            ),
+        },
+    )
+    challenge = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "browser-client", "version": "1.0.0"},
+            },
+        },
+        headers={
+            "Origin": origin,
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert preflight.status_code == 200, preflight.text
+    allow_headers = preflight.headers["access-control-allow-headers"].lower()
+    assert "mcp-protocol-version" in allow_headers
+    assert "x-tenant-id" in allow_headers
+    assert challenge.status_code == 401
+    expose_headers = challenge.headers["access-control-expose-headers"].lower()
+    assert "mcp-protocol-version" in expose_headers
+    assert "www-authenticate" in expose_headers
+
+
 # ---- Health Check ----
 
 

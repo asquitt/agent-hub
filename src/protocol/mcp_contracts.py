@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class DiscoveryConstraints(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     max_cost_usd: float | None = Field(default=None, ge=0)
     max_latency_ms: int | None = Field(default=None, gt=0)

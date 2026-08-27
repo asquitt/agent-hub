@@ -156,6 +156,10 @@ def test_mcp_auth_discovery_and_resource_bound_oauth() -> None:
     with TestClient(app) as client:
         prm = client.get("/.well-known/oauth-protected-resource")
         metadata = client.get("/.well-known/oauth-authorization-server")
+        unsupported_authorize = client.get(
+            "/v1/oauth/authorize",
+            params={"response_type": "code", "client_id": "not-supported"},
+        )
         unauthenticated = client.post(
             "/mcp",
             json=_initialize(),
@@ -171,7 +175,12 @@ def test_mcp_auth_discovery_and_resource_bound_oauth() -> None:
     assert prm.json()["resource"] == MCP_RESOURCE
     assert prm.json()["authorization_servers"] == [BASE_URL]
     assert metadata.status_code == 200
+    assert metadata.json()["issuer"] == prm.json()["authorization_servers"][0]
+    assert metadata.json()["authorization_endpoint"] == f"{BASE_URL}/v1/oauth/authorize"
     assert metadata.json()["token_endpoint"] == f"{BASE_URL}/v1/oauth/token"
+    assert metadata.json()["response_types_supported"] == []
+    assert unsupported_authorize.status_code == 400
+    assert unsupported_authorize.json()["detail"]["error"] == "unsupported_response_type"
 
     assert unauthenticated.status_code == 401
     assert unauthenticated.headers["www-authenticate"] == (
@@ -180,7 +189,11 @@ def test_mcp_auth_discovery_and_resource_bound_oauth() -> None:
     )
 
     assert targeted.status_code == 200, targeted.text
-    claims = verify_jwt(targeted.json()["access_token"], audience=MCP_RESOURCE)
+    claims = verify_jwt(
+        targeted.json()["access_token"],
+        audience=MCP_RESOURCE,
+        issuer=metadata.json()["issuer"],
+    )
     assert claims["aud"] == MCP_RESOURCE
     assert claims["scopes"] == ["discovery.read", "discovery.search"]
 
@@ -369,6 +382,27 @@ def test_mcp_transport_and_input_fail_closed() -> None:
     assert get_response.status_code == 405
     assert delete_response.status_code == 405
     assert invalid_origin_get.status_code == 403
+
+
+def test_mcp_rejects_non_finite_tool_constraints_without_http_500() -> None:
+    with TestClient(app, raise_server_exceptions=False) as client:
+        registration = _oauth_registration(client)
+        token = _oauth_token(client, registration, resource=MCP_RESOURCE).json()["access_token"]
+        response = client.post(
+            "/mcp",
+            content=(
+                '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":'
+                '{"name":"search_capabilities","arguments":{"query":"invoice",'
+                '"constraints":{"max_cost_usd":1e309}}}}'
+            ),
+            headers=_mcp_headers(token),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["result"] == {
+        "content": [{"type": "text", "text": "invalid tool arguments"}],
+        "isError": True,
+    }
 
 
 def test_mcp_tools_are_filtered_and_enforced_by_oauth_scope() -> None:

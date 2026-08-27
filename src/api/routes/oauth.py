@@ -8,26 +8,24 @@ Implements:
 """
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import AuthContext, require_api_key
-from src.identity.jwt_tokens import TOKEN_USE_OAUTH_CLIENT, issue_jwt
+from src.identity.jwt_tokens import TOKEN_USE_OAUTH_CLIENT, issue_jwt, oauth_client_issuer
 from src.identity.oauth_clients import OAUTH_CLIENT_STORE
 from src.runtime.audit_streaming import EVENT_OAUTH_CLIENT_AUTHORITY_BOUND, emit_event
 from src.protocol.mcp_server import is_allowed_mcp_resource, mcp_resource_url
 
 router = APIRouter(tags=["oauth"])
 
-_DEFAULT_ISSUER = "urn:agenthub:registry"
 _SUPPORTED_GRANT_TYPES = frozenset({"client_credentials"})
 
 
 def _base_url() -> str:
-    return os.getenv("AGENTHUB_BASE_URL", "https://localhost:8000").rstrip("/")
+    return oauth_client_issuer()
 
 
 # --- Well-Known Metadata ---
@@ -58,7 +56,8 @@ def get_authorization_server_metadata() -> dict[str, Any]:
     """OAuth 2.1 Authorization Server Metadata (RFC 8414)."""
     base = _base_url()
     return {
-        "issuer": _DEFAULT_ISSUER,
+        "issuer": base,
+        "authorization_endpoint": f"{base}/v1/oauth/authorize",
         "token_endpoint": f"{base}/v1/oauth/token",
         "registration_endpoint": f"{base}/v1/oauth/register",
         "jwks_uri": f"{base}/v1/identity/tokens/jwt/jwks",
@@ -76,6 +75,18 @@ def get_authorization_server_metadata() -> dict[str, Any]:
         "service_documentation": f"{base}/docs",
         "code_challenge_methods_supported": [],
     }
+
+
+@router.get("/v1/oauth/authorize")
+def get_authorization_endpoint() -> None:
+    """Advertise the SDK-required endpoint while rejecting unsupported interactive grants."""
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error": "unsupported_response_type",
+            "error_description": "interactive authorization is not supported",
+        },
+    )
 
 
 # --- Dynamic Client Registration ---
@@ -241,7 +252,7 @@ def post_token(
         token_use=TOKEN_USE_OAUTH_CLIENT,
         scopes=granted_scopes or None,
         audience=audience,
-        issuer=_DEFAULT_ISSUER,
+        issuer=_base_url(),
         ttl_seconds=3600,
         extra_claims={"principal_type": "oauth_client"},
     )

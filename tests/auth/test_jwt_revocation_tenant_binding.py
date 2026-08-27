@@ -14,7 +14,12 @@ from src.api.app import app
 from src.api.auth import AuthContext, issue_scoped_token, resolve_auth_context
 from src.identity.credentials import issue_credential
 from src.identity import delegation_tokens
-from src.identity.jwt_tokens import TOKEN_USE_OAUTH_CLIENT, issue_jwt, verify_jwt
+from src.identity.jwt_tokens import (
+    TOKEN_USE_OAUTH_CLIENT,
+    issue_jwt,
+    oauth_client_issuer,
+    verify_jwt,
+)
 from src.identity.oauth_clients import OAUTH_CLIENT_STORE
 from src.identity.storage import get_agent_identity_auth_snapshot, reconfigure, reset_for_tests
 
@@ -249,7 +254,7 @@ def test_registered_oauth_client_jwt_uses_registrar_owner_and_tenant(jwt_auth_ru
             tenant_id="tenant-a",
         )
 
-    claims = verify_jwt(token, issuer="urn:agenthub:registry")
+    claims = verify_jwt(token, issuer=oauth_client_issuer())
     assert claims["sub"] == "owner-a"
     assert claims["agent_id"] == client_record["client_id"]
     assert claims["tenant_id"] == "tenant-a"
@@ -285,7 +290,7 @@ def test_oauth_jwt_claims_must_match_durable_client_owner_and_tenant(
             tenant_id=tenant_id,
             token_use=TOKEN_USE_OAUTH_CLIENT,
             scopes=["read"],
-            issuer="urn:agenthub:registry",
+            issuer=oauth_client_issuer(),
         )["token"]
 
         _assert_agent_request_denied(client, token, tenant_id=tenant_id)
@@ -298,7 +303,7 @@ def test_tenantless_legacy_oauth_jwt_fails_closed(jwt_auth_runtime: None) -> Non
             subject="owner-a",
             agent_id=str(client_record["client_id"]),
             scopes=["read"],
-            issuer="urn:agenthub:registry",
+            issuer=oauth_client_issuer(),
         )["token"]
 
         _assert_agent_request_denied(client, token)
@@ -317,7 +322,7 @@ def test_oauth_jwt_rejects_conflicting_or_malformed_authority_discriminator(
             tenant_id="tenant-a",
             token_use=TOKEN_USE_OAUTH_CLIENT,
             scopes=["read"],
-            issuer="urn:agenthub:registry",
+            issuer=oauth_client_issuer(),
             extra_claims={"principal_type": principal_type},
         )["token"]
         verification = _verify_jwt_endpoint(client, token)
@@ -339,7 +344,7 @@ def test_oauth_jwt_rejects_agent_generation_claim_for_colliding_identity(jwt_aut
             identity_generation=identity_generation,
             token_use=TOKEN_USE_OAUTH_CLIENT,
             scopes=["read"],
-            issuer="urn:agenthub:registry",
+            issuer=oauth_client_issuer(),
         )["token"]
         with pytest.raises(HTTPException, match="invalid identity_generation"):
             resolve_auth_context(authorization=f"Bearer {token}", tenant_id="tenant-a")
@@ -547,7 +552,7 @@ def test_live_oauth_jwt_ignores_colliding_agent_identity(jwt_auth_runtime: None)
             agent_id=str(client_record["client_id"]),
             tenant_id="tenant-a",
             scopes=["read"],
-            issuer="urn:agenthub:registry",
+            issuer=oauth_client_issuer(),
             extra_claims={"principal_type": "oauth_client"},
         )["token"]
         parent_authority_context = resolve_auth_context(

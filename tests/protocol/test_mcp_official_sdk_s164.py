@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -38,6 +38,24 @@ def _wait_for_server(process: subprocess.Popen[str], health_url: str) -> None:
     pytest.fail("MCP test server did not become healthy")
 
 
+def _register_oauth_client(base_url: str, api_key: str) -> dict[str, object]:
+    request = Request(  # noqa: S310 - local test server only
+        f"{base_url}/v1/oauth/register",
+        data=json.dumps(
+            {
+                "client_name": "official MCP OAuth client",
+                "grant_types": ["client_credentials"],
+                "scope": "discovery.read discovery.search",
+            }
+        ).encode("utf-8"),
+        headers={"Content-Type": "application/json", "X-API-Key": api_key},
+        method="POST",
+    )
+    with urlopen(request, timeout=5) as response:  # noqa: S310 - local test server only
+        assert response.status == 200
+        return json.loads(response.read())
+
+
 def test_official_mcp_sdk_runs_streamable_http_lifecycle(tmp_path: Path) -> None:
     client_python_raw = os.getenv("AGENTHUB_OFFICIAL_MCP_PYTHON", "").strip()
     if not client_python_raw:
@@ -58,7 +76,7 @@ def test_official_mcp_sdk_runs_streamable_http_lifecycle(tmp_path: Path) -> None
                 {
                     api_key: {
                         "owner": "official-mcp-client",
-                        "scopes": ["discovery.read", "discovery.search"],
+                        "scopes": ["oauth.register", "discovery.read", "discovery.search"],
                         "roles": ["member"],
                     }
                 }
@@ -105,28 +123,53 @@ def test_official_mcp_sdk_runs_streamable_http_lifecycle(tmp_path: Path) -> None
     )
     try:
         _wait_for_server(server, f"{base_url}/healthz")
-        completed = subprocess.run(
-            [str(client_python), str(CLIENT_SCRIPT), f"{base_url}/mcp"],
-            cwd=ROOT,
-            env={**os.environ, "AGENTHUB_OFFICIAL_MCP_API_KEY": api_key},
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        result = json.loads(completed.stdout)
-        assert result == {
-            "is_error": False,
-            "protocol_version": "2025-11-25",
-            "result_count": 4,
-            "sdk_version": "2.1.1",
-            "server_name": "agenthub-discovery",
-            "tool_names": ["check_compatibility", "get_agent_manifest", "search_capabilities"],
+        registration = _register_oauth_client(base_url, api_key)
+        modes = {
+            "api_key": {"AGENTHUB_OFFICIAL_MCP_API_KEY": api_key},
+            "oauth": {
+                "AGENTHUB_OFFICIAL_MCP_CLIENT_ID": str(registration["client_id"]),
+                "AGENTHUB_OFFICIAL_MCP_CLIENT_SECRET": str(registration["client_secret"]),
+            },
         }
+        for auth_mode, credentials in modes.items():
+            try:
+                completed = subprocess.run(
+                    [str(client_python), str(CLIENT_SCRIPT), f"{base_url}/mcp"],
+                    cwd=ROOT,
+                    env={
+                        **os.environ,
+                        **credentials,
+                        "AGENTHUB_OFFICIAL_MCP_AUTH_MODE": auth_mode,
+                    },
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            except subprocess.CalledProcessError as exc:
+                server.terminate()
+                server.wait(timeout=10)
+                server_output = server.stdout.read() if server.stdout is not None else ""
+                pytest.fail(
+                    f"official MCP SDK {auth_mode} client failed:\n"
+                    f"stdout:\n{exc.stdout}\nstderr:\n{exc.stderr}\n"
+                    f"server output:\n{server_output}"
+                )
+            result = json.loads(completed.stdout)
+            assert result == {
+                "auth_mode": auth_mode,
+                "is_error": False,
+                "protocol_version": "2025-11-25",
+                "result_count": 4,
+                "sdk_version": "2.1.1",
+                "server_name": "agenthub-discovery",
+                "tool_names": ["check_compatibility", "get_agent_manifest", "search_capabilities"],
+            }
     finally:
-        server.terminate()
-        try:
-            server.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            server.kill()
-            server.wait(timeout=5)
+        if server.poll() is None:
+            server.terminate()
+            try:
+                server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait(timeout=5)
