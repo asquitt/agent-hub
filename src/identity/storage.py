@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = ROOT / "data" / "identity" / "identity.db"
 TENANCY_ACTIVE = "active"
 TENANCY_QUARANTINED = "quarantined"
+_AUTH_GENERATION_KEY = "_agenthub_auth_generation"
 
 
 def _path_db() -> Path:
@@ -145,6 +146,8 @@ class IdentityStorage:
         configuration_checksum: str | None = None,
     ) -> AgentIdentity:
         self._ensure_ready()
+        stored_metadata = dict(metadata or {})
+        stored_metadata[_AUTH_GENERATION_KEY] = uuid4().hex
         with self._lock:
             assert self._conn is not None
             try:
@@ -164,7 +167,7 @@ class IdentityStorage:
                             credential_type,
                             STATUS_ACTIVE,
                             public_key_pem,
-                            json.dumps(metadata or {}, sort_keys=True),
+                            json.dumps(stored_metadata, sort_keys=True),
                             human_principal_id,
                             configuration_checksum,
                         ),
@@ -256,20 +259,65 @@ class IdentityStorage:
             raise KeyError(f"agent identity not found: {agent_id}")
         return _row_to_identity(row)
 
+    def get_identity_auth_snapshot(
+        self,
+        agent_id: str,
+        *,
+        ensure_generation: bool = False,
+    ) -> tuple[AgentIdentity, str | None]:
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            row = self._conn.execute(
+                """
+                SELECT * FROM agent_identities
+                WHERE agent_id = ? AND tenant_id IS NOT NULL AND tenancy_status = ?
+                """,
+                (agent_id, TENANCY_ACTIVE),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"agent identity not found: {agent_id}")
+
+            stored_metadata = _stored_metadata(row["metadata_json"])
+            generation = stored_metadata.get(_AUTH_GENERATION_KEY)
+            if not isinstance(generation, str) or not generation:
+                generation = None
+            if generation is None and ensure_generation:
+                generation = uuid4().hex
+                stored_metadata[_AUTH_GENERATION_KEY] = generation
+                with self._conn:
+                    self._conn.execute(
+                        "UPDATE agent_identities SET metadata_json = ? WHERE agent_id = ?",
+                        (json.dumps(stored_metadata, sort_keys=True), agent_id),
+                    )
+            return _row_to_identity(row), generation
+
     def update_identity_status(self, agent_id: str, status: str) -> AgentIdentity:
         if status not in VALID_IDENTITY_STATUSES:
             raise ValueError(f"invalid status: {status}")
         self._ensure_ready()
         with self._lock:
             assert self._conn is not None
+            row = self._conn.execute(
+                """
+                SELECT metadata_json FROM agent_identities
+                WHERE agent_id = ? AND tenant_id IS NOT NULL AND tenancy_status = ?
+                """,
+                (agent_id, TENANCY_ACTIVE),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"agent identity not found: {agent_id}")
+            stored_metadata = _stored_metadata(row["metadata_json"])
+            stored_metadata[_AUTH_GENERATION_KEY] = uuid4().hex
             with self._conn:
                 result = self._conn.execute(
                     """
                     UPDATE agent_identities
-                    SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    SET status = ?, metadata_json = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                     WHERE agent_id = ? AND tenant_id IS NOT NULL AND tenancy_status = ?
                     """,
-                    (status, agent_id, TENANCY_ACTIVE),
+                    (status, json.dumps(stored_metadata, sort_keys=True), agent_id, TENANCY_ACTIVE),
                 )
                 if result.rowcount == 0:
                     raise KeyError(f"agent identity not found: {agent_id}")
@@ -288,15 +336,35 @@ class IdentityStorage:
         self._ensure_ready()
         with self._lock:
             assert self._conn is not None
+            row = self._conn.execute(
+                """
+                SELECT metadata_json FROM agent_identities
+                WHERE agent_id = ? AND owner = ? AND tenant_id = ?
+                  AND tenancy_status = ?
+                """,
+                (agent_id, context.owner, context.tenant_id, TENANCY_ACTIVE),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"agent identity not found: {agent_id}")
+            stored_metadata = _stored_metadata(row["metadata_json"])
+            stored_metadata[_AUTH_GENERATION_KEY] = uuid4().hex
             with self._conn:
                 result = self._conn.execute(
                     """
                     UPDATE agent_identities
-                    SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    SET status = ?, metadata_json = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                     WHERE agent_id = ? AND owner = ? AND tenant_id = ?
                       AND tenancy_status = ?
                     """,
-                    (status, agent_id, context.owner, context.tenant_id, TENANCY_ACTIVE),
+                    (
+                        status,
+                        json.dumps(stored_metadata, sort_keys=True),
+                        agent_id,
+                        context.owner,
+                        context.tenant_id,
+                        TENANCY_ACTIVE,
+                    ),
                 )
                 if result.rowcount == 0:
                     raise KeyError(f"agent identity not found: {agent_id}")
@@ -1002,6 +1070,14 @@ def get_peer_agent_identity_for_actor(
     return _STORAGE.get_peer_identity_for_actor(agent_id, actor)
 
 
+def get_agent_identity_auth_snapshot(
+    agent_id: str,
+    *,
+    ensure_generation: bool = False,
+) -> tuple[AgentIdentity, str | None]:
+    return _STORAGE.get_identity_auth_snapshot(agent_id, ensure_generation=ensure_generation)
+
+
 def update_agent_identity_status(agent_id: str, status: str) -> AgentIdentity:
     return _STORAGE.update_identity_status(agent_id, status)
 
@@ -1092,8 +1168,8 @@ IDENTITY_STORAGE = _STORAGE
 
 
 def _row_to_identity(row: sqlite3.Row) -> AgentIdentity:
-    metadata_raw = row["metadata_json"]
-    metadata = json.loads(metadata_raw) if metadata_raw else None
+    metadata = _stored_metadata(row["metadata_json"])
+    metadata.pop(_AUTH_GENERATION_KEY, None)
     return AgentIdentity(
         agent_id=str(row["agent_id"]),
         owner=str(row["owner"]),
@@ -1108,6 +1184,13 @@ def _row_to_identity(row: sqlite3.Row) -> AgentIdentity:
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
     )
+
+
+def _stored_metadata(raw: object) -> dict[str, str]:
+    if not raw:
+        return {}
+    parsed = json.loads(str(raw))
+    return {str(key): str(value) for key, value in parsed.items()}
 
 
 def _row_to_credential(row: sqlite3.Row) -> AgentCredential:

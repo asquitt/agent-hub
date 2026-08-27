@@ -52,6 +52,7 @@ def issue_jwt(
     subject: str,
     agent_id: str,
     tenant_id: str | None = None,
+    identity_generation: str | None = None,
     scopes: list[str] | None = None,
     audience: str | None = None,
     ttl_seconds: int = DEFAULT_JWT_TTL_SECONDS,
@@ -89,6 +90,11 @@ def issue_jwt(
         if not normalized_tenant_id:
             raise ValueError("tenant_id must not be empty")
         payload["tenant_id"] = normalized_tenant_id
+    if identity_generation is not None:
+        normalized_generation = str(identity_generation).strip()
+        if not normalized_generation:
+            raise ValueError("identity_generation must not be empty")
+        payload["identity_generation"] = normalized_generation
     if scopes:
         payload[CLAIM_SCOPE] = " ".join(sorted(scopes))
     if audience:
@@ -182,6 +188,12 @@ def verify_jwt(
         if not isinstance(raw_tenant_id, str) or not raw_tenant_id.strip():
             raise ValueError("JWT has invalid tenant_id claim")
         claims["tenant_id"] = raw_tenant_id.strip()
+
+    if "identity_generation" in claims:
+        raw_generation = claims["identity_generation"]
+        if not isinstance(raw_generation, str) or not raw_generation.strip():
+            raise ValueError("JWT has invalid identity_generation claim")
+        claims["identity_generation"] = raw_generation.strip()
 
     # Normalize scope claim to list
     raw_scope = claims.get(CLAIM_SCOPE)

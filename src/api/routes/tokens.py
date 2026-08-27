@@ -16,7 +16,7 @@ from src.identity.jwt_constants import (
     VALID_OVERSIGHT_LEVELS,
 )
 from src.identity.jwt_tokens import get_jwks, issue_jwt, verify_jwt
-from src.identity.storage import get_agent_identity
+from src.identity.storage import get_agent_identity_auth_snapshot
 
 router = APIRouter(prefix="/v1/identity/tokens", tags=["identity-tokens"])
 
@@ -52,12 +52,15 @@ class VerifyJWTRequest(BaseModel):
 # --- Endpoints ---
 
 
-def _authorize_jwt_issuance(request: IssueJWTRequest, context: AuthContext) -> list[str]:
+def _authorize_jwt_issuance(request: IssueJWTRequest, context: AuthContext) -> tuple[list[str], str]:
     if not isinstance(context, AuthContext):
         raise HTTPException(status_code=403, detail="JWT issuance requires an authorization context")
 
     try:
-        identity = get_agent_identity(request.agent_id)
+        identity, identity_generation = get_agent_identity_auth_snapshot(
+            request.agent_id,
+            ensure_generation=True,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="agent identity not found") from exc
 
@@ -71,7 +74,9 @@ def _authorize_jwt_issuance(request: IssueJWTRequest, context: AuthContext) -> l
     requested_scopes = sorted({scope.strip() for scope in request.scopes if scope.strip()})
     if any(not context.allows_scope(scope) for scope in requested_scopes):
         raise HTTPException(status_code=403, detail="requested scopes exceed issuer authority")
-    return requested_scopes
+    if identity_generation is None:
+        raise HTTPException(status_code=503, detail="identity authentication generation is unavailable")
+    return requested_scopes, identity_generation
 
 
 @router.post("/jwt")
@@ -79,7 +84,7 @@ def post_issue_jwt(
     request: IssueJWTRequest,
     context: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
-    requested_scopes = _authorize_jwt_issuance(request, context)
+    requested_scopes, identity_generation = _authorize_jwt_issuance(request, context)
     if request.oversight_level and request.oversight_level not in VALID_OVERSIGHT_LEVELS:
         raise HTTPException(
             status_code=400,
@@ -90,6 +95,7 @@ def post_issue_jwt(
             subject=context.owner,
             agent_id=request.agent_id,
             tenant_id=context.tenant_id,
+            identity_generation=identity_generation,
             scopes=requested_scopes,
             ttl_seconds=request.ttl_seconds,
             audience=request.audience,

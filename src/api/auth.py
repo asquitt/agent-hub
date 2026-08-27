@@ -264,7 +264,7 @@ def _context_from_jwt(token: str, *, tenant_id: str) -> AuthContext:
     from src.identity.constants import STATUS_ACTIVE
     from src.identity.jwt_tokens import verify_jwt
     from src.identity.oauth_clients import OAUTH_CLIENT_STORE
-    from src.identity.storage import IDENTITY_STORAGE
+    from src.identity.storage import get_agent_identity_auth_snapshot
 
     try:
         claims = verify_jwt(token, require_agent_id=True)
@@ -282,7 +282,7 @@ def _context_from_jwt(token: str, *, tenant_id: str) -> AuthContext:
             raise HTTPException(status_code=401, detail="JWT has invalid roles claim")
 
         try:
-            identity = IDENTITY_STORAGE.get_identity(agent_id)
+            identity, current_generation = get_agent_identity_auth_snapshot(agent_id)
         except KeyError as exc:
             # OAuth client-credentials JWTs share the encoder but are not agent identities.
             if owner != agent_id or OAUTH_CLIENT_STORE.get_client(agent_id) is None:
@@ -305,6 +305,11 @@ def _context_from_jwt(token: str, *, tenant_id: str) -> AuthContext:
             raise HTTPException(status_code=401, detail="JWT agent identity is not active")
         if identity["owner"] != owner:
             raise HTTPException(status_code=401, detail="JWT owner does not match agent identity")
+        token_generation = claims.get("identity_generation")
+        if not isinstance(token_generation, str) or not token_generation:
+            raise HTTPException(status_code=401, detail="JWT missing identity_generation claim")
+        if current_generation is None or token_generation != current_generation:
+            raise HTTPException(status_code=401, detail="JWT identity generation mismatch")
 
         return AuthContext(
             owner,
