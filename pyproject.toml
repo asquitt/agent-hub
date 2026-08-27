@@ -9,7 +9,8 @@ description = "AgentHub CLI, API service, SDK, and tooling"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "fastapi==0.115.6",
+  "fastapi==0.141.1",
+  "starlette==1.6.0",
   "uvicorn==0.32.1",
   "pydantic==2.10.3",
   "pyyaml==6.0.3",
@@ -18,14 +19,14 @@ dependencies = [
   "PyJWT[crypto]>=2.10.1",
   "cryptography>=44.0.0",
   "python-json-logger==3.2.1",
-  "python-multipart==0.0.20",
+  "python-multipart==0.0.32",
   "httpx==0.28.1",
   "rich==13.9.4",
 ]
 
 [project.optional-dependencies]
 test = [
-  "pytest==8.3.4",
+  "pytest==9.1.1",
 ]
 
 [project.scripts]
