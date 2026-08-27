@@ -107,7 +107,7 @@ class DelegationChainMiddleware:
         # Verify the delegation token
         try:
             from src.identity.delegation_tokens import (
-                get_delegation_chain,
+                get_delegation_chain_for_token,
                 verify_delegation_token,
             )
 
@@ -121,7 +121,7 @@ class DelegationChainMiddleware:
 
         # Verify scope attenuation across the chain
         try:
-            chain_result = get_delegation_chain(token_result["token_id"])
+            chain_result = get_delegation_chain_for_token(delegation_token)
             chain_hops = chain_result.get("chain", [])
         except KeyError:
             chain_hops = []

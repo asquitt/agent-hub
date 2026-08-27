@@ -65,6 +65,8 @@ def post_store_secret(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/v1/vault/secrets")

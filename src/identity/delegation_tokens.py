@@ -15,7 +15,11 @@ from src.identity.constants import (
     MIN_CREDENTIAL_TTL_SECONDS,
     STATUS_ACTIVE,
 )
-from src.identity.storage import IDENTITY_STORAGE
+from src.identity.storage import (
+    IDENTITY_STORAGE,
+    ResourceAuthContext,
+    require_resource_actor,
+)
 
 
 def _signing_secret() -> bytes:
@@ -36,16 +40,15 @@ def issue_delegation_token(
     delegated_scopes: list[str],
     ttl_seconds: int = DEFAULT_CREDENTIAL_TTL_SECONDS,
     parent_token_id: str | None = None,
-    owner: str,
+    actor: ResourceAuthContext,
 ) -> dict[str, Any]:
-    issuer_identity = IDENTITY_STORAGE.get_identity(issuer_agent_id)
+    context = require_resource_actor(actor)
+    issuer_identity = IDENTITY_STORAGE.get_identity_for_actor(issuer_agent_id, context)
     if issuer_identity["status"] != STATUS_ACTIVE:
         raise PermissionError(f"issuer agent is {issuer_identity['status']}")
-    if issuer_identity["owner"] != owner:
-        raise PermissionError("owner mismatch for issuer agent")
 
     # Validate subject exists and is active
-    subject_identity = IDENTITY_STORAGE.get_identity(subject_agent_id)
+    subject_identity = IDENTITY_STORAGE.get_peer_identity_for_actor(subject_agent_id, context)
     if subject_identity["status"] != STATUS_ACTIVE:
         raise PermissionError(f"subject agent is {subject_identity['status']}")
 
@@ -56,6 +59,9 @@ def issue_delegation_token(
         parent = _get_token_record(parent_token_id)
         if parent is None:
             raise ValueError(f"parent token not found: {parent_token_id}")
+        _require_token_actor(parent, context)
+        if str(parent["subject_agent_id"]) != issuer_agent_id:
+            raise PermissionError("parent token subject must be the child issuer")
         if parent["revoked"]:
             raise PermissionError("parent token is revoked")
         parent_expires_epoch = int(parent["expires_at_epoch"])
@@ -67,7 +73,7 @@ def issue_delegation_token(
         effective_scopes = attenuate_scopes(parent_scopes, delegated_scopes)
     else:
         # Root delegation: scopes are validated against issuer's active credentials
-        issuer_creds = IDENTITY_STORAGE.list_active_credentials(issuer_agent_id)
+        issuer_creds = IDENTITY_STORAGE.list_active_credentials_for_actor(issuer_agent_id, context)
         if not issuer_creds:
             raise PermissionError("issuer has no active credentials")
         all_issuer_scopes: set[str] = set()
@@ -94,11 +100,20 @@ def issue_delegation_token(
         expires_at_epoch=max_expires,
         parent_token_id=parent_token_id,
         chain_depth=chain_depth,
+        owner=context.owner,
+        tenant_id=context.tenant_id,
     )
 
     # Create signed token string
     token_payload = json.dumps(
-        {"tid": token_id, "sub": subject_agent_id, "iss": issuer_agent_id, "exp": max_expires},
+        {
+            "tid": token_id,
+            "sub": subject_agent_id,
+            "iss": issuer_agent_id,
+            "own": context.owner,
+            "ten": context.tenant_id,
+            "exp": max_expires,
+        },
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -127,6 +142,7 @@ def verify_delegation_token(signed_token: str) -> dict[str, Any]:
     record = _get_token_record(token_id)
     if record is None:
         raise PermissionError("delegation token not found")
+    owner, tenant_id = _require_token_attribution(record)
 
     if record["revoked"]:
         raise PermissionError("delegation token is revoked")
@@ -141,6 +157,8 @@ def verify_delegation_token(signed_token: str) -> dict[str, Any]:
             "tid": token_id,
             "sub": str(record["subject_agent_id"]),
             "iss": str(record["issuer_agent_id"]),
+            "own": owner,
+            "ten": tenant_id,
             "exp": int(record["expires_at_epoch"]),
         },
         sort_keys=True,
@@ -151,7 +169,7 @@ def verify_delegation_token(signed_token: str) -> dict[str, Any]:
         raise PermissionError("invalid delegation token signature")
 
     # Verify the full chain is valid (no revoked parents)
-    _verify_chain_integrity(record)
+    _verify_chain_integrity(record, owner=owner, tenant_id=tenant_id)
 
     scopes = json.loads(record["delegated_scopes_json"])
     return {
@@ -159,20 +177,50 @@ def verify_delegation_token(signed_token: str) -> dict[str, Any]:
         "token_id": token_id,
         "issuer_agent_id": str(record["issuer_agent_id"]),
         "subject_agent_id": str(record["subject_agent_id"]),
+        "owner": owner,
+        "tenant_id": tenant_id,
         "delegated_scopes": scopes,
         "expires_at_epoch": int(record["expires_at_epoch"]),
         "chain_depth": int(record["chain_depth"]),
     }
 
 
-def get_delegation_chain(token_id: str) -> dict[str, Any]:
+def get_delegation_chain(
+    token_id: str,
+    *,
+    actor: ResourceAuthContext,
+) -> dict[str, Any]:
+    context = require_resource_actor(actor)
     record = _get_token_record(token_id)
     if record is None:
         raise KeyError(f"delegation token not found: {token_id}")
+    _require_token_actor(record, context)
+
+    return _build_delegation_chain(record, context.owner, context.tenant_id)
+
+
+def get_delegation_chain_for_token(signed_token: str) -> dict[str, Any]:
+    """Return the chain to a holder of the verified delegation token."""
+    verified = verify_delegation_token(signed_token)
+    record = _get_token_record(str(verified["token_id"]))
+    if record is None:
+        raise KeyError(f"delegation token not found: {verified['token_id']}")
+    return _build_delegation_chain(record, str(verified["owner"]), str(verified["tenant_id"]))
+
+
+def _build_delegation_chain(
+    record: dict[str, Any],
+    owner: str,
+    tenant_id: str,
+) -> dict[str, Any]:
+    token_id = str(record["token_id"])
 
     chain_records: list[dict[str, Any]] = []
     current = record
     while current is not None:
+        current_owner, current_tenant = _require_token_attribution(current)
+        if current_owner != owner or current_tenant != tenant_id:
+            raise PermissionError("delegation chain crosses an authorization boundary")
         scopes = json.loads(current["delegated_scopes_json"])
         chain_records.append({
             "token_id": str(current["token_id"]),
@@ -198,14 +246,18 @@ def get_delegation_chain(token_id: str) -> dict[str, Any]:
     }
 
 
-def revoke_delegation_token(token_id: str, owner: str) -> dict[str, Any]:
+def revoke_delegation_token(
+    token_id: str,
+    *,
+    actor: ResourceAuthContext,
+) -> dict[str, Any]:
+    context = require_resource_actor(actor)
     record = _get_token_record(token_id)
     if record is None:
         raise KeyError(f"delegation token not found: {token_id}")
 
-    issuer_identity = IDENTITY_STORAGE.get_identity(str(record["issuer_agent_id"]))
-    if issuer_identity["owner"] != owner:
-        raise PermissionError("owner mismatch")
+    _require_token_actor(record, context)
+    IDENTITY_STORAGE.get_identity_for_actor(str(record["issuer_agent_id"]), context)
 
     now = utc_now_epoch()
     with IDENTITY_STORAGE._lock:
@@ -254,6 +306,8 @@ def _insert_token_record(
     expires_at_epoch: int,
     parent_token_id: str | None,
     chain_depth: int,
+    owner: str,
+    tenant_id: str,
 ) -> None:
     IDENTITY_STORAGE._ensure_ready()
     with IDENTITY_STORAGE._lock:
@@ -264,8 +318,9 @@ def _insert_token_record(
                 """
                 INSERT INTO delegation_tokens(
                     token_id, issuer_agent_id, subject_agent_id, delegated_scopes_json,
-                    issued_at_epoch, expires_at_epoch, parent_token_id, chain_depth
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    issued_at_epoch, expires_at_epoch, parent_token_id, chain_depth,
+                    owner, tenant_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     token_id,
@@ -276,11 +331,19 @@ def _insert_token_record(
                     expires_at_epoch,
                     parent_token_id,
                     chain_depth,
+                    owner,
+                    tenant_id,
                 ),
             )
 
 
-def _verify_chain_integrity(record: dict[str, Any], _depth: int = 0) -> None:
+def _verify_chain_integrity(
+    record: dict[str, Any],
+    *,
+    owner: str,
+    tenant_id: str,
+    _depth: int = 0,
+) -> None:
     from src.identity.constants import MAX_DELEGATION_CHAIN_DEPTH
 
     if _depth > MAX_DELEGATION_CHAIN_DEPTH:
@@ -291,12 +354,42 @@ def _verify_chain_integrity(record: dict[str, Any], _depth: int = 0) -> None:
     parent = _get_token_record(str(parent_id))
     if parent is None:
         raise PermissionError("delegation chain broken: parent token missing")
+    parent_owner, parent_tenant = _require_token_attribution(parent)
+    if parent_owner != owner or parent_tenant != tenant_id:
+        raise PermissionError("delegation chain crosses an authorization boundary")
     if parent["revoked"]:
         raise PermissionError("delegation chain invalid: parent token revoked")
     now = utc_now_epoch()
     if int(parent["expires_at_epoch"]) < now:
         raise PermissionError("delegation chain invalid: parent token expired")
-    _verify_chain_integrity(parent, _depth + 1)
+    _verify_chain_integrity(
+        parent,
+        owner=owner,
+        tenant_id=tenant_id,
+        _depth=_depth + 1,
+    )
+
+
+def _require_token_attribution(record: dict[str, Any]) -> tuple[str, str]:
+    owner = record.get("owner")
+    tenant_id = record.get("tenant_id")
+    if not isinstance(owner, str) or not owner.strip():
+        raise PermissionError("delegation token owner attribution is missing")
+    if not isinstance(tenant_id, str) or not tenant_id.strip():
+        raise PermissionError("delegation token tenant attribution is missing")
+    return owner, tenant_id
+
+
+def _require_token_actor(record: dict[str, Any], actor: ResourceAuthContext) -> None:
+    owner, tenant_id = _require_token_attribution(record)
+    if owner != actor.owner or tenant_id != actor.tenant_id:
+        raise KeyError(f"delegation token not found: {record['token_id']}")
+    actor_agent_id = actor.agent_id
+    if actor_agent_id is not None and actor_agent_id not in {
+        str(record["issuer_agent_id"]),
+        str(record["subject_agent_id"]),
+    }:
+        raise KeyError(f"delegation token not found: {record['token_id']}")
 
 
 def _cascade_revoke(parent_token_id: str, now_epoch: int) -> int:

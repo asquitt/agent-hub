@@ -6,6 +6,8 @@ from typing import TypedDict
 class AgentIdentity(TypedDict):
     agent_id: str
     owner: str
+    tenant_id: str | None
+    tenancy_status: str
     credential_type: str
     status: str
     public_key_pem: str | None

@@ -18,7 +18,11 @@ import time
 import uuid
 from typing import Any
 
-from src.identity.storage import ResourceAuthContext, require_resource_actor
+from src.identity.storage import (
+    ResourceAuthContext,
+    get_agent_identity_for_actor,
+    require_resource_actor,
+)
 
 _log = logging.getLogger("agenthub.secret_vault")
 
@@ -72,6 +76,8 @@ def store_secret(
         if agent_id is not None and agent_id != context.agent_id:
             raise PermissionError("agent-bound principal cannot bind a secret to another agent")
         agent_id = context.agent_id
+    if agent_id is not None:
+        get_agent_identity_for_actor(agent_id, context)
 
     now = time.time()
     secret_id = f"secret-{uuid.uuid4().hex[:12]}"

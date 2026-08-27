@@ -440,7 +440,7 @@ def post_verify_config_integrity(
 @router.post("/delegation-tokens")
 def post_issue_delegation_token(
     request: IssueDelegationTokenRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
         result = issue_delegation_token(
@@ -449,7 +449,7 @@ def post_issue_delegation_token(
             delegated_scopes=request.delegated_scopes,
             ttl_seconds=request.ttl_seconds,
             parent_token_id=request.parent_token_id,
-            owner=owner,
+            actor=actor,
         )
         return result
     except KeyError as exc:
@@ -474,22 +474,24 @@ def post_verify_delegation_token(
 @router.get("/delegation-tokens/{token_id}/chain")
 def get_delegation_token_chain(
     token_id: str,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        return get_delegation_chain(token_id)
+        return get_delegation_chain(token_id, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post("/delegation-tokens/{token_id}/revoke")
 def post_revoke_delegation_token(
     token_id: str,
     _request: RevokeDelegationTokenRequest,
-    owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        return revoke_delegation_token(token_id, owner)
+        return revoke_delegation_token(token_id, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -504,21 +506,10 @@ def get_revocations(
     agent_id: str | None = None,
     actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
-    if agent_id is not None:
-        try:
-            get_agent_identity_for_actor(agent_id, actor)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return {"events": list_revocation_events(agent_id=agent_id)}
-
-    visible_events: list[dict[str, Any]] = []
-    for event in list_revocation_events():
-        try:
-            get_agent_identity_for_actor(str(event["agent_id"]), actor)
-        except KeyError:
-            continue
-        visible_events.append(event)
-    return {"events": visible_events}
+    try:
+        return {"events": list_revocation_events(actor=actor, agent_id=agent_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/revocations/bulk")
@@ -533,7 +524,7 @@ def post_bulk_revoke(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return bulk_revoke(
         agent_ids=request.agent_ids,
-        owner=actor.owner,
+        actor=actor,
         reason=request.reason,
     )
 
@@ -546,7 +537,7 @@ def post_revoke_agent(
 ) -> dict[str, Any]:
     try:
         get_agent_identity_for_actor(agent_id, actor)
-        return revoke_agent(agent_id=agent_id, owner=actor.owner, reason=request.reason)
+        return revoke_agent(agent_id=agent_id, actor=actor, reason=request.reason)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:

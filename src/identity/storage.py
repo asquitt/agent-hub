@@ -19,6 +19,8 @@ from src.persistence import apply_scope_migrations
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = ROOT / "data" / "identity" / "identity.db"
+TENANCY_ACTIVE = "active"
+TENANCY_QUARANTINED = "quarantined"
 
 
 def _path_db() -> Path:
@@ -85,26 +87,7 @@ class IdentityStorage:
             self._conn.close()
         self._conn = self._connect(db_path)
         apply_scope_migrations(self._conn, "identity")
-        self._ensure_authorization_schema_locked()
         self._db_path = str(db_path)
-
-    def _ensure_authorization_schema_locked(self) -> None:
-        """Add the resource tenant discriminator for databases created before S163."""
-        assert self._conn is not None
-        columns = {
-            str(row["name"])
-            for row in self._conn.execute("PRAGMA table_info(agent_identities)").fetchall()
-        }
-        with self._conn:
-            if "tenant_id" not in columns:
-                self._conn.execute(
-                    "ALTER TABLE agent_identities "
-                    "ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'tenant-default'"
-                )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_agent_identities_owner_tenant "
-                "ON agent_identities(owner, tenant_id)"
-            )
 
     def reconfigure(self, db_path: str | Path | None = None) -> None:
         with self._lock:
@@ -153,14 +136,15 @@ class IdentityStorage:
                     self._conn.execute(
                         """
                         INSERT INTO agent_identities(
-                            agent_id, owner, tenant_id, credential_type, status, public_key_pem, metadata_json,
-                            human_principal_id, configuration_checksum
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            agent_id, owner, tenant_id, tenancy_status, credential_type, status,
+                            public_key_pem, metadata_json, human_principal_id, configuration_checksum
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             agent_id,
                             owner,
                             tenant_id,
+                            TENANCY_ACTIVE,
                             credential_type,
                             STATUS_ACTIVE,
                             public_key_pem,
@@ -213,8 +197,31 @@ class IdentityStorage:
                 """
                 SELECT * FROM agent_identities
                 WHERE agent_id = ? AND owner = ? AND tenant_id = ?
+                  AND tenancy_status = ?
                 """,
-                (agent_id, context.owner, context.tenant_id),
+                (agent_id, context.owner, context.tenant_id, TENANCY_ACTIVE),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"agent identity not found: {agent_id}")
+            return _row_to_identity(row)
+
+    def get_peer_identity_for_actor(
+        self,
+        agent_id: str,
+        actor: ResourceAuthContext,
+    ) -> AgentIdentity:
+        """Resolve a peer in the actor's tenant for an explicitly authorized relationship."""
+        context = require_resource_actor(actor)
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            row = self._conn.execute(
+                """
+                SELECT * FROM agent_identities
+                WHERE agent_id = ? AND owner = ? AND tenant_id = ?
+                  AND tenancy_status = ?
+                """,
+                (agent_id, context.owner, context.tenant_id, TENANCY_ACTIVE),
             ).fetchone()
             if row is None:
                 raise KeyError(f"agent identity not found: {agent_id}")
@@ -223,8 +230,11 @@ class IdentityStorage:
     def _get_identity_locked(self, agent_id: str) -> AgentIdentity:
         assert self._conn is not None
         row = self._conn.execute(
-            "SELECT * FROM agent_identities WHERE agent_id = ?",
-            (agent_id,),
+            """
+            SELECT * FROM agent_identities
+            WHERE agent_id = ? AND tenant_id IS NOT NULL AND tenancy_status = ?
+            """,
+            (agent_id, TENANCY_ACTIVE),
         ).fetchone()
         if row is None:
             raise KeyError(f"agent identity not found: {agent_id}")
@@ -241,9 +251,9 @@ class IdentityStorage:
                     """
                     UPDATE agent_identities
                     SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                    WHERE agent_id = ?
+                    WHERE agent_id = ? AND tenant_id IS NOT NULL AND tenancy_status = ?
                     """,
-                    (status, agent_id),
+                    (status, agent_id, TENANCY_ACTIVE),
                 )
                 if result.rowcount == 0:
                     raise KeyError(f"agent identity not found: {agent_id}")
@@ -268,8 +278,9 @@ class IdentityStorage:
                     UPDATE agent_identities
                     SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                     WHERE agent_id = ? AND owner = ? AND tenant_id = ?
+                      AND tenancy_status = ?
                     """,
-                    (status, agent_id, context.owner, context.tenant_id),
+                    (status, agent_id, context.owner, context.tenant_id, TENANCY_ACTIVE),
                 )
                 if result.rowcount == 0:
                     raise KeyError(f"agent identity not found: {agent_id}")
@@ -280,8 +291,35 @@ class IdentityStorage:
         with self._lock:
             assert self._conn is not None
             rows = self._conn.execute(
-                "SELECT * FROM agent_identities WHERE owner = ? ORDER BY created_at DESC LIMIT ?",
-                (owner, self._MAX_QUERY_ROWS),
+                """
+                SELECT * FROM agent_identities
+                WHERE owner = ? AND tenant_id IS NOT NULL AND tenancy_status = ?
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (owner, TENANCY_ACTIVE, self._MAX_QUERY_ROWS),
+            ).fetchall()
+            return [_row_to_identity(row) for row in rows]
+
+    def list_identities_for_actor(self, actor: ResourceAuthContext) -> list[AgentIdentity]:
+        context = require_resource_actor(actor)
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            rows = self._conn.execute(
+                """
+                SELECT * FROM agent_identities
+                WHERE owner = ? AND tenant_id = ? AND tenancy_status = ?
+                  AND (? IS NULL OR agent_id = ?)
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (
+                    context.owner,
+                    context.tenant_id,
+                    TENANCY_ACTIVE,
+                    context.agent_id,
+                    context.agent_id,
+                    self._MAX_QUERY_ROWS,
+                ),
             ).fetchall()
             return [_row_to_identity(row) for row in rows]
 
@@ -294,9 +332,9 @@ class IdentityStorage:
                     """
                     UPDATE agent_identities
                     SET human_principal_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                    WHERE agent_id = ?
+                    WHERE agent_id = ? AND tenant_id IS NOT NULL AND tenancy_status = ?
                     """,
-                    (human_principal_id, agent_id),
+                    (human_principal_id, agent_id, TENANCY_ACTIVE),
                 )
                 if result.rowcount == 0:
                     raise KeyError(f"agent identity not found: {agent_id}")
@@ -319,8 +357,15 @@ class IdentityStorage:
                     UPDATE agent_identities
                     SET human_principal_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                     WHERE agent_id = ? AND owner = ? AND tenant_id = ?
+                      AND tenancy_status = ?
                     """,
-                    (human_principal_id, agent_id, context.owner, context.tenant_id),
+                    (
+                        human_principal_id,
+                        agent_id,
+                        context.owner,
+                        context.tenant_id,
+                        TENANCY_ACTIVE,
+                    ),
                 )
                 if result.rowcount == 0:
                     raise KeyError(f"agent identity not found: {agent_id}")
@@ -335,9 +380,9 @@ class IdentityStorage:
                     """
                     UPDATE agent_identities
                     SET configuration_checksum = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                    WHERE agent_id = ?
+                    WHERE agent_id = ? AND tenant_id IS NOT NULL AND tenancy_status = ?
                     """,
-                    (checksum, agent_id),
+                    (checksum, agent_id, TENANCY_ACTIVE),
                 )
                 if result.rowcount == 0:
                     raise KeyError(f"agent identity not found: {agent_id}")
@@ -360,8 +405,9 @@ class IdentityStorage:
                     UPDATE agent_identities
                     SET configuration_checksum = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                     WHERE agent_id = ? AND owner = ? AND tenant_id = ?
+                      AND tenancy_status = ?
                     """,
-                    (checksum, agent_id, context.owner, context.tenant_id),
+                    (checksum, agent_id, context.owner, context.tenant_id, TENANCY_ACTIVE),
                 )
                 if result.rowcount == 0:
                     raise KeyError(f"agent identity not found: {agent_id}")
@@ -427,8 +473,9 @@ class IdentityStorage:
                     """
                     SELECT status FROM agent_identities
                     WHERE agent_id = ? AND owner = ? AND tenant_id = ?
+                      AND tenancy_status = ?
                     """,
-                    (agent_id, context.owner, context.tenant_id),
+                    (agent_id, context.owner, context.tenant_id, TENANCY_ACTIVE),
                 ).fetchone()
                 if identity is None:
                     raise KeyError(f"agent identity not found: {agent_id}")
@@ -488,12 +535,14 @@ class IdentityStorage:
                 WHERE credential.credential_id = ?
                   AND identity.owner = ?
                   AND identity.tenant_id = ?
+                  AND identity.tenancy_status = ?
                   AND (? IS NULL OR identity.agent_id = ?)
                 """,
                 (
                     credential_id,
                     context.owner,
                     context.tenant_id,
+                    TENANCY_ACTIVE,
                     context.agent_id,
                     context.agent_id,
                 ),
@@ -528,12 +577,14 @@ class IdentityStorage:
                     WHERE credential.credential_id = ?
                       AND identity.owner = ?
                       AND identity.tenant_id = ?
+                      AND identity.tenancy_status = ?
                       AND (? IS NULL OR identity.agent_id = ?)
                     """,
                     (
                         credential_id,
                         context.owner,
                         context.tenant_id,
+                        TENANCY_ACTIVE,
                         context.agent_id,
                         context.agent_id,
                     ),
@@ -601,12 +652,14 @@ class IdentityStorage:
                     WHERE credential.credential_id = ?
                       AND identity.owner = ?
                       AND identity.tenant_id = ?
+                      AND identity.tenancy_status = ?
                       AND (? IS NULL OR identity.agent_id = ?)
                     """,
                     (
                         credential_id,
                         context.owner,
                         context.tenant_id,
+                        TENANCY_ACTIVE,
                         context.agent_id,
                         context.agent_id,
                     ),
@@ -643,8 +696,14 @@ class IdentityStorage:
         with self._lock:
             assert self._conn is not None
             row = self._conn.execute(
-                "SELECT * FROM agent_credentials WHERE credential_hash = ? AND status = ?",
-                (credential_hash, CRED_STATUS_ACTIVE),
+                """
+                SELECT credential.*
+                FROM agent_credentials AS credential
+                JOIN agent_identities AS identity ON identity.agent_id = credential.agent_id
+                WHERE credential.credential_hash = ? AND credential.status = ?
+                  AND identity.tenant_id IS NOT NULL AND identity.tenancy_status = ?
+                """,
+                (credential_hash, CRED_STATUS_ACTIVE, TENANCY_ACTIVE),
             ).fetchone()
             if row is None:
                 return None
@@ -737,8 +796,9 @@ class IdentityStorage:
                 """
                 SELECT 1 FROM agent_identities
                 WHERE agent_id = ? AND owner = ? AND tenant_id = ?
+                  AND tenancy_status = ?
                 """,
-                (agent_id, context.owner, context.tenant_id),
+                (agent_id, context.owner, context.tenant_id, TENANCY_ACTIVE),
             ).fetchone()
             if identity is None:
                 raise KeyError(f"agent identity not found: {agent_id}")
@@ -826,6 +886,13 @@ def get_agent_identity_for_actor(agent_id: str, actor: ResourceAuthContext) -> A
     return _STORAGE.get_identity_for_actor(agent_id, actor)
 
 
+def get_peer_agent_identity_for_actor(
+    agent_id: str,
+    actor: ResourceAuthContext,
+) -> AgentIdentity:
+    return _STORAGE.get_peer_identity_for_actor(agent_id, actor)
+
+
 def update_agent_identity_status(agent_id: str, status: str) -> AgentIdentity:
     return _STORAGE.update_identity_status(agent_id, status)
 
@@ -840,6 +907,10 @@ def update_agent_identity_status_for_actor(
 
 def list_agent_identities(owner: str) -> list[AgentIdentity]:
     return _STORAGE.list_identities(owner)
+
+
+def list_agent_identities_for_actor(actor: ResourceAuthContext) -> list[AgentIdentity]:
+    return _STORAGE.list_identities_for_actor(actor)
 
 
 def bind_human_principal(agent_id: str, human_principal_id: str | None) -> AgentIdentity:
@@ -894,6 +965,8 @@ def _row_to_identity(row: sqlite3.Row) -> AgentIdentity:
     return AgentIdentity(
         agent_id=str(row["agent_id"]),
         owner=str(row["owner"]),
+        tenant_id=str(row["tenant_id"]) if row["tenant_id"] is not None else None,
+        tenancy_status=str(row["tenancy_status"]),
         credential_type=str(row["credential_type"]),
         status=str(row["status"]),
         public_key_pem=row["public_key_pem"],

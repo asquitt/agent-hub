@@ -15,6 +15,7 @@ os.environ.setdefault("AGENTHUB_VAULT_KEY", "test-vault-key")
 from fastapi.testclient import TestClient
 
 from src.api.app import app
+from src.identity.storage import register_agent_identity, reset_for_tests as identity_reset
 from src.runtime.secret_vault import reset_for_tests
 
 HEADERS = {"X-API-Key": "test-key"}
@@ -22,6 +23,13 @@ client = TestClient(app)
 
 
 def _reset() -> None:
+    identity_reset()
+    for agent_id in ("a1", "a2"):
+        register_agent_identity(
+            agent_id=agent_id,
+            owner="owner-dev",
+            credential_type="api_key",
+        )
     reset_for_tests()
 
 

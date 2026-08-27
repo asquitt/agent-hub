@@ -13,6 +13,7 @@ os.environ.setdefault("AGENTHUB_VAULT_KEY", "test-vault-key")
 from fastapi.testclient import TestClient
 
 from src.api.app import app
+from src.api.auth import AuthContext
 from src.identity.storage import IDENTITY_STORAGE
 from src.identity.credentials import issue_credential
 from src.identity.delegation_tokens import issue_delegation_token
@@ -20,6 +21,13 @@ from src.runtime.chain_viz import _reset as reset_viz
 
 client = TestClient(app)
 HEADERS = {"X-API-Key": "dev-owner-key", "X-Idempotency-Key": "test-viz"}
+OWNER_ACTOR = AuthContext(
+    "owner-dev",
+    scopes=("*",),
+    roles=("admin",),
+    tenant_id="tenant-default",
+    auth_method="api_key",
+)
 
 
 def _setup() -> None:
@@ -54,7 +62,7 @@ class TestChainTreeView:
             issuer_agent_id="agent-a",
             subject_agent_id="agent-b",
             delegated_scopes=["read", "write"],
-            owner="owner-dev",
+            actor=OWNER_ACTOR,
         )
         r = client.get(
             f"/v1/chain-viz/tokens/{token['token_id']}/tree",
@@ -75,14 +83,14 @@ class TestChainTreeView:
             issuer_agent_id="agent-a",
             subject_agent_id="agent-b",
             delegated_scopes=["read", "write", "admin"],
-            owner="owner-dev",
+            actor=OWNER_ACTOR,
         )
         token2 = issue_delegation_token(
             issuer_agent_id="agent-b",
             subject_agent_id="agent-c",
             delegated_scopes=["read"],
             parent_token_id=token1["token_id"],
-            owner="owner-dev",
+            actor=OWNER_ACTOR,
         )
         r = client.get(
             f"/v1/chain-viz/tokens/{token2['token_id']}/tree",
@@ -112,7 +120,7 @@ class TestChainRiskAnalysis:
             issuer_agent_id="agent-a",
             subject_agent_id="agent-b",
             delegated_scopes=["read"],
-            owner="owner-dev",
+            actor=OWNER_ACTOR,
         )
         r = client.get(
             f"/v1/chain-viz/tokens/{token['token_id']}/risk",
@@ -130,7 +138,7 @@ class TestChainRiskAnalysis:
             issuer_agent_id="agent-a",
             subject_agent_id="agent-b",
             delegated_scopes=["*"],
-            owner="owner-dev",
+            actor=OWNER_ACTOR,
         )
         r = client.get(
             f"/v1/chain-viz/tokens/{token['token_id']}/risk",
@@ -150,7 +158,7 @@ class TestDelegationTrees:
             issuer_agent_id="agent-a",
             subject_agent_id="agent-b",
             delegated_scopes=["read"],
-            owner="owner-dev",
+            actor=OWNER_ACTOR,
         )
         r = client.get("/v1/chain-viz/trees", headers=HEADERS)
         assert r.status_code == 200
@@ -173,7 +181,7 @@ class TestChainSnapshots:
             issuer_agent_id="agent-a",
             subject_agent_id="agent-b",
             delegated_scopes=["read", "write"],
-            owner="owner-dev",
+            actor=OWNER_ACTOR,
         )
         # Create snapshot
         r = client.post(
@@ -201,7 +209,7 @@ class TestChainSnapshots:
             issuer_agent_id="agent-a",
             subject_agent_id="agent-b",
             delegated_scopes=["read"],
-            owner="owner-dev",
+            actor=OWNER_ACTOR,
         )
         client.post(
             f"/v1/chain-viz/tokens/{token['token_id']}/snapshot",

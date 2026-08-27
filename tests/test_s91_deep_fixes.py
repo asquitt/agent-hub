@@ -30,10 +30,19 @@ os.environ.setdefault("AGENTHUB_DELEGATION_DB_PATH", ":memory:")
 os.environ.setdefault("AGENTHUB_RUNTIME_DB_PATH", ":memory:")
 
 from src.identity.storage import IDENTITY_STORAGE
+from src.api.auth import AuthContext
 from src.identity.credentials import issue_credential, rotate_credential, revoke_credential
 from src.identity.delegation_tokens import issue_delegation_token, verify_delegation_token
 from src.identity.revocation import revoke_agent, list_revocation_events
 from src.api.access_policy import classify_route, _owner_tenants
+
+OWNER_ACTOR = AuthContext(
+    "owner-dev",
+    scopes=("*",),
+    roles=("admin",),
+    tenant_id="tenant-default",
+    auth_method="api_key",
+)
 
 
 def _setup_identity():
@@ -66,11 +75,11 @@ class TestRevocationAtomicity(unittest.TestCase):
             issuer_agent_id="agent-issuer",
             subject_agent_id="agent-subject",
             delegated_scopes=["read"],
-            owner="owner-dev",
+            actor=OWNER_ACTOR,
         )
 
         # Revoke the issuer agent
-        result = revoke_agent(agent_id="agent-issuer", owner="owner-dev", reason="test")
+        result = revoke_agent(agent_id="agent-issuer", actor=OWNER_ACTOR, reason="test")
         self.assertGreaterEqual(result["revoked_tokens"], 1)
 
         # Token should now fail verification
@@ -80,7 +89,7 @@ class TestRevocationAtomicity(unittest.TestCase):
     def test_revoke_agent_always_sets_revoked_status(self):
         """Even if token revocation raises, identity status must be REVOKED."""
         _register("agent-solo")
-        result = revoke_agent(agent_id="agent-solo", owner="owner-dev", reason="test")
+        result = revoke_agent(agent_id="agent-solo", actor=OWNER_ACTOR, reason="test")
         identity = IDENTITY_STORAGE.get_identity("agent-solo")
         self.assertEqual(identity["status"], "revoked")
         self.assertEqual(result["agent_id"], "agent-solo")
@@ -88,8 +97,8 @@ class TestRevocationAtomicity(unittest.TestCase):
     def test_revocation_events_recorded(self):
         """Revocation events are properly recorded."""
         _register("agent-events")
-        revoke_agent(agent_id="agent-events", owner="owner-dev", reason="test_events")
-        events = list_revocation_events(agent_id="agent-events")
+        revoke_agent(agent_id="agent-events", actor=OWNER_ACTOR, reason="test_events")
+        events = list_revocation_events(actor=OWNER_ACTOR, agent_id="agent-events")
         self.assertGreaterEqual(len(events), 1)
 
 
@@ -212,7 +221,7 @@ class TestSandboxExecutionGuards(unittest.TestCase):
         sandbox = create_sandbox(agent_id="agent-exec-revoked", owner="owner-dev")
 
         # Revoke the agent
-        revoke_agent(agent_id="agent-exec-revoked", owner="owner-dev", reason="test")
+        revoke_agent(agent_id="agent-exec-revoked", actor=OWNER_ACTOR, reason="test")
 
         # Attempt execution — should fail with PermissionError
         with self.assertRaises(PermissionError):
