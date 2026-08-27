@@ -18,7 +18,7 @@ lint:
 	$(PYTHON) -m py_compile agenthub/*.py src/api/*.py src/billing/*.py src/delegation/*.py src/discovery/*.py src/eval/*.py src/gate/*.py src/knowledge/*.py src/launch/*.py src/lease/*.py src/trust/*.py src/versioning/*.py tools/manifest/*.py tools/capability_search/*.py tools/eval/*.py tools/gate/*.py tools/launch/*.py tools/trust/*.py
 
 package-build:
-	$(PYTHON) -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
+	$(PYTHON) -m pip wheel --no-deps --wheel-dir dist .
 
 packaging-test:
 	$(PYTHON) -m pytest tests/packaging/test_p0_wheel_packaging.py -q

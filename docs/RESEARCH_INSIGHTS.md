@@ -1,6 +1,6 @@
 # Research Insights (for AgentHub governance)
 
-Updated: 2026-02-12
+Updated: 2026-08-27
 
 ## Anthropic
 1. Start with simpler, deterministic workflows before adding complex autonomous loops.
@@ -47,3 +47,15 @@ Sources:
 2. Added hard budget guardrails (80/100/120).
 3. Added mandatory per-segment evidence and plan/doc updates.
 4. Added strict schema and idempotency requirements across all write paths.
+
+## MCP governed-relay implementation evidence
+
+1. The official Python SDK `Client` and Streamable HTTP client are the production transport rather than a private protocol reimplementation.
+2. Tool discovery is refreshed immediately before a call and the full imported contract digest is compared before one invocation.
+3. Redirects and transport retries are disabled; ambiguous post-dispatch failures are recorded as indeterminate and never replayed automatically.
+4. The first slice deliberately supports exactly one operator-attested, server-declared read-only/idempotent, auth-none tool; MCP annotations alone are not treated as enforced safety.
+
+Sources:
+- https://github.com/modelcontextprotocol/python-sdk
+- https://modelcontextprotocol.io/specification/2025-11-25/server/tools
+- https://modelcontextprotocol.io/specification/2025-11-25/basic/transports

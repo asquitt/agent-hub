@@ -64,6 +64,7 @@ from src.api.routes import (
     provenance_router,
     key_management_router,
     rate_policies_router,
+    relay_router,
     rbac_router,
     runtime_router,
     oauth_router,
@@ -110,6 +111,13 @@ def _close_storage_connections() -> None:
                 _log.info("closed %s storage connection", name)
         except Exception:
             _log.warning("failed to close %s storage", name, exc_info=True)
+    try:
+        from src.relay.storage import RELAY_STORAGE
+
+        RELAY_STORAGE.close()
+        _log.info("closed relay storage connection")
+    except Exception:
+        _log.warning("failed to close relay storage", exc_info=True)
 
 
 @asynccontextmanager
@@ -124,11 +132,20 @@ async def _app_lifespan(_app: FastAPI):
     )
 
     setup_logging()
-    validate_auth_configuration()
-    validate_federation_configuration()
-    validate_provenance_configuration()
     acquire_singleton_guard()
     try:
+        validate_auth_configuration()
+        validate_federation_configuration()
+        validate_provenance_configuration()
+        from src.relay.config import TARGETS_ENV, load_mcp_relay_target
+
+        if TARGETS_ENV in os.environ:
+            from src.relay.defaults import RELAY_SERVICE
+            from src.relay.receipts import validate_receipt_configuration
+
+            load_mcp_relay_target()
+            validate_receipt_configuration()
+            RELAY_SERVICE.reconcile_abandoned()
         yield
     finally:
         # Graceful shutdown: close SQLite connections before releasing ownership.
@@ -179,6 +196,7 @@ app.include_router(key_management_router)
 app.include_router(consent_router)
 app.include_router(agent_groups_router)
 app.include_router(rate_policies_router)
+app.include_router(relay_router)
 app.include_router(credential_binding_router)
 app.include_router(activity_monitor_router)
 app.include_router(env_access_router)

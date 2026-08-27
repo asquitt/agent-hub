@@ -26,6 +26,8 @@ PUBLIC_ROUTES = {
     ("GET", "/operator/versioning"),
     ("GET", "/customer"),
     ("GET", "/v1/identity/tokens/jwt/jwks"),
+    ("GET", "/v1/relay/receipt-keys/current"),
+    ("POST", "/v1/relay/receipts/verify"),
     # OAuth token endpoint uses client_credentials (not API key auth)
     ("POST", "/v1/oauth/token"),
     # SCIM discovery endpoints are public per RFC 7644
@@ -83,6 +85,7 @@ AUTHENTICATED_ROUTE_FAMILIES = frozenset(
         "provenance",
         "quotas",
         "rate-policies",
+        "relay",
         "rbac",
         "reliability",
         "runtime",
@@ -114,6 +117,9 @@ TENANT_SCOPED_PATTERNS = (
     re.compile(r"^/v1/runtime/profiles"),
     re.compile(r"^/v1/runtime/sandboxes"),
     re.compile(r"^/v1/runtime/audit"),
+    re.compile(r"^/v1/relay/mcp/call$"),
+    re.compile(r"^/v1/relay/mcp/calls/[^/]+$"),
+    re.compile(r"^/v1/relay/mcp/receipts/[^/]+$"),
 )
 
 ADMIN_SCOPED_PATTERNS = (
@@ -128,6 +134,9 @@ ADMIN_SCOPED_PATTERNS = (
     re.compile(r"^/v1/rbac(?:/.*)?$"),
     re.compile(r"^/v1/vault(?:/.*)?$"),
     re.compile(r"^/v1/identity/quarantine(?:/.*)?$"),
+    re.compile(r"^/v1/relay/mcp/import$"),
+    re.compile(r"^/v1/relay/budgets/[^/]+$"),
+    re.compile(r"^/v1/relay/mcp/targets/[^/]+/enabled$"),
     re.compile(r"^/scim/v2/(?:Users|Bulk)(?:/.*)?$"),
 )
 
@@ -378,6 +387,7 @@ IDENTITY_PATTERNS = (
 
 # Endpoints with local write semantics where idempotency is intentionally optional.
 IDEMPOTENCY_OPTIONAL_PATTERNS = (
+    re.compile(r"^/v1/relay/receipts/verify$"),
     re.compile(r"^/v1/auth/tokens$"),
     re.compile(r"^/v1/provenance/manifests/sign$"),
     re.compile(r"^/v1/provenance/manifests/verify$"),

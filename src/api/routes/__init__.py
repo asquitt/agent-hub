@@ -35,6 +35,7 @@ from src.api.routes.policy_sim import router as policy_sim_router
 from src.api.routes.procurement import router as procurement_router
 from src.api.routes.provenance import router as provenance_router
 from src.api.routes.rate_policies import router as rate_policies_router
+from src.api.routes.relay import router as relay_router
 from src.api.routes.rbac import router as rbac_router
 from src.api.routes.runtime import router as runtime_router
 from src.api.routes.oauth import router as oauth_router
@@ -83,6 +84,7 @@ __all__ = [
     "procurement_router",
     "provenance_router",
     "rate_policies_router",
+    "relay_router",
     "rbac_router",
     "runtime_router",
     "oauth_router",

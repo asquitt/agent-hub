@@ -17,6 +17,7 @@ from src.identity.constants import (
 )
 from src.identity.types import ActiveSessions, AgentCredential, AgentIdentity
 from src.persistence import apply_scope_migrations
+from src.identity.authority_fence import serialized_authority_mutation
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = ROOT / "data" / "identity" / "identity.db"
@@ -301,6 +302,7 @@ class IdentityStorage:
             tenant_id = str(row["tenant_id"]) if row["tenant_id"] is not None else None
             return _row_to_identity(row), generation, tenant_id
 
+    @serialized_authority_mutation
     def update_identity_status(self, agent_id: str, status: str) -> AgentIdentity:
         if status not in VALID_IDENTITY_STATUSES:
             raise ValueError(f"invalid status: {status}")
@@ -337,6 +339,7 @@ class IdentityStorage:
                     raise KeyError(f"agent identity not found: {agent_id}")
             return self._get_identity_locked(agent_id)
 
+    @serialized_authority_mutation
     def update_identity_status_for_actor(
         self,
         agent_id: str,
@@ -585,6 +588,7 @@ class IdentityStorage:
                     raise KeyError(f"agent identity not found: {agent_id}")
             return self._get_identity_locked(agent_id)
 
+    @serialized_authority_mutation
     def set_configuration_checksum(
         self, agent_id: str, checksum: str | None
     ) -> AgentIdentity:
@@ -621,6 +625,7 @@ class IdentityStorage:
                     raise KeyError(f"agent identity not found: {agent_id}")
             return self._get_identity_locked(agent_id)
 
+    @serialized_authority_mutation
     def set_configuration_checksum_for_actor(
         self,
         agent_id: str,

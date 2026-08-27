@@ -9,6 +9,7 @@ from typing import Any
 
 from src.common.time import iso_from_epoch, utc_now_epoch
 from src.identity.chain import attenuate_scopes, build_chain, validate_chain_depth
+from src.identity.authority_fence import serialized_authority_mutation
 from src.identity.constants import (
     DEFAULT_CREDENTIAL_TTL_SECONDS,
     MAX_CREDENTIAL_TTL_SECONDS,
@@ -30,7 +31,9 @@ def _signing_secret() -> bytes:
 
 
 def _sign_token(payload: str) -> str:
-    return hmac.new(_signing_secret(), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.new(
+        _signing_secret(), payload.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
 
 
 def issue_delegation_token(
@@ -48,7 +51,9 @@ def issue_delegation_token(
         raise PermissionError(f"issuer agent is {issuer_identity['status']}")
 
     # Validate subject exists and is active
-    subject_identity = IDENTITY_STORAGE.get_peer_identity_for_actor(subject_agent_id, context)
+    subject_identity = IDENTITY_STORAGE.get_peer_identity_for_actor(
+        subject_agent_id, context
+    )
     if subject_identity["status"] != STATUS_ACTIVE:
         raise PermissionError(f"subject agent is {subject_identity['status']}")
 
@@ -73,7 +78,9 @@ def issue_delegation_token(
         effective_scopes = attenuate_scopes(parent_scopes, delegated_scopes)
     else:
         # Root delegation: scopes are validated against issuer's active credentials
-        issuer_creds = IDENTITY_STORAGE.list_active_credentials_for_actor(issuer_agent_id, context)
+        issuer_creds = IDENTITY_STORAGE.list_active_credentials_for_actor(
+            issuer_agent_id, context
+        )
         if not issuer_creds:
             raise PermissionError("issuer has no active credentials")
         all_issuer_scopes: set[str] = set()
@@ -81,7 +88,9 @@ def issue_delegation_token(
             all_issuer_scopes.update(cred["scopes"])
         effective_scopes = attenuate_scopes(sorted(all_issuer_scopes), delegated_scopes)
 
-    ttl = max(MIN_CREDENTIAL_TTL_SECONDS, min(int(ttl_seconds), MAX_CREDENTIAL_TTL_SECONDS))
+    ttl = max(
+        MIN_CREDENTIAL_TTL_SECONDS, min(int(ttl_seconds), MAX_CREDENTIAL_TTL_SECONDS)
+    )
     now = utc_now_epoch()
     token_id = f"dtk-{uuid.uuid4().hex[:16]}"
 
@@ -205,7 +214,9 @@ def get_delegation_chain_for_token(signed_token: str) -> dict[str, Any]:
     record = _get_token_record(str(verified["token_id"]))
     if record is None:
         raise KeyError(f"delegation token not found: {verified['token_id']}")
-    return _build_delegation_chain(record, str(verified["owner"]), str(verified["tenant_id"]))
+    return _build_delegation_chain(
+        record, str(verified["owner"]), str(verified["tenant_id"])
+    )
 
 
 def _build_delegation_chain(
@@ -222,15 +233,17 @@ def _build_delegation_chain(
         if current_owner != owner or current_tenant != tenant_id:
             raise PermissionError("delegation chain crosses an authorization boundary")
         scopes = json.loads(current["delegated_scopes_json"])
-        chain_records.append({
-            "token_id": str(current["token_id"]),
-            "issuer_agent_id": str(current["issuer_agent_id"]),
-            "subject_agent_id": str(current["subject_agent_id"]),
-            "delegated_scopes": scopes,
-            "chain_depth": int(current["chain_depth"]),
-            "revoked": bool(current["revoked"]),
-            "expires_at": iso_from_epoch(int(current["expires_at_epoch"])),
-        })
+        chain_records.append(
+            {
+                "token_id": str(current["token_id"]),
+                "issuer_agent_id": str(current["issuer_agent_id"]),
+                "subject_agent_id": str(current["subject_agent_id"]),
+                "delegated_scopes": scopes,
+                "chain_depth": int(current["chain_depth"]),
+                "revoked": bool(current["revoked"]),
+                "expires_at": iso_from_epoch(int(current["expires_at_epoch"])),
+            }
+        )
         parent_id = current["parent_token_id"]
         if parent_id:
             current = _get_token_record(str(parent_id))
@@ -246,6 +259,7 @@ def _build_delegation_chain(
     }
 
 
+@serialized_authority_mutation
 def revoke_delegation_token(
     token_id: str,
     *,

@@ -5,6 +5,7 @@ from typing import Any
 
 from src.common.time import iso_from_epoch, utc_now_epoch
 from src.identity.constants import STATUS_REVOKED
+from src.identity.authority_fence import serialized_authority_mutation
 from src.identity.storage import (
     IDENTITY_STORAGE,
     ResourceAuthContext,
@@ -12,6 +13,7 @@ from src.identity.storage import (
 )
 
 
+@serialized_authority_mutation
 def revoke_agent(
     *,
     agent_id: str,

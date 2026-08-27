@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from pathlib import Path
 
 import fcntl
@@ -54,13 +56,37 @@ def test_every_openapi_operation_has_evidence_maturity() -> None:
         schema["paths"]["/v1/billing/invoices/generate"]["post"]["x-agenthub-maturity"]
         == "deferred"
     )
+    relay_operations = {
+        (method.upper(), path): operation
+        for path, path_item in schema["paths"].items()
+        if path.startswith("/v1/relay")
+        for method, operation in path_item.items()
+        if method in {"get", "post", "put", "patch", "delete"}
+    }
+    assert len(relay_operations) == 8
+    for (method, path), operation in relay_operations.items():
+        if (method, path) in {
+            ("GET", "/v1/relay/receipt-keys/current"),
+            ("POST", "/v1/relay/receipts/verify"),
+        }:
+            assert operation["x-agenthub-access"] == "public"
+            assert operation["security"] == []
+        else:
+            assert operation["x-agenthub-access"] != "public"
+            assert operation["security"]
+    assert {"ApiKeyAuth": []} not in relay_operations[("POST", "/v1/relay/mcp/call")][
+        "security"
+    ]
 
 
 def test_public_claims_name_the_actual_product_boundary() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     marketing = (ROOT / "src/ui/marketing_home.html").read_text(encoding="utf-8")
 
-    assert "does not yet execute remote agent workloads" in readme
+    assert "only remote execution path is one operator-attested" in readme
+    assert "server-declared read-only/idempotent" in readme
+    assert "MCP annotations are untrusted hints" in readme
+    assert "not general remote execution" in marketing
     assert "Runtime State Simulator" in readme
     assert "Postgres and Redis are not connected or included" in readme
     assert "Managed Agent Runtime (`S79` through `S82`) is complete" not in readme
@@ -153,3 +179,108 @@ def test_second_process_lock_owner_fails_closed(
         fcntl.flock(external.fileno(), fcntl.LOCK_UN)
         external.close()
         release_singleton_guard()
+
+
+def test_rejected_contender_cannot_reconcile_relay_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from src.relay.storage import RelayStorage
+
+    release_singleton_guard()
+    relay_path = tmp_path / "relay.db"
+    lock_path = tmp_path / "owner.lock"
+    store = RelayStorage()
+    store.reset_for_tests(relay_path)
+    store.upsert_target(
+        {
+            "target_id": "catalog",
+            "tenant_id": "tenant-a",
+            "endpoint_url": "https://mcp.example.test/mcp",
+            "endpoint_digest": "endpoint-digest",
+            "tool_name": "lookup",
+            "server_name": "catalog",
+            "server_version": "1",
+            "protocol_version": "2025-11-25",
+            "input_schema": {"type": "object"},
+            "output_schema": {"type": "object"},
+            "schema_digest": "schema-digest",
+            "annotations": {
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+            "operator_attests_read_only": True,
+            "max_call_cost_usd": 0.25,
+            "policy_revision": "policy-revision",
+        }
+    )
+    store.set_budget(
+        owner="owner-a",
+        tenant_id="tenant-a",
+        capability_token_id="cap-a",
+        max_budget_usd=10,
+    )
+    invocation, _ = store.reserve_invocation(
+        owner="owner-a",
+        tenant_id="tenant-a",
+        agent_id="agent-a",
+        idempotency_key="active-call",
+        request_hash="request-hash",
+        target_id="catalog",
+        capability_token_id="cap-a",
+        input_hash="input-hash",
+    )
+    store.reserve_budget(
+        invocation_id=invocation["invocation_id"],
+        policy={"allowed": True},
+        cost_usd=0.25,
+    )
+    store.mark_network_started(
+        invocation["invocation_id"], target_snapshot=store.get_target("catalog")
+    )
+    store.close()
+
+    monkeypatch.setenv("AGENTHUB_SINGLETON_LOCK_PATH", str(lock_path))
+    monkeypatch.setenv("AGENTHUB_RELAY_DB_PATH", str(relay_path))
+    monkeypatch.setenv(
+        "AGENTHUB_MCP_RECEIPT_PRIVATE_KEY_B64",
+        base64.urlsafe_b64encode(bytes(range(32))).decode().rstrip("="),
+    )
+    monkeypatch.setenv(
+        "AGENTHUB_MCP_RELAY_TARGETS_JSON",
+        json.dumps(
+            [
+                {
+                    "target_id": "catalog",
+                    "tenant_id": "tenant-a",
+                    "endpoint_url": "https://mcp.example.test/mcp",
+                    "tool_name": "lookup",
+                    "auth": "none",
+                    "operator_attests_read_only": True,
+                    "max_call_cost_usd": 0.25,
+                }
+            ]
+        ),
+    )
+    external = lock_path.open("a+", encoding="utf-8")
+    fcntl.flock(external.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        with pytest.raises(RuntimeError, match="another AgentHub process"):
+            with TestClient(app):
+                pass
+    finally:
+        fcntl.flock(external.fileno(), fcntl.LOCK_UN)
+        external.close()
+        release_singleton_guard()
+
+    reloaded = RelayStorage()
+    reloaded.reconfigure(relay_path)
+    assert reloaded.get_invocation_unscoped(invocation["invocation_id"])["status"] == (
+        "pending"
+    )
+    budget = reloaded.get_budget(
+        owner="owner-a", tenant_id="tenant-a", capability_token_id="cap-a"
+    )
+    assert budget["reserved_usd"] == 0.25
+    assert budget["spent_usd"] == 0
+    reloaded.close()

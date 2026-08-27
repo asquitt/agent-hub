@@ -384,7 +384,7 @@
           <h1>Know Which Agent Can Act. Control What Happens Next.</h1>
           <p class="lead">
             AgentHub is building the authorization and evidence boundary for autonomous systems. Today the local
-            prototype provides durable identity authority and authenticated MCP discovery; governed remote execution is next.
+            prototype provides durable identity authority, authenticated MCP discovery, and one bounded governed relay.
           </p>
           <div class="hero-actions">
             <a class="btn btn-primary" href="/operator">Open Operator Console</a>
@@ -401,7 +401,7 @@
           <h2>Current evidence boundary</h2>
           <ul>
             <li>Local single-process control plane, not a production deployment.</li>
-            <li>Real inbound MCP discovery, not remote tool invocation.</li>
+            <li>One operator-attested, server-declared read-only MCP relay, not general remote execution.</li>
             <li>Durable local authority and revocation with explicit limitations.</li>
           </ul>
           <div class="metric-row">
@@ -427,8 +427,8 @@
           <p>Publish manifests, compare versions, attach behavioral evidence, and promote safely through review gates.</p>
         </article>
         <article class="section-card">
-          <h3>Governed Relay, Next</h3>
-          <p>Connect one read-only MCP tool to call-boundary policy, revocation, and independently verifiable receipts.</p>
+          <h3>Governed Relay v0</h3>
+          <p>One operator-attested, server-declared read-only MCP tool with call-boundary policy, revocation, durable outcomes, and verifiable receipts.</p>
         </article>
         <article class="section-card">
           <h3>Trust and Operations</h3>
@@ -441,6 +441,7 @@
         <ol>
           <li>Register capability contracts and strict schemas in <code>POST /v1/agents</code>.</li>
           <li>Route work using policy-first search via <code>POST /v1/capabilities/search</code>.</li>
+          <li>Invoke the imported operator-attested tool through <code>POST /v1/relay/mcp/call</code>.</li>
           <li>Operate and triage with <code>/operator</code> timeline, replay, and diagnostics panels.</li>
         </ol>
       </section>
