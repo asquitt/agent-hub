@@ -112,4 +112,4 @@
 | S163 | P0 release containment and identity-security baseline | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S163.md |
 | S164 | MCP Streamable HTTP discovery gateway | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S164.md |
 | S165 | Durable capability-token, DID, and VC authority | DONE | 2026-08-27 | Identity | Yes | docs/evidence/S165.md |
-| S166 | Product-truth and unsafe-surface containment | IN_PROGRESS | 2026-08-27 | Platform | No | docs/evidence/S166.md |
+| S166 | Product-truth and unsafe-surface containment | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S166.md |
