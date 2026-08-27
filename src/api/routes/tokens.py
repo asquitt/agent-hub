@@ -11,7 +11,6 @@ from src.common.time import iso_from_epoch
 from src.identity.constants import STATUS_ACTIVE
 from src.identity.jwt_constants import (
     DEFAULT_JWT_TTL_SECONDS,
-    DEFAULT_ISSUER,
     MAX_JWT_TTL_SECONDS,
     MIN_JWT_TTL_SECONDS,
     VALID_OVERSIGHT_LEVELS,
@@ -90,6 +89,7 @@ def post_issue_jwt(
         result = issue_jwt(
             subject=context.owner,
             agent_id=request.agent_id,
+            tenant_id=context.tenant_id,
             scopes=requested_scopes,
             ttl_seconds=request.ttl_seconds,
             audience=request.audience,

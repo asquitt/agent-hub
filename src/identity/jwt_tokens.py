@@ -51,6 +51,7 @@ def issue_jwt(
     *,
     subject: str,
     agent_id: str,
+    tenant_id: str | None = None,
     scopes: list[str] | None = None,
     audience: str | None = None,
     ttl_seconds: int = DEFAULT_JWT_TTL_SECONDS,
@@ -83,6 +84,11 @@ def issue_jwt(
         CLAIM_AGENT_ID: agent_id,
     }
 
+    if tenant_id is not None:
+        normalized_tenant_id = str(tenant_id).strip()
+        if not normalized_tenant_id:
+            raise ValueError("tenant_id must not be empty")
+        payload["tenant_id"] = normalized_tenant_id
     if scopes:
         payload[CLAIM_SCOPE] = " ".join(sorted(scopes))
     if audience:
@@ -170,6 +176,12 @@ def verify_jwt(
 
     if require_agent_id and CLAIM_AGENT_ID not in claims:
         raise ValueError("JWT missing required agent_id claim")
+
+    if "tenant_id" in claims:
+        raw_tenant_id = claims["tenant_id"]
+        if not isinstance(raw_tenant_id, str) or not raw_tenant_id.strip():
+            raise ValueError("JWT has invalid tenant_id claim")
+        claims["tenant_id"] = raw_tenant_id.strip()
 
     # Normalize scope claim to list
     raw_scope = claims.get(CLAIM_SCOPE)
