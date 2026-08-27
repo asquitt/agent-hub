@@ -13,6 +13,7 @@ from fastapi.routing import APIRoute
 
 from src.api.access_policy_patterns import (
     ADMIN_SCOPED_PATTERNS,
+    AUTHENTICATED_ROUTES,
     AUTHENTICATED_ROUTE_FAMILIES,
     IDENTITY_PATTERNS,
     IDEMPOTENCY_OPTIONAL_PATTERNS,
@@ -36,6 +37,7 @@ DEFAULT_OWNER_TENANTS = {
 # Re-export pattern constants for backward compatibility
 __all__ = [
     "PUBLIC_ROUTES",
+    "AUTHENTICATED_ROUTES",
     "TENANT_SCOPED_PATTERNS",
     "ADMIN_SCOPED_PATTERNS",
     "IDENTITY_PATTERNS",
@@ -137,6 +139,8 @@ def classify_route(method: str, path: str) -> RouteAccess:
     normalized_method = method.upper()
     if (normalized_method, path) in PUBLIC_ROUTES:
         return _route_access("public", normalized_method, path)
+    if (normalized_method, path) in AUTHENTICATED_ROUTES:
+        return _route_access("authenticated", normalized_method, path)
     if any(pattern.match(path) for pattern in ADMIN_SCOPED_PATTERNS):
         return _route_access("admin_scoped", normalized_method, path)
     if any(pattern.match(path) for pattern in TENANT_SCOPED_PATTERNS):

@@ -27,7 +27,7 @@ AgentHub is organized as two connected layers:
 |---|---|---|
 | Marketing Site | `GET /` | Public-facing value proposition, product positioning, and primary CTA navigation |
 | Registry + Versioning | `POST /v1/agents`, `GET /v1/agents/{agent_id}/versions`, `GET /v1/agents/{agent_id}/compare/{base_version}/{target_version}` | Canonical manifest registration and behavioral diffing |
-| Capability Search + Discovery | `POST /v1/capabilities/search`, `POST /v1/discovery/search`, `GET /v1/discovery/mcp-tools` | Policy-aware discovery, contract matching, MCP tool declaration export |
+| Capability Search + Discovery | `POST /v1/capabilities/search`, `POST /v1/discovery/search`, `POST /mcp` | Policy-aware discovery plus an authenticated MCP Streamable HTTP gateway backed by the canonical discovery service |
 | Delegation Runtime | `POST /v1/delegations`, `GET /v1/delegations/{delegation_id}/status`, `GET /v1/delegations/contract` | Durable delegation contract with lifecycle/audit state |
 | Lease + Install Control | `POST /v1/capabilities/lease`, `POST /v1/capabilities/leases/{lease_id}/promote`, `POST /v1/capabilities/installs/{install_id}/rollback` | Lease-first capability acquisition and promotion gates |
 | Trust + Evals + Provenance | `GET /v1/agents/{agent_id}/trust`, `POST /v1/provenance/manifests/sign`, `POST /v1/provenance/artifacts/verify` | Trust scoring, tiered eval integration, signed provenance envelopes |
@@ -108,6 +108,17 @@ curl -s -X POST http://127.0.0.1:8000/v1/auth/tokens \
   -H "Content-Type: application/json" \
   -d '{"scopes":["operator.refresh"],"ttl_seconds":1800}'
 ```
+
+## MCP Discovery Gateway
+AgentHub exposes a stateless MCP Streamable HTTP endpoint at `POST /mcp`. It implements the `2025-11-25` initialization lifecycle and serves three read-only tools backed by the same policy and tenant-aware services as the REST API:
+
+- `search_capabilities`
+- `get_agent_manifest`
+- `check_compatibility`
+
+OAuth clients should request a resource-bound access token by sending `resource=<AGENTHUB_BASE_URL>/mcp` to `POST /v1/oauth/token`. AgentHub places that exact resource in the token `aud` claim, verifies it at `/mcp`, and rejects replay of the audience-bound token against generic REST endpoints. Protected Resource Metadata is available at `GET /.well-known/oauth-protected-resource`.
+
+This surface currently supports API-key authentication and OAuth `client_credentials`. It does not claim authorization-code, PKCE, browser login, SSE session resumption, or managed remote execution.
 
 ## Agent Identity Authentication (S72-S78)
 AgentHub supports three authentication methods, checked in order:
@@ -309,6 +320,8 @@ Compose includes:
 - `AGENTHUB_CUSTOMER_UI_REQUIRE_AUTH` (`true` by default; auth requirement when customer UI is enabled)
 - `AGENTHUB_CUSTOMER_UI_ALLOWED_OWNERS_JSON` (`["owner-dev","owner-platform"]` default owner allowlist for enabled customer UI)
 - `AGENTHUB_OWNER_TENANTS_JSON` (owner-to-tenant mapping)
+- `AGENTHUB_BASE_URL` (canonical public origin used for MCP resource and OAuth metadata URLs)
+- `AGENTHUB_MCP_ALLOWED_ORIGINS_JSON` (additional browser origins allowed to call `/mcp`)
 - `AGENTHUB_IDENTITY_SIGNING_SECRET` (required for agent credential and delegation token signing)
 - `AGENTHUB_IDENTITY_DB_PATH` (identity SQLite path; defaults to `data/identity/identity.db`)
 - `AGENTHUB_REGISTRY_DB_PATH` (registry SQLite path)

@@ -32,6 +32,12 @@ PUBLIC_ROUTES = {
     ("GET", "/scim/v2/ResourceTypes"),
 }
 
+AUTHENTICATED_ROUTES = {
+    ("POST", "/mcp"),
+    ("GET", "/mcp"),
+    ("DELETE", "/mcp"),
+}
+
 # Route families are the central allow-list for protected API surfaces. A new
 # top-level family is denied until it is deliberately added here and assigned a
 # policy by access_policy.py.
