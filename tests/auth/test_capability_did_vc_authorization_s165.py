@@ -4,10 +4,12 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
+from src.api.access_policy import classify_route, requires_idempotency
 from src.api.app import app
 from src.identity import storage as identity_storage
 from src.identity.did import reset_for_tests as reset_did_for_tests
@@ -56,13 +58,29 @@ def capability_authority_runtime(
 
 
 def _headers(
+    api_key: str = "owner-a-key",
+    tenant_id: str = "tenant-a",
+    idempotency_key: str | None = None,
+) -> dict[str, str]:
+    return {
+        "X-API-Key": api_key,
+        "X-Tenant-ID": tenant_id,
+        "Idempotency-Key": idempotency_key or f"s165-{uuid4().hex}",
+    }
+
+
+def _headers_without_idempotency(
     api_key: str = "owner-a-key", tenant_id: str = "tenant-a"
 ) -> dict[str, str]:
     return {"X-API-Key": api_key, "X-Tenant-ID": tenant_id}
 
 
 def _agent_headers(secret: str, tenant_id: str = "tenant-a") -> dict[str, str]:
-    return {"Authorization": f"AgentCredential {secret}", "X-Tenant-ID": tenant_id}
+    return {
+        "Authorization": f"AgentCredential {secret}",
+        "X-Tenant-ID": tenant_id,
+        "Idempotency-Key": f"s165-{uuid4().hex}",
+    }
 
 
 def _register(
@@ -395,6 +413,203 @@ def test_capability_token_objects_are_nondisclosing_across_boundaries(
     assert owner_read.json()["token_id"] == token_id
     assert owner_verify.status_code == 200, owner_verify.text
     assert owner_verify.json()["valid"] is True
+
+
+def test_capability_issuance_requires_idempotency_and_replays_one_root(
+    capability_authority_runtime: None,
+) -> None:
+    payload = _capability_payload("idempotent-cap-issuer", "idempotent-cap-subject")
+    with TestClient(app) as client:
+        _register(client, "idempotent-cap-issuer")
+        _register(client, "idempotent-cap-subject")
+
+        missing_key = client.post(
+            "/v1/identity/capability-tokens/issue",
+            json=payload,
+            headers=_headers_without_idempotency(),
+        )
+        first = client.post(
+            "/v1/identity/capability-tokens/issue",
+            json=payload,
+            headers={**_headers(), "Idempotency-Key": "s165-capability-issue"},
+        )
+        replay = client.post(
+            "/v1/identity/capability-tokens/issue",
+            json=payload,
+            headers={**_headers(), "Idempotency-Key": "s165-capability-issue"},
+        )
+        roots = client.get("/v1/identity/capability-tokens", headers=_headers())
+
+    assert missing_key.status_code == 400, missing_key.text
+    assert missing_key.json()["detail"]["code"] == "idempotency.missing_key"
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    assert replay.headers["X-AgentHub-Idempotent-Replay"] == "true"
+    assert replay.json() == first.json()
+    assert roots.status_code == 200, roots.text
+    assert roots.json()["count"] == 1
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/v1/identity/capability-tokens/issue",
+        "/v1/identity/capability-tokens/cap-example/revoke",
+        "/v1/identity/vcs/issue",
+    ],
+)
+def test_durable_authority_routes_are_tenant_scoped_and_idempotent(path: str) -> None:
+    assert classify_route("POST", path).classification == "tenant_scoped"
+    assert requires_idempotency("POST", path) is True
+
+
+def test_vc_issuance_requires_idempotency_and_replays_one_record(
+    capability_authority_runtime: None,
+) -> None:
+    with TestClient(app) as client:
+        _register(client, "idempotent-vc-issuer")
+        _register(client, "idempotent-vc-subject")
+        issuer_did = str(_create_did(client, "idempotent-vc-issuer")["id"])
+        subject_did = str(_create_did(client, "idempotent-vc-subject")["id"])
+        payload = {
+            "issuer_did": issuer_did,
+            "subject_did": subject_did,
+            "credential_type": "AgentIdentityCredential",
+            "claims": {"role": "worker"},
+            "ttl_seconds": 3600,
+        }
+
+        missing_key = client.post(
+            "/v1/identity/vcs/issue",
+            json=payload,
+            headers=_headers_without_idempotency(),
+        )
+        first = client.post(
+            "/v1/identity/vcs/issue",
+            json=payload,
+            headers={**_headers(), "Idempotency-Key": "s165-vc-issue"},
+        )
+        replay = client.post(
+            "/v1/identity/vcs/issue",
+            json=payload,
+            headers={**_headers(), "Idempotency-Key": "s165-vc-issue"},
+        )
+        records = client.get("/v1/identity/vcs", headers=_headers())
+
+    assert missing_key.status_code == 400, missing_key.text
+    assert missing_key.json()["detail"]["code"] == "idempotency.missing_key"
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    assert replay.headers["X-AgentHub-Idempotent-Replay"] == "true"
+    assert replay.json() == first.json()
+    assert records.status_code == 200, records.text
+    assert records.json()["count"] == 1
+
+
+def test_capability_revoke_requires_idempotency_key(
+    capability_authority_runtime: None,
+) -> None:
+    with TestClient(app) as client:
+        _register(client, "revoke-key-issuer")
+        _register(client, "revoke-key-subject")
+        token = _issue_capability(client, "revoke-key-issuer", "revoke-key-subject")
+        response = client.post(
+            f"/v1/identity/capability-tokens/{token['token_id']}/revoke",
+            json={"reason": "missing-key"},
+            headers=_headers_without_idempotency(),
+        )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "idempotency.missing_key"
+
+
+@pytest.mark.parametrize(
+    "denied_headers",
+    [_headers("owner-b-key", "tenant-a"), _headers("owner-a-key", "tenant-b")],
+)
+def test_capability_administration_is_nondisclosing_across_boundaries(
+    capability_authority_runtime: None,
+    denied_headers: dict[str, str],
+) -> None:
+    with TestClient(app, raise_server_exceptions=False) as client:
+        _register(client, "admin-boundary-issuer")
+        _register(client, "admin-boundary-subject")
+        token = _issue_capability(
+            client,
+            "admin-boundary-issuer",
+            "admin-boundary-subject",
+        )
+        attenuate = client.post(
+            "/v1/identity/capability-tokens/attenuate",
+            json={
+                "token": token,
+                "scopes": ["invoices.read"],
+                "attenuator_agent_id": "admin-boundary-issuer",
+            },
+            headers=denied_headers,
+        )
+        third_party = client.post(
+            "/v1/identity/capability-tokens/third-party-block",
+            json={
+                "token": token,
+                "verifier_id": "admin-boundary-issuer",
+                "verification_data": {"verified": True},
+            },
+            headers=denied_headers,
+        )
+
+    assert attenuate.status_code == 404, attenuate.text
+    assert third_party.status_code == 404, third_party.text
+
+
+def test_capability_administration_normalizes_missing_invalid_and_impersonated_tokens(
+    capability_authority_runtime: None,
+) -> None:
+    with TestClient(app, raise_server_exceptions=False) as client:
+        _register(client, "admin-errors-issuer")
+        _register(client, "admin-errors-subject")
+        token = _issue_capability(
+            client,
+            "admin-errors-issuer",
+            "admin-errors-subject",
+        )
+        verifier_secret = _issue_agent_credential(client, "admin-errors-issuer")
+
+        missing = dict(token)
+        missing["token_id"] = "missing-token-root"
+        missing_attenuation = client.post(
+            "/v1/identity/capability-tokens/attenuate",
+            json={
+                "token": missing,
+                "scopes": ["invoices.read"],
+                "attenuator_agent_id": "admin-errors-issuer",
+            },
+            headers=_headers(),
+        )
+        forged = json.loads(json.dumps(token))
+        forged["signatures"][0] = "0" * 64
+        invalid_signature = client.post(
+            "/v1/identity/capability-tokens/attenuate",
+            json={
+                "token": forged,
+                "scopes": ["invoices.read"],
+                "attenuator_agent_id": "admin-errors-issuer",
+            },
+            headers=_headers(),
+        )
+        impersonated_verifier = client.post(
+            "/v1/identity/capability-tokens/third-party-block",
+            json={
+                "token": token,
+                "verifier_id": "admin-errors-subject",
+                "verification_data": {"verified": True},
+            },
+            headers=_agent_headers(verifier_secret),
+        )
+
+    assert missing_attenuation.status_code == 404, missing_attenuation.text
+    assert invalid_signature.status_code == 403, invalid_signature.text
+    assert impersonated_verifier.status_code == 404, impersonated_verifier.text
 
 
 def test_did_creation_requires_active_owned_identity_and_agent_self(

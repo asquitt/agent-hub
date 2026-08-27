@@ -245,6 +245,8 @@ def post_attenuate_capability_token(
             attenuator_agent_id=request.attenuator_agent_id,
             actor=actor,
         )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
@@ -288,6 +290,10 @@ def post_add_third_party_block(
             verification_data=request.verification_data,
             actor=actor,
         )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
