@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from src.api.access_policy import access_mode, classify_route, evaluate_access, requires_idempotency
-from src.api.auth import resolve_owner_from_headers
+from src.api.auth import AuthContext, resolve_owner_from_headers
 from src.api.route_helpers import append_warning_header, meter_warn, resolve_tenant_id, stable_error
 from src.api.routes import (
     a2a_router,
@@ -65,6 +66,14 @@ from src.api.routes import (
 from src.idempotency import storage as idempotency_storage
 
 _log = logging.getLogger("agenthub.app")
+
+
+def _idempotency_actor(context: AuthContext | None) -> str:
+    if context is None:
+        return "anonymous"
+    principal = json.dumps(context.to_dict(), sort_keys=True, separators=(",", ":"))
+    principal_digest = hashlib.sha256(principal.encode("utf-8")).hexdigest()
+    return f"{context.owner}:{principal_digest}"
 
 
 def _close_storage_connections() -> None:
@@ -191,20 +200,19 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
     classification = classify_route(method, path)
     mode = access_mode()
 
-    from fastapi import HTTPException
-
     auth_error: HTTPException | None = None
-    auth_context = None
-    try:
-        auth_context = resolve_owner_from_headers(
-            x_api_key=request.headers.get("X-API-Key"),
-            authorization=request.headers.get("Authorization"),
-            x_delegation_token=request.headers.get("X-Delegation-Token"),
-            tenant_id=tenant_id,
-            strict=False,
-        )
-    except HTTPException as exc:
-        auth_error = exc
+    auth_context = getattr(request.state, "agenthub_auth_context", None)
+    if auth_context is None:
+        try:
+            auth_context = resolve_owner_from_headers(
+                x_api_key=request.headers.get("X-API-Key"),
+                authorization=request.headers.get("Authorization"),
+                x_delegation_token=request.headers.get("X-Delegation-Token"),
+                tenant_id=tenant_id,
+                strict=False,
+            )
+        except HTTPException as exc:
+            auth_error = exc
 
     request.state.agenthub_auth_context = auth_context
     request.state.agenthub_owner = auth_context.owner if auth_context is not None else None
@@ -260,15 +268,25 @@ async def _agenthub_idempotency_middleware(request: Request, call_next):
 
     mode = access_mode()
     tenant_id = resolve_tenant_id(request.headers.get("X-Tenant-ID"))
-    owner = getattr(request.state, "agenthub_owner", None)
-    if owner is None:
-        owner = resolve_owner_from_headers(
-            x_api_key=request.headers.get("X-API-Key"),
-            authorization=request.headers.get("Authorization"),
-            x_delegation_token=request.headers.get("X-Delegation-Token"),
-            strict=False,
-        )
-    actor = owner or "anonymous"
+    classification = classify_route(method, path)
+    auth_context = getattr(request.state, "agenthub_auth_context", None)
+    if auth_context is None:
+        try:
+            auth_context = resolve_owner_from_headers(
+                x_api_key=request.headers.get("X-API-Key"),
+                authorization=request.headers.get("Authorization"),
+                x_delegation_token=request.headers.get("X-Delegation-Token"),
+                tenant_id=tenant_id,
+                strict=True,
+            )
+        except HTTPException:
+            return await call_next(request)
+    if auth_context is None and classification != "public":
+        return await call_next(request)
+    request.state.agenthub_auth_context = auth_context
+    request.state.agenthub_owner = auth_context.owner if auth_context is not None else None
+    request.state.agenthub_tenant_id = tenant_id
+    actor = _idempotency_actor(auth_context)
 
     key = request.headers.get("Idempotency-Key")
     if key is None or not key.strip():

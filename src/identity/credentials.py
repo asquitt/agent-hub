@@ -44,6 +44,14 @@ def _optional_resource_actor(value: object) -> ResourceAuthContext | None:
     return require_resource_actor(value)
 
 
+def _require_scope_attenuation(actor: ResourceAuthContext, scopes: list[str]) -> None:
+    allows_scope = getattr(actor, "allows_scope", None)
+    if not callable(allows_scope):
+        raise PermissionError("credential issuance requires explicit scope authority")
+    if any(not allows_scope(scope) for scope in scopes):
+        raise PermissionError("requested scopes exceed issuer authority")
+
+
 def issue_credential(
     *,
     agent_id: str,
@@ -60,6 +68,7 @@ def issue_credential(
 
     actor = _optional_resource_actor(owner)
     if actor is not None:
+        _require_scope_attenuation(actor, normalized_scopes)
         IDENTITY_STORAGE.insert_credential_for_actor(
             actor=actor,
             credential_id=credential_id,
@@ -136,16 +145,18 @@ def rotate_credential(
         normalized_scopes = None
         if new_scopes is not None:
             normalized_scopes = sorted({s.strip() for s in new_scopes if s.strip()})
+        current_credential = IDENTITY_STORAGE.get_credential_for_actor(credential_id, actor)
+        effective_scopes = current_credential["scopes"] if normalized_scopes is None else normalized_scopes
+        _require_scope_attenuation(actor, effective_scopes)
         old_cred = IDENTITY_STORAGE.rotate_credential_for_actor(
             actor=actor,
             credential_id=credential_id,
             new_credential_id=new_credential_id,
             credential_hash=credential_hash,
-            scopes=normalized_scopes,
+            scopes=effective_scopes,
             issued_at_epoch=now,
             expires_at_epoch=now + ttl,
         )
-        effective_scopes = old_cred["scopes"] if normalized_scopes is None else normalized_scopes
         return CredentialIssuanceResult(
             credential_id=new_credential_id,
             agent_id=old_cred["agent_id"],
