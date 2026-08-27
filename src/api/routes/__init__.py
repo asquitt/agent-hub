@@ -27,6 +27,7 @@ from src.api.routes.identity_advanced import router as identity_advanced_router
 from src.api.routes.key_management import router as key_management_router
 from src.api.routes.knowledge import router as knowledge_router
 from src.api.routes.marketplace import router as marketplace_router
+from src.api.routes.mcp import router as mcp_router
 from src.api.routes.misc import router as misc_router
 from src.api.routes.operator import router as operator_router
 from src.api.routes.policy_code import router as policy_code_router
@@ -74,6 +75,7 @@ __all__ = [
     "key_management_router",
     "knowledge_router",
     "marketplace_router",
+    "mcp_router",
     "misc_router",
     "operator_router",
     "policy_code_router",

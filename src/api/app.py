@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -45,6 +45,7 @@ from src.api.routes import (
     intent_router,
     knowledge_router,
     marketplace_router,
+    mcp_router,
     misc_router,
     operator_router,
     policy_code_router,
@@ -137,6 +138,7 @@ app.include_router(discovery_router)
 app.include_router(federation_router)
 app.include_router(knowledge_router)
 app.include_router(marketplace_router)
+app.include_router(mcp_router)
 app.include_router(misc_router)
 app.include_router(procurement_router)
 app.include_router(provenance_router)
@@ -199,6 +201,21 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
     tenant_id = resolve_tenant_id(request.headers.get("X-Tenant-ID"))
     classification = classify_route(method, path)
     mode = access_mode()
+    jwt_audience = None
+    if path == "/mcp":
+        from src.protocol.mcp_server import MCP_PROTOCOL_VERSION, is_allowed_mcp_origin, mcp_resource_url
+
+        if not is_allowed_mcp_origin(request.headers.get("Origin")):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32000, "message": "Origin not allowed"},
+                },
+                headers={"MCP-Protocol-Version": MCP_PROTOCOL_VERSION},
+            )
+        jwt_audience = mcp_resource_url()
 
     auth_error: HTTPException | None = None
     auth_context = getattr(request.state, "agenthub_auth_context", None)
@@ -209,6 +226,7 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
                 authorization=request.headers.get("Authorization"),
                 x_delegation_token=request.headers.get("X-Delegation-Token"),
                 tenant_id=tenant_id,
+                jwt_audience=jwt_audience,
                 strict=False,
             )
         except HTTPException as exc:
@@ -232,6 +250,10 @@ async def _agenthub_access_policy_middleware(request: Request, call_next):
     if violation_code is not None and mode == "enforce":
         status_code = 401 if violation_code in {"auth.required", "auth.invalid"} else 403
         error_response = stable_error(status_code, violation_code, violation_message or "request not permitted")
+        if path == "/mcp" and status_code == 401:
+            from src.protocol.mcp_server import mcp_www_authenticate
+
+            error_response.headers["WWW-Authenticate"] = mcp_www_authenticate()
         # Add CORS headers so browsers can read the error
         origin = request.headers.get("origin", "")
         if origin:
@@ -412,6 +434,21 @@ app.add_middleware(
         else []
     ),
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["X-API-Key", "Authorization", "Content-Type", "Idempotency-Key", "X-Delegation-Token"],
-    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    allow_headers=[
+        "X-API-Key",
+        "Authorization",
+        "Content-Type",
+        "Idempotency-Key",
+        "X-Delegation-Token",
+        "MCP-Protocol-Version",
+        "X-Tenant-ID",
+    ],
+    expose_headers=[
+        "X-Request-ID",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "MCP-Protocol-Version",
+        "WWW-Authenticate",
+    ],
 )

@@ -1,10 +1,8 @@
 name: Quality Gates
 
+# CI is manual pending billing restoration.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   pytest-full:
@@ -35,6 +33,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install -e .
+
+      - name: Install isolated official MCP SDK client
+        run: |
+          python -m venv .venv-mcp-client
+          .venv-mcp-client/bin/python -m pip install -r requirements-mcp-test.txt
+          echo "AGENTHUB_OFFICIAL_MCP_PYTHON=${GITHUB_WORKSPACE}/.venv-mcp-client/bin/python" >> "$GITHUB_ENV"
 
       - name: Startup preflight doctor
         run: python -m agenthub.cli doctor --local --json

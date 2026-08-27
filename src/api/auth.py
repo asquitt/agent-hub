@@ -271,13 +271,20 @@ def verify_live_jwt(
 ) -> tuple[dict[str, Any], AuthContext]:
     """Verify JWT cryptography plus live agent or OAuth authority."""
     from src.identity.constants import STATUS_ACTIVE
-    from src.identity.jwt_tokens import TOKEN_USE_AGENT, TOKEN_USE_OAUTH_CLIENT, verify_jwt
+    from src.identity.jwt_constants import DEFAULT_ISSUER
+    from src.identity.jwt_tokens import (
+        TOKEN_USE_AGENT,
+        TOKEN_USE_OAUTH_CLIENT,
+        oauth_client_issuer,
+        verify_jwt,
+    )
     from src.identity.oauth_clients import OAUTH_CLIENT_STORE
     from src.identity.storage import get_agent_identity_auth_snapshot
 
     claims = verify_jwt(
         token,
         audience=audience,
+        issuer=None,
         require_agent_id=require_agent_id,
     )
     owner = str(claims.get("sub", ""))
@@ -297,6 +304,8 @@ def verify_live_jwt(
         raise HTTPException(status_code=401, detail="JWT missing tenant_id claim")
     if token_tenant_id != tenant_id:
         raise HTTPException(status_code=401, detail="JWT tenant mismatch")
+    if audience is None and "aud" in claims:
+        raise HTTPException(status_code=401, detail="JWT requires audience-bound verification")
 
     token_use = claims.get("token_use")
     principal_type = claims.get("principal_type")
@@ -310,6 +319,11 @@ def verify_live_jwt(
         token_use = principal_type
     if token_use is None and isinstance(claims.get("identity_generation"), str):
         token_use = TOKEN_USE_AGENT
+    if token_use not in {TOKEN_USE_AGENT, TOKEN_USE_OAUTH_CLIENT}:
+        raise HTTPException(status_code=401, detail="JWT missing token_use claim")
+    expected_issuer = oauth_client_issuer() if token_use == TOKEN_USE_OAUTH_CLIENT else DEFAULT_ISSUER
+    if claims.get("iss") != expected_issuer:
+        raise HTTPException(status_code=401, detail="JWT issuer mismatch")
     if token_use == TOKEN_USE_OAUTH_CLIENT:
         if "identity_generation" in claims:
             raise HTTPException(status_code=401, detail="JWT OAuth client has invalid identity_generation claim")
@@ -329,9 +343,6 @@ def verify_live_jwt(
             agent_id=agent_id,
         )
         return claims, context
-    if token_use != TOKEN_USE_AGENT:
-        raise HTTPException(status_code=401, detail="JWT missing token_use claim")
-
     try:
         identity, current_generation, identity_tenant_id = get_agent_identity_auth_snapshot(agent_id)
     except KeyError as exc:
@@ -360,10 +371,10 @@ def verify_live_jwt(
     return claims, context
 
 
-def _context_from_jwt(token: str, *, tenant_id: str) -> AuthContext:
+def _context_from_jwt(token: str, *, tenant_id: str, audience: str | None = None) -> AuthContext:
     """Authenticate an agent JWT against its signed tenant and live identity."""
     try:
-        _, context = verify_live_jwt(token, tenant_id=tenant_id)
+        _, context = verify_live_jwt(token, tenant_id=tenant_id, audience=audience)
         return context
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=f"JWT auth failed: {exc}") from exc
@@ -375,6 +386,7 @@ def resolve_owner_from_headers(
     authorization: str | None,
     x_delegation_token: str | None = None,
     tenant_id: str = "tenant-default",
+    jwt_audience: str | None = None,
     strict: bool = True,
 ) -> AuthContext | None:
     try:
@@ -383,6 +395,7 @@ def resolve_owner_from_headers(
             authorization=authorization,
             x_delegation_token=x_delegation_token,
             tenant_id=tenant_id,
+            jwt_audience=jwt_audience,
         )
     except HTTPException:
         if strict:
@@ -396,6 +409,7 @@ def resolve_auth_context(
     authorization: str | None = None,
     x_delegation_token: str | None = None,
     tenant_id: str = "tenant-default",
+    jwt_audience: str | None = None,
 ) -> AuthContext | None:
     """Resolve full auth context including agent identity, scopes, and auth method."""
     supplied_credentials = sum(bool(value and value.strip()) for value in (x_api_key, authorization, x_delegation_token))
@@ -411,6 +425,8 @@ def resolve_auth_context(
 
     # 2. Delegation token — fail loudly if provided but invalid
     if x_delegation_token:
+        if jwt_audience is not None:
+            raise HTTPException(status_code=401, detail="resource-bound endpoint does not accept delegation tokens")
         from src.identity.constants import STATUS_ACTIVE
         from src.identity.delegation_tokens import verify_delegation_token
         from src.identity.storage import get_agent_identity_auth_snapshot
@@ -448,6 +464,11 @@ def resolve_auth_context(
     if authorization:
         agent_prefix = "agentcredential "
         if authorization.lower().startswith(agent_prefix):
+            if jwt_audience is not None:
+                raise HTTPException(
+                    status_code=401,
+                    detail="resource-bound endpoint does not accept agent credentials",
+                )
             from src.identity.constants import STATUS_ACTIVE
             from src.identity.credentials import verify_credential
             from src.identity.storage import get_agent_identity_auth_snapshot
@@ -475,7 +496,9 @@ def resolve_auth_context(
             raise HTTPException(status_code=401, detail="invalid authorization scheme")
         raw_token = authorization[len(prefix):].strip()
         if raw_token.count(".") == 2:
-            return _context_from_jwt(raw_token, tenant_id=tenant_id)
+            return _context_from_jwt(raw_token, tenant_id=tenant_id, audience=jwt_audience)
+        if jwt_audience is not None:
+            raise HTTPException(status_code=401, detail="resource-bound endpoint requires JWT bearer token")
         claims = verify_scoped_token(raw_token)
         token_tenant_id = claims["tenant_id"]
         if token_tenant_id != tenant_id:

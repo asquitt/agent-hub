@@ -44,6 +44,11 @@ TOKEN_USE_OAUTH_CLIENT = "oauth_client"
 _VALID_TOKEN_USES = frozenset({TOKEN_USE_AGENT, TOKEN_USE_OAUTH_CLIENT})
 
 
+def oauth_client_issuer() -> str:
+    """Return the public authorization-server issuer used by OAuth client JWTs."""
+    return os.getenv("AGENTHUB_BASE_URL", "https://localhost:8000").rstrip("/")
+
+
 def _jwt_signing_secret() -> str:
     secret = os.getenv("AGENTHUB_IDENTITY_SIGNING_SECRET")
     if not secret or not secret.strip():
@@ -154,7 +159,7 @@ def verify_jwt(
     token: str,
     *,
     audience: str | None = None,
-    issuer: str = DEFAULT_ISSUER,
+    issuer: str | None = DEFAULT_ISSUER,
     algorithms: list[str] | None = None,
     require_agent_id: bool = True,
 ) -> dict[str, Any]:

@@ -25,6 +25,8 @@ def revoke_agent(
     cred_count = 0
     token_count = 0
     lease_count = 0
+    capability_count = 0
+    vc_count = 0
     try:
         # 1. Revoke all credentials
         cred_count = IDENTITY_STORAGE.revoke_all_credentials(agent_id, reason)
@@ -39,11 +41,22 @@ def revoke_agent(
             lease_count = revoke_leases_for_agent(agent_id, reason)
         except (ImportError, RuntimeError):
             pass  # Lease module not available
-    finally:
-        # 4. Always suspend the identity — even if upstream revocations fail
-        IDENTITY_STORAGE.update_identity_status_for_actor(agent_id, STATUS_REVOKED, context)
 
-    cascade_count = cred_count + token_count + lease_count
+        # 4. Revoke durable capability and credential authority artifacts.
+        capability_count, vc_count = (
+            IDENTITY_STORAGE.revoke_authority_artifacts_for_agent(
+                agent_id=agent_id,
+                actor=context,
+                reason=reason,
+            )
+        )
+    finally:
+        # 5. Always revoke the identity — even if an upstream cascade fails.
+        IDENTITY_STORAGE.update_identity_status_for_actor(
+            agent_id, STATUS_REVOKED, context
+        )
+
+    cascade_count = cred_count + token_count + lease_count + capability_count + vc_count
     event_id = _record_event(
         revoked_type="agent_identity",
         revoked_id=agent_id,
@@ -58,6 +71,8 @@ def revoke_agent(
         "agent_id": agent_id,
         "revoked_credentials": cred_count,
         "revoked_tokens": token_count,
+        "revoked_capability_tokens": capability_count,
+        "revoked_verifiable_credentials": vc_count,
         "revoked_leases": lease_count,
         "reason": reason,
     }

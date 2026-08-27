@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from src.api.app import app
 from src.common.sqlite_collections import write_collection
-from src.identity.jwt_tokens import issue_jwt, verify_jwt
+from src.identity.jwt_tokens import issue_jwt, oauth_client_issuer, verify_jwt
 from src.identity.oauth_clients import OAUTH_CLIENT_STORE, OAuthClientStore
 from src.runtime.audit_streaming import (
     EVENT_OAUTH_CLIENT_AUTHORITY_BOUND,
@@ -88,7 +88,7 @@ def test_token_issues_only_requested_registered_scope() -> None:
 
     assert response.status_code == 200, response.text
     assert response.json()["scope"] == "read"
-    claims = verify_jwt(response.json()["access_token"], issuer="urn:agenthub:registry")
+    claims = verify_jwt(response.json()["access_token"], issuer=oauth_client_issuer())
     assert claims["scopes"] == ["read"]
 
 
@@ -132,7 +132,7 @@ def test_client_and_token_preserve_registrar_authority() -> None:
     assert persisted["owner"] == "owner-limited"
     assert persisted["tenant_id"] == "tenant-a"
     assert token_response.status_code == 200, token_response.text
-    claims = verify_jwt(token_response.json()["access_token"], issuer="urn:agenthub:registry")
+    claims = verify_jwt(token_response.json()["access_token"], issuer=oauth_client_issuer())
     assert claims["sub"] == "owner-limited"
     assert claims["agent_id"] == registration["client_id"]
     assert claims["tenant_id"] == "tenant-a"
@@ -163,7 +163,7 @@ def test_token_without_scope_uses_registered_scope() -> None:
 
     assert response.status_code == 200, response.text
     assert response.json()["scope"] == "read runtime.execute"
-    claims = verify_jwt(response.json()["access_token"], issuer="urn:agenthub:registry")
+    claims = verify_jwt(response.json()["access_token"], issuer=oauth_client_issuer())
     assert claims["scopes"] == ["read", "runtime.execute"]
 
 
@@ -298,7 +298,7 @@ def test_base_client_can_bind_authority_and_mint_replacement_token(isolate_oauth
         subject="client_legacy",
         agent_id="client_legacy",
         scopes=["read"],
-        issuer="urn:agenthub:registry",
+        issuer=oauth_client_issuer(),
     )["token"]
 
     with TestClient(app) as client:
@@ -388,7 +388,7 @@ def test_base_client_can_bind_authority_and_mint_replacement_token(isolate_oauth
     assert after.status_code == 200, after.text
     assert old_verification.status_code == 200, old_verification.text
     assert old_verification.json()["valid"] is False
-    claims = verify_jwt(after.json()["access_token"], issuer="urn:agenthub:registry")
+    claims = verify_jwt(after.json()["access_token"], issuer=oauth_client_issuer())
     assert claims["sub"] == "owner-limited"
     assert claims["tenant_id"] == "tenant-a"
     assert claims["token_use"] == "oauth_client"
