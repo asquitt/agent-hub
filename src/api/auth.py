@@ -262,66 +262,53 @@ def _context_from_api_key(x_api_key: str | None, *, tenant_id: str = "tenant-def
     )
 
 
-def _context_from_jwt(token: str, *, tenant_id: str) -> AuthContext:
-    """Authenticate an agent JWT against its signed tenant and live identity."""
+def verify_live_jwt(
+    token: str,
+    *,
+    tenant_id: str,
+    audience: str | None = None,
+    require_agent_id: bool = True,
+) -> tuple[dict[str, Any], AuthContext]:
+    """Verify JWT cryptography plus live agent or OAuth authority."""
     from src.identity.constants import STATUS_ACTIVE
     from src.identity.jwt_tokens import verify_jwt
     from src.identity.oauth_clients import OAUTH_CLIENT_STORE
     from src.identity.storage import get_agent_identity_auth_snapshot
 
+    claims = verify_jwt(
+        token,
+        audience=audience,
+        require_agent_id=require_agent_id,
+    )
+    owner = str(claims.get("sub", ""))
+    scopes = claims.get("scopes", [])
+    agent_id = str(claims.get("agent_id", "")).strip()
+    roles = claims.get("roles", [])
+    if not owner:
+        raise HTTPException(status_code=401, detail="JWT missing sub claim")
+    if not agent_id:
+        raise HTTPException(status_code=401, detail="live JWT verification requires agent_id claim")
+    if not isinstance(scopes, list) or any(not isinstance(scope, str) for scope in scopes):
+        raise HTTPException(status_code=401, detail="JWT has invalid scopes claim")
+    if not isinstance(roles, list) or any(not isinstance(role, str) for role in roles):
+        raise HTTPException(status_code=401, detail="JWT has invalid roles claim")
+    token_tenant_id = claims.get("tenant_id")
+    if not isinstance(token_tenant_id, str) or not token_tenant_id:
+        raise HTTPException(status_code=401, detail="JWT missing tenant_id claim")
+    if token_tenant_id != tenant_id:
+        raise HTTPException(status_code=401, detail="JWT tenant mismatch")
+
     try:
-        claims = verify_jwt(token, require_agent_id=True)
-        owner = str(claims.get("sub", ""))
-        scopes = claims.get("scopes", [])
-        agent_id = str(claims.get("agent_id", "")).strip()
-        roles = claims.get("roles", [])
-        if not owner:
-            raise HTTPException(status_code=401, detail="JWT missing sub claim")
-        if not agent_id:
-            raise HTTPException(status_code=401, detail="JWT missing agent_id claim")
-        if not isinstance(scopes, list) or any(not isinstance(scope, str) for scope in scopes):
-            raise HTTPException(status_code=401, detail="JWT has invalid scopes claim")
-        if not isinstance(roles, list) or any(not isinstance(role, str) for role in roles):
-            raise HTTPException(status_code=401, detail="JWT has invalid roles claim")
-        token_tenant_id = claims.get("tenant_id")
-        if not isinstance(token_tenant_id, str) or not token_tenant_id:
-            raise HTTPException(status_code=401, detail="JWT missing tenant_id claim")
-        if token_tenant_id != tenant_id:
-            raise HTTPException(status_code=401, detail="JWT tenant mismatch")
-
-        try:
-            identity, current_generation, identity_tenant_id = get_agent_identity_auth_snapshot(agent_id)
-        except KeyError as exc:
-            # OAuth client-credentials JWTs share the encoder but are not agent identities.
-            oauth_client = OAUTH_CLIENT_STORE.get_client(agent_id)
-            if oauth_client is None:
-                raise HTTPException(status_code=401, detail="JWT agent identity not found") from exc
-            if oauth_client["owner"] != owner:
-                raise HTTPException(status_code=401, detail="JWT owner does not match OAuth client") from exc
-            if oauth_client["tenant_id"] != token_tenant_id:
-                raise HTTPException(status_code=401, detail="JWT tenant does not match OAuth client") from exc
-            return AuthContext(
-                owner,
-                scopes=scopes,
-                roles=roles or ("member",),
-                tenant_id=token_tenant_id,
-                auth_method="jwt_bearer",
-                agent_id=agent_id,
-            )
-
-        if identity["status"] != STATUS_ACTIVE:
-            raise HTTPException(status_code=401, detail="JWT agent identity is not active")
-        if identity["owner"] != owner:
-            raise HTTPException(status_code=401, detail="JWT owner does not match agent identity")
-        if identity_tenant_id is None or identity_tenant_id != token_tenant_id:
-            raise HTTPException(status_code=401, detail="JWT tenant does not match agent identity")
-        token_generation = claims.get("identity_generation")
-        if not isinstance(token_generation, str) or not token_generation:
-            raise HTTPException(status_code=401, detail="JWT missing identity_generation claim")
-        if current_generation is None or token_generation != current_generation:
-            raise HTTPException(status_code=401, detail="JWT identity generation mismatch")
-
-        return AuthContext(
+        identity, current_generation, identity_tenant_id = get_agent_identity_auth_snapshot(agent_id)
+    except KeyError as exc:
+        oauth_client = OAUTH_CLIENT_STORE.get_client(agent_id)
+        if oauth_client is None:
+            raise HTTPException(status_code=401, detail="JWT agent identity not found") from exc
+        if oauth_client["owner"] != owner:
+            raise HTTPException(status_code=401, detail="JWT owner does not match OAuth client") from exc
+        if oauth_client["tenant_id"] != token_tenant_id:
+            raise HTTPException(status_code=401, detail="JWT tenant does not match OAuth client") from exc
+        context = AuthContext(
             owner,
             scopes=scopes,
             roles=roles or ("member",),
@@ -329,6 +316,36 @@ def _context_from_jwt(token: str, *, tenant_id: str) -> AuthContext:
             auth_method="jwt_bearer",
             agent_id=agent_id,
         )
+        return claims, context
+
+    if identity["status"] != STATUS_ACTIVE:
+        raise HTTPException(status_code=401, detail="JWT agent identity is not active")
+    if identity["owner"] != owner:
+        raise HTTPException(status_code=401, detail="JWT owner does not match agent identity")
+    if identity_tenant_id is None or identity_tenant_id != token_tenant_id:
+        raise HTTPException(status_code=401, detail="JWT tenant does not match agent identity")
+    token_generation = claims.get("identity_generation")
+    if not isinstance(token_generation, str) or not token_generation:
+        raise HTTPException(status_code=401, detail="JWT missing identity_generation claim")
+    if current_generation is None or token_generation != current_generation:
+        raise HTTPException(status_code=401, detail="JWT identity generation mismatch")
+
+    context = AuthContext(
+        owner,
+        scopes=scopes,
+        roles=roles or ("member",),
+        tenant_id=token_tenant_id,
+        auth_method="jwt_bearer",
+        agent_id=agent_id,
+    )
+    return claims, context
+
+
+def _context_from_jwt(token: str, *, tenant_id: str) -> AuthContext:
+    """Authenticate an agent JWT against its signed tenant and live identity."""
+    try:
+        _, context = verify_live_jwt(token, tenant_id=tenant_id)
+        return context
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=f"JWT auth failed: {exc}") from exc
 

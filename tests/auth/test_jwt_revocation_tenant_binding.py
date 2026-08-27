@@ -86,6 +86,16 @@ def _assert_agent_request_denied(client: TestClient, token: str, *, tenant_id: s
     assert response.status_code == 401, response.text
 
 
+def _verify_jwt_endpoint(client: TestClient, token: str, *, tenant_id: str = "tenant-a") -> dict[str, object]:
+    response = client.post(
+        "/v1/identity/tokens/jwt/verify",
+        json={"token": token},
+        headers=_api_headers(tenant_id=tenant_id),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def test_active_agent_jwt_authenticates_with_signed_tenant(jwt_auth_runtime: None) -> None:
     with TestClient(app) as client:
         _register_agent(client)
@@ -387,3 +397,86 @@ def test_tenantless_legacy_scoped_bearer_token_fails_closed(jwt_auth_runtime: No
 
     with pytest.raises(HTTPException, match="bearer token missing tenant_id claim"):
         resolve_auth_context(authorization=f"Bearer {body}.{signature}", tenant_id="tenant-a")
+
+
+def test_jwt_verify_endpoint_rejects_revoked_agent(jwt_auth_runtime: None) -> None:
+    with TestClient(app) as client:
+        _register_agent(client)
+        token = _issue_agent_jwt(client)
+        assert _verify_jwt_endpoint(client, token)["valid"] is True
+
+        revoked = client.post(
+            "/v1/identity/agents/agent-a/revoke",
+            json={"reason": "verification-revocation"},
+            headers=_api_headers(),
+        )
+        assert revoked.status_code == 200, revoked.text
+        verification = _verify_jwt_endpoint(client, token)
+
+    assert verification["valid"] is False
+
+
+def test_jwt_verify_endpoint_rejects_old_token_after_suspension_and_reactivation(
+    jwt_auth_runtime: None,
+) -> None:
+    with TestClient(app) as client:
+        _register_agent(client)
+        token = _issue_agent_jwt(client)
+
+        suspended = client.patch(
+            "/v1/identity/agents/agent-a",
+            json={"status": "suspended"},
+            headers={**_api_headers(), "Idempotency-Key": "verify-suspend"},
+        )
+        assert suspended.status_code == 200, suspended.text
+        assert _verify_jwt_endpoint(client, token)["valid"] is False
+
+        reactivated = client.patch(
+            "/v1/identity/agents/agent-a",
+            json={"status": "active"},
+            headers={**_api_headers(), "Idempotency-Key": "verify-reactivate"},
+        )
+        assert reactivated.status_code == 200, reactivated.text
+        reconfigure()
+        verification = _verify_jwt_endpoint(client, token)
+
+    assert verification["valid"] is False
+
+
+@pytest.mark.parametrize(
+    ("subject", "token_tenant_id", "request_tenant_id"),
+    [("owner-b", "tenant-a", "tenant-a"), ("owner-a", "tenant-b", "tenant-b")],
+)
+def test_jwt_verify_endpoint_rejects_agent_owner_or_tenant_mismatch(
+    jwt_auth_runtime: None,
+    subject: str,
+    token_tenant_id: str,
+    request_tenant_id: str,
+) -> None:
+    with TestClient(app) as client:
+        _register_agent(client)
+        _, generation, _ = get_agent_identity_auth_snapshot("agent-a")
+        assert generation is not None
+        token = issue_jwt(
+            subject=subject,
+            agent_id="agent-a",
+            tenant_id=token_tenant_id,
+            identity_generation=generation,
+            scopes=["read"],
+        )["token"]
+        verification = _verify_jwt_endpoint(client, token, tenant_id=request_tenant_id)
+
+    assert verification["valid"] is False
+
+
+def test_jwt_verify_endpoint_accepts_live_oauth_client(jwt_auth_runtime: None) -> None:
+    with TestClient(app) as client:
+        client_record = _register_oauth_client(client)
+        token = _issue_oauth_token(client, client_record)
+        verification = _verify_jwt_endpoint(client, token)
+
+    assert verification["valid"] is True
+    claims = verification["claims"]
+    assert isinstance(claims, dict)
+    assert claims["sub"] == "owner-a"
+    assert claims["tenant_id"] == "tenant-a"

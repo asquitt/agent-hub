@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.api.auth import AuthContext, require_api_key
+from src.api.auth import AuthContext, require_api_key, verify_live_jwt
 from src.common.time import iso_from_epoch
 from src.identity.constants import STATUS_ACTIVE
 from src.identity.jwt_constants import (
@@ -15,7 +15,7 @@ from src.identity.jwt_constants import (
     MIN_JWT_TTL_SECONDS,
     VALID_OVERSIGHT_LEVELS,
 )
-from src.identity.jwt_tokens import get_jwks, issue_jwt, verify_jwt
+from src.identity.jwt_tokens import get_jwks, issue_jwt
 from src.identity.storage import get_agent_identity_auth_snapshot
 
 router = APIRouter(prefix="/v1/identity/tokens", tags=["identity-tokens"])
@@ -128,17 +128,23 @@ def post_issue_jwt(
 @router.post("/jwt/verify")
 def post_verify_jwt(
     request: VerifyJWTRequest,
-    _owner: str = Depends(require_api_key),
+    context: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     try:
-        claims = verify_jwt(
+        claims, _ = verify_live_jwt(
             request.token,
+            tenant_id=context.tenant_id,
             audience=request.audience,
             require_agent_id=request.require_agent_id,
         )
         return {
             "valid": True,
             "claims": claims,
+        }
+    except HTTPException as exc:
+        return {
+            "valid": False,
+            "error": str(exc.detail),
         }
     except ValueError as exc:
         return {
