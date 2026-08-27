@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+from uuid import uuid4
 
 from src.identity.constants import (
     CRED_STATUS_ACTIVE,
@@ -100,9 +101,17 @@ class IdentityStorage:
             self._reconfigure_locked(Path(resolved))
             assert self._conn is not None
             with self._conn:
+                # Test teardown is the only supported bypass for the append-only audit triggers.
+                self._conn.execute(
+                    "DROP TRIGGER IF EXISTS identity_quarantine_assignments_no_update"
+                )
+                self._conn.execute(
+                    "DROP TRIGGER IF EXISTS identity_quarantine_assignments_no_delete"
+                )
                 # Delete in FK-safe order: children before parents
                 for table in [
                     "agent_attestations",
+                    "identity_quarantine_assignments",
                     "revocation_events",
                     "delegation_tokens",
                     "agent_credentials",
@@ -113,6 +122,13 @@ class IdentityStorage:
                         self._conn.execute(f"DELETE FROM {table}")  # noqa: S608
                     except sqlite3.Error:
                         pass  # Table may not exist if migrations haven't run yet
+                self._conn.execute(
+                    """
+                    DELETE FROM _schema_migrations
+                    WHERE scope = 'identity' AND migration_name = '0007_quarantine_assignment.sql'
+                    """
+                )
+            apply_scope_migrations(self._conn, "identity")
 
     # --- Agent Identity CRUD ---
 
@@ -322,6 +338,99 @@ class IdentityStorage:
                 ),
             ).fetchall()
             return [_row_to_identity(row) for row in rows]
+
+    def list_quarantined_identities_for_actor(
+        self,
+        actor: ResourceAuthContext,
+    ) -> list[AgentIdentity]:
+        context = require_resource_actor(actor)
+        if context.agent_id is not None:
+            raise PermissionError("owner-level operator required")
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            rows = self._conn.execute(
+                """
+                SELECT * FROM agent_identities
+                WHERE owner = ? AND tenancy_status = ?
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (context.owner, TENANCY_QUARANTINED, self._MAX_QUERY_ROWS),
+            ).fetchall()
+            return [_row_to_identity(row) for row in rows]
+
+    def assign_quarantined_identity_for_actor(
+        self,
+        *,
+        actor: ResourceAuthContext,
+        agent_id: str,
+        selected_tenant_id: str,
+    ) -> AgentIdentity:
+        context = require_resource_actor(actor)
+        if context.agent_id is not None:
+            raise PermissionError("owner-level operator required")
+        selected_tenant = selected_tenant_id.strip()
+        if not selected_tenant:
+            raise ValueError("explicit tenant selection required")
+        if selected_tenant != context.tenant_id:
+            raise PermissionError("selected tenant does not match authenticated tenant")
+
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                result = self._conn.execute(
+                    """
+                    UPDATE agent_identities
+                    SET tenant_id = ?, tenancy_status = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    WHERE agent_id = ? AND owner = ?
+                      AND tenant_id IS NULL AND tenancy_status = ?
+                    """,
+                    (
+                        selected_tenant,
+                        TENANCY_ACTIVE,
+                        agent_id,
+                        context.owner,
+                        TENANCY_QUARANTINED,
+                    ),
+                )
+                if result.rowcount != 1:
+                    raise KeyError(f"quarantined identity not found: {agent_id}")
+                self._conn.execute(
+                    """
+                    INSERT INTO identity_quarantine_assignments(
+                        assignment_id, agent_id, owner, tenant_id, actor
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (str(uuid4()), agent_id, context.owner, selected_tenant, context.owner),
+                )
+                row = self._conn.execute(
+                    """
+                    SELECT * FROM agent_identities
+                    WHERE agent_id = ? AND owner = ? AND tenant_id = ?
+                      AND tenancy_status = ?
+                    """,
+                    (agent_id, context.owner, selected_tenant, TENANCY_ACTIVE),
+                ).fetchone()
+                assert row is not None
+                self._conn.commit()
+                return _row_to_identity(row)
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def count_quarantined_identities(self) -> int:
+        self._ensure_ready()
+        with self._lock:
+            assert self._conn is not None
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS total FROM agent_identities WHERE tenancy_status = ?",
+                (TENANCY_QUARANTINED,),
+            ).fetchone()
+            assert row is not None
+            return int(row["total"])
 
     def bind_human_principal(self, agent_id: str, human_principal_id: str | None) -> AgentIdentity:
         self._ensure_ready()
@@ -911,6 +1020,29 @@ def list_agent_identities(owner: str) -> list[AgentIdentity]:
 
 def list_agent_identities_for_actor(actor: ResourceAuthContext) -> list[AgentIdentity]:
     return _STORAGE.list_identities_for_actor(actor)
+
+
+def list_quarantined_agent_identities_for_actor(
+    actor: ResourceAuthContext,
+) -> list[AgentIdentity]:
+    return _STORAGE.list_quarantined_identities_for_actor(actor)
+
+
+def assign_quarantined_agent_identity_for_actor(
+    *,
+    actor: ResourceAuthContext,
+    agent_id: str,
+    selected_tenant_id: str,
+) -> AgentIdentity:
+    return _STORAGE.assign_quarantined_identity_for_actor(
+        actor=actor,
+        agent_id=agent_id,
+        selected_tenant_id=selected_tenant_id,
+    )
+
+
+def count_quarantined_agent_identities() -> int:
+    return _STORAGE.count_quarantined_identities()
 
 
 def bind_human_principal(agent_id: str, human_principal_id: str | None) -> AgentIdentity:

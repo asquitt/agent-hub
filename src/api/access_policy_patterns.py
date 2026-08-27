@@ -119,6 +119,7 @@ ADMIN_SCOPED_PATTERNS = (
     re.compile(r"^/v1/keys(?:/.*)?$"),
     re.compile(r"^/v1/rbac(?:/.*)?$"),
     re.compile(r"^/v1/vault(?:/.*)?$"),
+    re.compile(r"^/v1/identity/quarantine(?:/.*)?$"),
     re.compile(r"^/scim/v2/(?:Users|Bulk)(?:/.*)?$"),
 )
 

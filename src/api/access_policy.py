@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -269,7 +270,7 @@ def evaluate_access(
     return None
 
 
-def route_policy_map(routes: list[object]) -> list[dict[str, str]]:
+def route_policy_map(routes: Sequence[object]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for route in routes:
         if not isinstance(route, APIRoute):

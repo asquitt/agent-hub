@@ -36,6 +36,17 @@ def _check_db(storage: Any) -> dict[str, str]:
         return {"status": "unhealthy"}
 
 
+def _check_identity_quarantine(storage: Any) -> dict[str, Any]:
+    try:
+        quarantined_count = storage.count_quarantined_identities()
+        return {
+            "status": "ok" if quarantined_count == 0 else "blocked",
+            "quarantined_count": quarantined_count,
+        }
+    except Exception:  # noqa: BLE001
+        return {"status": "unhealthy"}
+
+
 def _readiness_checks() -> dict[str, Any]:
     checks: dict[str, Any] = {}
 
@@ -43,8 +54,10 @@ def _readiness_checks() -> dict[str, Any]:
     try:
         from src.identity.storage import IDENTITY_STORAGE
         checks["identity_db"] = _check_db(IDENTITY_STORAGE)
+        checks["identity_quarantine"] = _check_identity_quarantine(IDENTITY_STORAGE)
     except (ImportError, RuntimeError):
         checks["identity_db"] = {"status": "not_configured"}
+        checks["identity_quarantine"] = {"status": "not_configured"}
 
     try:
         from src.runtime.storage import RUNTIME_STORAGE

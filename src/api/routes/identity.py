@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.auth import AuthContext, require_api_key
@@ -35,15 +35,36 @@ from src.identity.revocation import (
     revoke_agent,
 )
 from src.identity.storage import (
+    assign_quarantined_agent_identity_for_actor,
     bind_human_principal_for_actor,
     get_agent_identity_for_actor,
     list_active_sessions_for_actor,
+    list_quarantined_agent_identities_for_actor,
     register_agent_identity_for_actor,
     set_configuration_checksum_for_actor,
     update_agent_identity_status_for_actor,
 )
 
 router = APIRouter(prefix="/v1/identity", tags=["identity"])
+
+
+def require_quarantine_operator(
+    actor: AuthContext = Depends(require_api_key),
+) -> AuthContext:
+    if "admin" not in actor.roles:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "auth.admin_required", "message": "admin role required"},
+        )
+    if actor.agent_id is not None:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "auth.owner_operator_required",
+                "message": "owner-level operator required",
+            },
+        )
+    return actor
 
 
 # --- Request Models ---
@@ -164,6 +185,40 @@ class CreateAttestationRequest(BaseModel):
 
 
 # --- Endpoints ---
+
+
+@router.get("/quarantine")
+def get_quarantined_agent_identities(
+    actor: AuthContext = Depends(require_quarantine_operator),
+) -> dict[str, Any]:
+    try:
+        identities = list_quarantined_agent_identities_for_actor(actor)
+        return {"identities": [dict(identity) for identity in identities]}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.post("/quarantine/{agent_id}/assign")
+def post_assign_quarantined_agent_identity(
+    agent_id: str,
+    selected_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+    actor: AuthContext = Depends(require_quarantine_operator),
+) -> dict[str, Any]:
+    if selected_tenant_id is None or not selected_tenant_id.strip():
+        raise HTTPException(status_code=400, detail="explicit X-Tenant-ID header required")
+    try:
+        identity = assign_quarantined_agent_identity_for_actor(
+            actor=actor,
+            agent_id=agent_id,
+            selected_tenant_id=selected_tenant_id,
+        )
+        return dict(identity)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/agents")
