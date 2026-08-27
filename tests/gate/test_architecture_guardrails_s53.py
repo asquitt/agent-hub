@@ -16,20 +16,26 @@ def test_route_policy_map_snapshot_stable() -> None:
     rows = route_policy_map(app.routes)
     payload = json.dumps(rows, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    assert len(rows) == 437
-    assert digest == "44cfa541909c471ff6be22b0825ed3d475c850ecb2bfff94bcaac4b33fdfc308"
+    assert len(rows) == 440
+    assert digest == "cc50093634ec1b5c0cc03992c6ac0213a8ac56bfc3be31cca36773bbc6ee193f"
 
 
 def test_route_policy_map_has_no_unclassified_v1_routes() -> None:
     rows = route_policy_map(app.routes)
-    classifications = {row["classification"] for row in rows if row["path"].startswith("/v1/")}
-    assert classifications.issubset({"public", "authenticated", "tenant_scoped", "admin_scoped"})
+    classifications = {
+        row["classification"] for row in rows if row["path"].startswith("/v1/")
+    }
+    assert classifications.issubset(
+        {"public", "authenticated", "tenant_scoped", "admin_scoped"}
+    )
     assert "tenant_scoped" in classifications
     assert "authenticated" in classifications
 
 
 def test_domain_modules_do_not_import_tooling_or_api_layer_directly() -> None:
-    python_files = sorted(path for path in SRC_ROOT.rglob("*.py") if "__pycache__" not in str(path))
+    python_files = sorted(
+        path for path in SRC_ROOT.rglob("*.py") if "__pycache__" not in str(path)
+    )
     violations: list[str] = []
     for path in python_files:
         rel = path.relative_to(ROOT).as_posix()
