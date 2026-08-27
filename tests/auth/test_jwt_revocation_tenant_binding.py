@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from src.api.app import app
-from src.api.auth import resolve_auth_context
+from src.api.auth import AuthContext, issue_scoped_token, resolve_auth_context
+from src.identity.credentials import issue_credential
+from src.identity import delegation_tokens
 from src.identity.jwt_tokens import issue_jwt, verify_jwt
 from src.identity.oauth_clients import OAUTH_CLIENT_STORE
 from src.identity.storage import get_agent_identity_auth_snapshot, reconfigure, reset_for_tests
@@ -284,3 +290,100 @@ def test_tenantless_legacy_oauth_jwt_fails_closed(jwt_auth_runtime: None) -> Non
         )["token"]
 
         _assert_agent_request_denied(client, token)
+
+
+def test_delegation_token_cannot_replay_across_tenants(
+    jwt_auth_runtime: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with TestClient(app) as client:
+        _register_agent(client)
+
+    monkeypatch.setattr(
+        delegation_tokens,
+        "verify_delegation_token",
+        lambda _token: {
+            "token_id": "delegation-a",
+            "subject_agent_id": "agent-a",
+            "delegated_scopes": ["read"],
+            "owner": "owner-a",
+            "tenant_id": "tenant-a",
+        },
+    )
+    allowed = resolve_auth_context(x_delegation_token="delegation-token", tenant_id="tenant-a")
+    assert allowed is not None
+    assert allowed.owner == "owner-a"
+    assert allowed.tenant_id == "tenant-a"
+
+    with pytest.raises(HTTPException, match="delegation token auth failed"):
+        resolve_auth_context(x_delegation_token="delegation-token", tenant_id="tenant-b")
+
+
+def test_delegation_token_owner_must_match_live_identity(
+    jwt_auth_runtime: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with TestClient(app) as client:
+        _register_agent(client)
+
+    monkeypatch.setattr(
+        delegation_tokens,
+        "verify_delegation_token",
+        lambda _token: {
+            "token_id": "delegation-wrong-owner",
+            "subject_agent_id": "agent-a",
+            "delegated_scopes": ["read"],
+            "owner": "owner-b",
+            "tenant_id": "tenant-a",
+        },
+    )
+
+    with pytest.raises(HTTPException, match="delegation token auth failed"):
+        resolve_auth_context(x_delegation_token="delegation-token", tenant_id="tenant-a")
+
+
+def test_agent_credential_cannot_replay_across_tenants(jwt_auth_runtime: None) -> None:
+    with TestClient(app) as client:
+        _register_agent(client)
+
+    credential = issue_credential(agent_id="agent-a", scopes=["read"], owner="owner-a")
+    authorization = f"AgentCredential {credential['secret']}"
+    allowed = resolve_auth_context(authorization=authorization, tenant_id="tenant-a")
+    assert allowed is not None
+    assert allowed.owner == "owner-a"
+    assert allowed.tenant_id == "tenant-a"
+
+    with pytest.raises(HTTPException, match="agent credential auth failed"):
+        resolve_auth_context(authorization=authorization, tenant_id="tenant-b")
+
+
+def test_scoped_bearer_token_cannot_replay_across_tenants(jwt_auth_runtime: None) -> None:
+    issuer = AuthContext(
+        "owner-a",
+        scopes=["read"],
+        roles=["member"],
+        tenant_id="tenant-a",
+        auth_method="api_key",
+    )
+    token = str(issue_scoped_token(issuer, ["read"])["access_token"])
+    allowed = resolve_auth_context(authorization=f"Bearer {token}", tenant_id="tenant-a")
+    assert allowed is not None
+    assert allowed.tenant_id == "tenant-a"
+
+    with pytest.raises(HTTPException, match="bearer token tenant mismatch"):
+        resolve_auth_context(authorization=f"Bearer {token}", tenant_id="tenant-b")
+
+
+def test_tenantless_legacy_scoped_bearer_token_fails_closed(jwt_auth_runtime: None) -> None:
+    payload = {"sub": "owner-a", "scopes": ["read"], "roles": ["member"], "exp": 4_102_444_800}
+    body = base64.urlsafe_b64encode(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).decode("utf-8").rstrip("=")
+    signature = hmac.new(
+        b"jwt-revocation-auth-secret-at-least-32-bytes",
+        body.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    with pytest.raises(HTTPException, match="bearer token missing tenant_id claim"):
+        resolve_auth_context(authorization=f"Bearer {body}.{signature}", tenant_id="tenant-a")

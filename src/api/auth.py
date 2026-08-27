@@ -240,7 +240,10 @@ def verify_scoped_token(token: str) -> dict[str, Any]:
     payload["scopes"] = [str(scope) for scope in scopes]
     payload["roles"] = [str(role) for role in roles]
     payload["sub"] = str(payload["sub"])
-    payload["tenant_id"] = str(payload.get("tenant_id") or "tenant-default")
+    raw_tenant_id = payload.get("tenant_id")
+    if not isinstance(raw_tenant_id, str) or not raw_tenant_id.strip():
+        raise HTTPException(status_code=401, detail="bearer token missing tenant_id claim")
+    payload["tenant_id"] = raw_tenant_id.strip()
     return payload
 
 
@@ -372,17 +375,32 @@ def resolve_auth_context(
 
     # 2. Delegation token — fail loudly if provided but invalid
     if x_delegation_token:
+        from src.identity.constants import STATUS_ACTIVE
         from src.identity.delegation_tokens import verify_delegation_token
-        from src.identity.storage import IDENTITY_STORAGE
+        from src.identity.storage import get_agent_identity_auth_snapshot
 
         try:
             result = verify_delegation_token(x_delegation_token)
-            identity = IDENTITY_STORAGE.get_identity(result["subject_agent_id"])
+            token_owner = result.get("owner")
+            token_tenant_id = result.get("tenant_id")
+            if not isinstance(token_owner, str) or not token_owner:
+                raise PermissionError("delegation token missing owner")
+            if not isinstance(token_tenant_id, str) or not token_tenant_id:
+                raise PermissionError("delegation token missing tenant_id")
+            if token_tenant_id != tenant_id:
+                raise PermissionError("delegation token tenant mismatch")
+            identity, _, identity_tenant_id = get_agent_identity_auth_snapshot(result["subject_agent_id"])
+            if identity["status"] != STATUS_ACTIVE:
+                raise PermissionError("delegation token agent identity is not active")
+            if identity["owner"] != token_owner:
+                raise PermissionError("delegation token owner does not match agent identity")
+            if identity_tenant_id is None or identity_tenant_id != token_tenant_id:
+                raise PermissionError("delegation token tenant does not match agent identity")
             return AuthContext(
-                identity["owner"],
+                token_owner,
                 scopes=result["delegated_scopes"],
                 roles=("member",),
-                tenant_id=tenant_id,
+                tenant_id=token_tenant_id,
                 auth_method="delegation_token",
                 agent_id=result["subject_agent_id"],
                 delegation_token_id=result["token_id"],
@@ -394,18 +412,23 @@ def resolve_auth_context(
     if authorization:
         agent_prefix = "agentcredential "
         if authorization.lower().startswith(agent_prefix):
+            from src.identity.constants import STATUS_ACTIVE
             from src.identity.credentials import verify_credential
-            from src.identity.storage import IDENTITY_STORAGE
+            from src.identity.storage import get_agent_identity_auth_snapshot
 
             secret = authorization[len(agent_prefix):].strip()
             try:
                 result = verify_credential(secret)
-                identity = IDENTITY_STORAGE.get_identity(result["agent_id"])
+                identity, _, identity_tenant_id = get_agent_identity_auth_snapshot(result["agent_id"])
+                if identity["status"] != STATUS_ACTIVE:
+                    raise PermissionError("agent credential identity is not active")
+                if identity_tenant_id is None or identity_tenant_id != tenant_id:
+                    raise PermissionError("agent credential tenant mismatch")
                 return AuthContext(
                     identity["owner"],
                     scopes=result["scopes"],
                     roles=("member",),
-                    tenant_id=tenant_id,
+                    tenant_id=identity_tenant_id,
                     auth_method="agent_credential",
                     agent_id=result["agent_id"],
                 )
@@ -418,11 +441,14 @@ def resolve_auth_context(
         if raw_token.count(".") == 2:
             return _context_from_jwt(raw_token, tenant_id=tenant_id)
         claims = verify_scoped_token(raw_token)
+        token_tenant_id = claims["tenant_id"]
+        if token_tenant_id != tenant_id:
+            raise HTTPException(status_code=401, detail="bearer token tenant mismatch")
         return AuthContext(
             claims["sub"],
             scopes=claims.get("scopes", []),
             roles=claims.get("roles", []),
-            tenant_id=tenant_id or claims.get("tenant_id", "tenant-default"),
+            tenant_id=token_tenant_id,
             auth_method="bearer_token",
         )
 
