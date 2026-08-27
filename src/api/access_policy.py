@@ -196,7 +196,7 @@ def _tenant_allowed(owner: str, tenant_id: str) -> bool:
     return "*" in allowed or tenant_id in allowed
 
 
-def _as_context(owner: str | None) -> AuthContext | None:
+def _as_context(owner: str | AuthContext | None) -> AuthContext | None:
     if owner is None:
         return None
     if isinstance(owner, AuthContext):
@@ -236,8 +236,8 @@ def _resource_owner(path: str) -> tuple[str | None, bool]:
 
 def evaluate_access(
     *,
-    classification: AccessClassification,
-    owner: str | None,
+    classification: AccessClassification | RouteAccess,
+    owner: str | AuthContext | None,
     tenant_id: str,
 ) -> AccessViolation | None:
     route = classification if isinstance(classification, RouteAccess) else None

@@ -45,7 +45,9 @@ def _key_func(request: Request) -> str:
 limiter = Limiter(key_func=_key_func, default_limits=[_DEFAULT_RATE])
 
 
-def rate_limit_exceeded_handler(_request: Request, exc: RateLimitExceeded) -> JSONResponse:
+def rate_limit_exceeded_handler(_request: Request, exc: Exception) -> JSONResponse:
+    if not isinstance(exc, RateLimitExceeded):
+        raise exc
     return JSONResponse(
         status_code=429,
         content={"detail": f"rate limit exceeded: {exc.detail}"},

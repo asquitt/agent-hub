@@ -311,6 +311,8 @@ def verify_live_jwt(
     if token_use is None and isinstance(claims.get("identity_generation"), str):
         token_use = TOKEN_USE_AGENT
     if token_use == TOKEN_USE_OAUTH_CLIENT:
+        if "identity_generation" in claims:
+            raise HTTPException(status_code=401, detail="JWT OAuth client has invalid identity_generation claim")
         oauth_client = OAUTH_CLIENT_STORE.get_client(agent_id)
         if oauth_client is None:
             raise HTTPException(status_code=401, detail="JWT OAuth client not found")

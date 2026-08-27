@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from src.common.sqlite_collections import read_collection, write_collection
+from src.common.sqlite_collections import mutate_collection, read_collection, write_collection
 from src.common.time import utc_now_epoch
 
 
@@ -172,6 +172,7 @@ class OAuthClientStore:
             db_path=self._path(),
             scope=_COLLECTION_SCOPE,
             collection_name=_COLLECTION_NAME,
+            refresh=True,
         )
 
     def _find_record(self, client_id: str) -> dict[str, Any] | None:
@@ -209,8 +210,7 @@ class OAuthClientStore:
         client_secret = secrets.token_urlsafe(48)
         secret_hash = hashlib.sha256(client_secret.encode("utf-8")).hexdigest()
 
-        with _STORE_LOCK:
-            records = self._read_records()
+        def _register(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             existing_ids = {record.get("client_id") for record in records}
             client_id = f"client_{secrets.token_hex(16)}"
             while client_id in existing_ids:
@@ -231,12 +231,14 @@ class OAuthClientStore:
             if len(records) > _MAX_CLIENTS:
                 records.sort(key=_created_at_sort_key)
                 records = records[-_MAX_CLIENTS:]
-            write_collection(
-                db_path=self._path(),
-                scope=_COLLECTION_SCOPE,
-                collection_name=_COLLECTION_NAME,
-                rows=records,
-            )
+            return records, record
+
+        record = mutate_collection(
+            db_path=self._path(),
+            scope=_COLLECTION_SCOPE,
+            collection_name=_COLLECTION_NAME,
+            mutator=_register,
+        )
 
         return {**_public_record(record), "client_secret": client_secret}
 
@@ -269,23 +271,24 @@ class OAuthClientStore:
         registrar_scopes = {str(item).strip() for item in authorized_scopes if str(item).strip()}
         provided_hash = hashlib.sha256(client_secret.encode("utf-8")).hexdigest()
 
-        with _STORE_LOCK:
-            records = self._read_records()
+        def _bind(
+            records: list[dict[str, Any]],
+        ) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
             matches = [index for index, record in enumerate(records) if record.get("client_id") == client_id]
             if len(matches) != 1:
-                return None
+                return None, None
             record_index = matches[0]
             raw_record = records[record_index]
 
             bound_record = _validated_record(raw_record)
             if bound_record is not None:
-                return None
+                return None, None
 
             legacy_record = _validated_legacy_record(raw_record)
             if legacy_record is None or not hmac.compare_digest(provided_hash, legacy_record["client_secret_hash"]):
-                return None
+                return None, None
             if any(not _scope_allowed(item, registrar_scopes) for item in str(legacy_record["scope"]).split()):
-                return None
+                return None, None
             authority_binding_id = f"oab_{secrets.token_hex(16)}"
             bound_record = {
                 **legacy_record,
@@ -301,13 +304,14 @@ class OAuthClientStore:
                 },
             }
             records[record_index] = bound_record
-            write_collection(
-                db_path=self._path(),
-                scope=_COLLECTION_SCOPE,
-                collection_name=_COLLECTION_NAME,
-                rows=records,
-            )
-            return {**_public_record(bound_record), "authority_binding_id": authority_binding_id}
+            return records, {**_public_record(bound_record), "authority_binding_id": authority_binding_id}
+
+        return mutate_collection(
+            db_path=self._path(),
+            scope=_COLLECTION_SCOPE,
+            collection_name=_COLLECTION_NAME,
+            mutator=_bind,
+        )
 
     def get_authority_binding(self, client_id: str) -> dict[str, Any] | None:
         """Return durable evidence for a legacy authority transition."""

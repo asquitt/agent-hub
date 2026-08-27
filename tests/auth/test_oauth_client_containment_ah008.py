@@ -440,6 +440,121 @@ def test_base_client_can_bind_authority_and_mint_replacement_token(isolate_oauth
     assert restarted["audit"] == durable_binding
 
 
+def test_legacy_authority_binding_is_atomic_across_processes(isolate_oauth_clients: Path) -> None:
+    secret = "concurrent-legacy-client-secret"
+    write_collection(
+        db_path=isolate_oauth_clients,
+        scope="identity",
+        collection_name="oauth_clients",
+        rows=[
+            {
+                "client_id": "client_concurrent_legacy",
+                "client_secret_hash": hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+                "client_name": "concurrent-legacy-client",
+                "grant_types": ["client_credentials"],
+                "scope": "read",
+                "redirect_uris": [],
+                "created_at": 1,
+            }
+        ],
+    )
+    worker_code = """
+import json
+import os
+import sys
+from src.identity.oauth_clients import OAuthClientStore
+
+store = OAuthClientStore(os.environ["OAUTH_TEST_DB"])
+print("ready", flush=True)
+sys.stdin.read(1)
+result = store.bind_legacy_client_authority(
+    client_id="client_concurrent_legacy",
+    client_secret=os.environ["OAUTH_TEST_CLIENT_SECRET"],
+    owner=os.environ["OAUTH_TEST_OWNER"],
+    tenant_id=os.environ["OAUTH_TEST_TENANT"],
+    authorized_scopes=["read"],
+)
+print(json.dumps(result, sort_keys=True), flush=True)
+"""
+    workers: list[subprocess.Popen[str]] = []
+    for index in range(4):
+        env = os.environ.copy()
+        env.update(
+            {
+                "OAUTH_TEST_DB": str(isolate_oauth_clients),
+                "OAUTH_TEST_CLIENT_SECRET": secret,
+                "OAUTH_TEST_OWNER": f"owner-{index}",
+                "OAUTH_TEST_TENANT": f"tenant-{index}",
+            }
+        )
+        worker = subprocess.Popen(
+            [sys.executable, "-c", worker_code],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            text=True,
+        )
+        assert worker.stdout is not None
+        assert worker.stdout.readline().strip() == "ready"
+        workers.append(worker)
+
+    for worker in workers:
+        assert worker.stdin is not None
+        worker.stdin.write("x")
+        worker.stdin.flush()
+
+    results: list[dict[str, object] | None] = []
+    for worker in workers:
+        stdout, stderr = worker.communicate(timeout=10)
+        assert worker.returncode == 0, stderr
+        results.append(json.loads(stdout))
+
+    winners = [result for result in results if result is not None]
+    assert len(winners) == 1
+    winner = winners[0]
+    store = OAuthClientStore(db_path=isolate_oauth_clients)
+    persisted = store.authenticate_client("client_concurrent_legacy", secret)
+    assert persisted is not None
+    assert persisted["owner"] == winner["owner"]
+    assert persisted["tenant_id"] == winner["tenant_id"]
+    binding = store.get_authority_binding("client_concurrent_legacy")
+    assert binding is not None
+    assert binding["event_id"] == winner["authority_binding_id"]
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "OAUTH_TEST_DB": str(isolate_oauth_clients),
+            "OAUTH_TEST_CLIENT_ID": "client_concurrent_legacy",
+            "OAUTH_TEST_CLIENT_SECRET": secret,
+        }
+    )
+    restarted = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json, os; "
+                "from src.identity.oauth_clients import OAuthClientStore; "
+                "store = OAuthClientStore(os.environ['OAUTH_TEST_DB']); "
+                "print(json.dumps({'client': store.authenticate_client("
+                "os.environ['OAUTH_TEST_CLIENT_ID'], os.environ['OAUTH_TEST_CLIENT_SECRET']), "
+                "'binding': store.get_authority_binding(os.environ['OAUTH_TEST_CLIENT_ID'])}, sort_keys=True))"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        env=env,
+        text=True,
+    )
+    assert restarted.returncode == 0, restarted.stderr
+    restarted_state = json.loads(restarted.stdout)
+    assert restarted_state["client"]["owner"] == winner["owner"]
+    assert restarted_state["client"]["tenant_id"] == winner["tenant_id"]
+    assert restarted_state["binding"]["event_id"] == winner["authority_binding_id"]
+
+
 def test_base_client_binding_rejects_scope_outside_actor_authority(isolate_oauth_clients: Path) -> None:
     secret = "scope-amplifier-secret"
     write_collection(

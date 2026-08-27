@@ -325,6 +325,29 @@ def test_oauth_jwt_rejects_conflicting_or_malformed_authority_discriminator(
     assert verification["valid"] is False
 
 
+def test_oauth_jwt_rejects_agent_generation_claim_for_colliding_identity(jwt_auth_runtime: None) -> None:
+    with TestClient(app) as client:
+        client_record = _register_oauth_client(client)
+        client_id = str(client_record["client_id"])
+        _register_agent(client, agent_id=client_id)
+        _, identity_generation, _ = get_agent_identity_auth_snapshot(client_id)
+        assert identity_generation is not None
+        token = issue_jwt(
+            subject="owner-a",
+            agent_id=client_id,
+            tenant_id="tenant-a",
+            identity_generation=identity_generation,
+            token_use=TOKEN_USE_OAUTH_CLIENT,
+            scopes=["read"],
+            issuer="urn:agenthub:registry",
+        )["token"]
+        with pytest.raises(HTTPException, match="invalid identity_generation"):
+            resolve_auth_context(authorization=f"Bearer {token}", tenant_id="tenant-a")
+        verification = _verify_jwt_endpoint(client, token)
+
+    assert verification["valid"] is False
+
+
 def test_delegation_token_cannot_replay_across_tenants(
     jwt_auth_runtime: None,
     monkeypatch: pytest.MonkeyPatch,
