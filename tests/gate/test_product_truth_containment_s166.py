@@ -89,6 +89,40 @@ def test_runtime_api_marks_non_execution_evidence(
     assert response.json()["workload_executed"] is False
     assert response.json()["isolation_enforced"] is False
 
+    sandbox_id = response.json()["sandbox_id"]
+    started = client.post(
+        f"/v1/runtime/sandboxes/{sandbox_id}/execute",
+        json={"input_data": {"task": "record-only"}},
+        headers={
+            "X-API-Key": "dev-owner-key",
+            "Idempotency-Key": "s166-runtime-start",
+        },
+    )
+    assert started.status_code == 200
+    completed = client.post(
+        f"/v1/runtime/sandboxes/{sandbox_id}/complete",
+        json={"output_data": {"caller_reported": True}},
+        headers={
+            "X-API-Key": "dev-owner-key",
+            "Idempotency-Key": "s166-runtime-complete",
+        },
+    )
+    assert completed.status_code == 200
+
+    listed = client.get(
+        "/v1/runtime/executions",
+        headers={"X-API-Key": "dev-owner-key"},
+    )
+    assert listed.status_code == 200
+    assert listed.json()["execution_mode"] == "state_simulation"
+    assert listed.json()["workload_executed"] is False
+    assert listed.json()["executions"]
+    assert all(
+        execution["execution_mode"] == "state_simulation"
+        and execution["workload_executed"] is False
+        for execution in listed.json()["executions"]
+    )
+
 
 @pytest.mark.parametrize(
     "name", ["AGENTHUB_API_WORKERS", "WEB_CONCURRENCY", "AGENTHUB_API_REPLICAS"]

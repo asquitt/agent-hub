@@ -365,7 +365,15 @@ def get_event_stats(
         "by_severity": severity_counts,
         "by_agent": agent_counts,
         "active_webhooks": sum(1 for w in _webhooks.values() if w["active"]),
-        "total_deliveries": len(_deliveries),
+        "delivery_intents": len(_deliveries),
+        "delivery_attempts": sum(
+            1 for delivery in _deliveries if delivery["delivery_attempted"]
+        ),
+        "total_deliveries": sum(
+            1
+            for delivery in _deliveries
+            if delivery["delivery_attempted"] and delivery["status"] == "delivered"
+        ),
         "dead_letters": len(_dead_letters),
     }
 
@@ -405,6 +413,7 @@ def _record_delivery(
     event_id: str,
     status: str,
     attempt: int = 1,
+    delivery_attempted: bool = False,
 ) -> dict[str, Any]:
     """Record a delivery attempt."""
     delivery: dict[str, Any] = {
@@ -413,6 +422,7 @@ def _record_delivery(
         "event_id": event_id,
         "status": status,
         "attempt": attempt,
+        "delivery_attempted": delivery_attempted,
         "timestamp": time.time(),
     }
     _deliveries.append(delivery)

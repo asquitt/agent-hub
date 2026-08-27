@@ -175,6 +175,13 @@ def test_webhook_event_dispatch() -> None:
     assert r.status_code == 200
     assert r.json()["total"] >= 1
     assert r.json()["deliveries"][0]["status"] == "not_attempted"
+    assert r.json()["deliveries"][0]["delivery_attempted"] is False
+
+    stats = client.get("/v1/audit/stats", headers=HEADERS)
+    assert stats.status_code == 200
+    assert stats.json()["delivery_intents"] == 1
+    assert stats.json()["delivery_attempts"] == 0
+    assert stats.json()["total_deliveries"] == 0
 
 
 def test_webhook_filter_no_match() -> None:

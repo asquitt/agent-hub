@@ -339,7 +339,11 @@ def get_list_executions(
     )
     # Filter to only show executions owned by the authenticated user
     owned = [e for e in executions if e["owner"] == owner]
-    return {"executions": [dict(e) for e in owned], "total": len(owned)}
+    return {
+        "executions": [_runtime_simulation_payload(dict(e)) for e in owned],
+        "total": len(owned),
+        **RUNTIME_SIMULATION_BOUNDARY,
+    }
 
 
 @router.get("/v1/runtime/executions/{execution_id}")
