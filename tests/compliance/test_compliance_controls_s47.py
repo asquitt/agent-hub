@@ -23,6 +23,10 @@ def isolate_compliance_dependencies(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("AGENTHUB_PROCUREMENT_EXCEPTIONS_PATH", str(tmp_path / "proc-exceptions.json"))
     monkeypatch.setenv("AGENTHUB_PROCUREMENT_AUDIT_PATH", str(tmp_path / "proc-audit.json"))
     monkeypatch.setenv("AGENTHUB_COMPLIANCE_EVIDENCE_PATH", str(tmp_path / "compliance-reports.json"))
+    monkeypatch.setenv(
+        "AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON",
+        json.dumps({"partner-east": "fed-partner-east-token"}),
+    )
     cost_storage.reset_for_tests(db_path=billing_db)
 
 

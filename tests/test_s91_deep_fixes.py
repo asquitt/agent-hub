@@ -7,7 +7,6 @@ sandbox execution guards, tenant scoping, idempotency caching, and CORS.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import threading
 import unittest
@@ -32,7 +31,7 @@ os.environ.setdefault("AGENTHUB_RUNTIME_DB_PATH", ":memory:")
 
 from src.identity.storage import IDENTITY_STORAGE
 from src.identity.credentials import issue_credential, rotate_credential, revoke_credential
-from src.identity.delegation_tokens import issue_delegation_token, verify_delegation_token, revoke_delegation_token
+from src.identity.delegation_tokens import issue_delegation_token, verify_delegation_token
 from src.identity.revocation import revoke_agent, list_revocation_events
 from src.api.access_policy import classify_route, _owner_tenants
 
@@ -60,7 +59,7 @@ class TestRevocationAtomicity(unittest.TestCase):
         _register("agent-subject")
 
         # Issue credential so we can issue delegation tokens
-        cred = issue_credential(agent_id="agent-issuer", scopes=["*"], owner="owner-dev")
+        issue_credential(agent_id="agent-issuer", scopes=["*"], owner="owner-dev")
 
         # Issue delegation token
         token = issue_delegation_token(
@@ -137,12 +136,11 @@ class TestAuthFallthrough(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 401)
 
     def test_no_credentials_returns_none_owner(self):
-        """No credentials at all returns owner=None (not an error)."""
+        """No credentials at all returns no authentication context."""
         from src.api.auth import resolve_auth_context
 
         result = resolve_auth_context()
-        self.assertIsNone(result["owner"])
-        self.assertIsNone(result["auth_method"])
+        self.assertIsNone(result)
 
 
 class TestBalanceAtomicity(unittest.TestCase):
@@ -305,15 +303,14 @@ class TestMalformedOwnerTenants(unittest.TestCase):
     """S95: Malformed AGENTHUB_OWNER_TENANTS_JSON logs a warning."""
 
     def test_malformed_json_logs_warning(self):
-        """Setting bad JSON logs warning and falls back to defaults."""
+        """Setting bad JSON logs a warning and fails closed."""
         old_val = os.environ.get("AGENTHUB_OWNER_TENANTS_JSON")
         try:
             os.environ["AGENTHUB_OWNER_TENANTS_JSON"] = "{invalid json"
             with self.assertLogs("agenthub.access_policy", level="WARNING") as cm:
                 result = _owner_tenants()
             self.assertIn("malformed", cm.output[0].lower())
-            # Should fall back to defaults
-            self.assertIn("owner-platform", result)
+            self.assertIsNone(result)
         finally:
             if old_val is not None:
                 os.environ["AGENTHUB_OWNER_TENANTS_JSON"] = old_val
@@ -321,14 +318,14 @@ class TestMalformedOwnerTenants(unittest.TestCase):
                 os.environ.pop("AGENTHUB_OWNER_TENANTS_JSON", None)
 
     def test_non_dict_json_logs_warning(self):
-        """Setting non-dict JSON logs warning and falls back to defaults."""
+        """Setting non-dict JSON logs a warning and fails closed."""
         old_val = os.environ.get("AGENTHUB_OWNER_TENANTS_JSON")
         try:
             os.environ["AGENTHUB_OWNER_TENANTS_JSON"] = '"just a string"'
             with self.assertLogs("agenthub.access_policy", level="WARNING") as cm:
                 result = _owner_tenants()
             self.assertIn("not a json object", cm.output[0].lower())
-            self.assertIn("owner-platform", result)
+            self.assertIsNone(result)
         finally:
             if old_val is not None:
                 os.environ["AGENTHUB_OWNER_TENANTS_JSON"] = old_val
