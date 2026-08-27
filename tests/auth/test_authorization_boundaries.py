@@ -167,7 +167,21 @@ def test_jwt_retains_agent_identity_without_owner_derived_admin_role(authorizati
     from src.api.auth import resolve_auth_context
     from src.identity.jwt_tokens import issue_jwt
 
-    token = issue_jwt(subject="owner-dev", agent_id="agent-bound", scopes=["runtime.read"])["token"]
+    identity_storage.register_agent_identity(
+        agent_id="agent-bound",
+        owner="owner-dev",
+        tenant_id="tenant-a",
+        credential_type="api_key",
+    )
+    _, identity_generation, _ = identity_storage.get_agent_identity_auth_snapshot("agent-bound")
+    assert identity_generation is not None
+    token = issue_jwt(
+        subject="owner-dev",
+        agent_id="agent-bound",
+        tenant_id="tenant-a",
+        identity_generation=identity_generation,
+        scopes=["runtime.read"],
+    )["token"]
     context = resolve_auth_context(authorization=f"Bearer {token}", tenant_id="tenant-a")
 
     assert context is not None
@@ -177,6 +191,7 @@ def test_jwt_retains_agent_identity_without_owner_derived_admin_role(authorizati
 
 
 def test_every_registered_operation_has_an_explicit_policy(authorization_runtime: None) -> None:
-    denied = [row for row in route_policy_map(app.routes) if row["classification"] == "denied"]
+    routes: list[object] = list(app.routes)
+    denied = [row for row in route_policy_map(routes) if row["classification"] == "denied"]
 
     assert denied == []

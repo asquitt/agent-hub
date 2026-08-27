@@ -181,6 +181,7 @@ def post_token(
     jwt_result = issue_jwt(
         subject=str(client["owner"]),
         agent_id=client_id,
+        tenant_id=str(client["tenant_id"]),
         scopes=granted_scopes or None,
         issuer=_DEFAULT_ISSUER,
         ttl_seconds=3600,

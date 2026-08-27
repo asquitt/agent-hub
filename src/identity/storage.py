@@ -146,6 +146,9 @@ class IdentityStorage:
         configuration_checksum: str | None = None,
     ) -> AgentIdentity:
         self._ensure_ready()
+        normalized_tenant_id = str(tenant_id).strip()
+        if not normalized_tenant_id:
+            raise ValueError("tenant_id is required")
         stored_metadata = dict(metadata or {})
         stored_metadata[_AUTH_GENERATION_KEY] = uuid4().hex
         with self._lock:
@@ -162,7 +165,7 @@ class IdentityStorage:
                         (
                             agent_id,
                             owner,
-                            tenant_id,
+                            normalized_tenant_id,
                             TENANCY_ACTIVE,
                             credential_type,
                             STATUS_ACTIVE,
@@ -264,7 +267,7 @@ class IdentityStorage:
         agent_id: str,
         *,
         ensure_generation: bool = False,
-    ) -> tuple[AgentIdentity, str | None]:
+    ) -> tuple[AgentIdentity, str | None, str | None]:
         self._ensure_ready()
         with self._lock:
             assert self._conn is not None
@@ -290,7 +293,8 @@ class IdentityStorage:
                         "UPDATE agent_identities SET metadata_json = ? WHERE agent_id = ?",
                         (json.dumps(stored_metadata, sort_keys=True), agent_id),
                     )
-            return _row_to_identity(row), generation
+            tenant_id = str(row["tenant_id"]) if row["tenant_id"] is not None else None
+            return _row_to_identity(row), generation, tenant_id
 
     def update_identity_status(self, agent_id: str, status: str) -> AgentIdentity:
         if status not in VALID_IDENTITY_STATUSES:
@@ -1074,7 +1078,7 @@ def get_agent_identity_auth_snapshot(
     agent_id: str,
     *,
     ensure_generation: bool = False,
-) -> tuple[AgentIdentity, str | None]:
+) -> tuple[AgentIdentity, str | None, str | None]:
     return _STORAGE.get_identity_auth_snapshot(agent_id, ensure_generation=ensure_generation)
 
 

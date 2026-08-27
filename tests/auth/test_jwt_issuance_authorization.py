@@ -76,6 +76,7 @@ def jwt_issuance_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dic
         register_agent_identity(
             agent_id=agent_id,
             owner=owner,
+            tenant_id="tenant-a",
             credential_type=CREDENTIAL_TYPE_API_KEY,
         )
 

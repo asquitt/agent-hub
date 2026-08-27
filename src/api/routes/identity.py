@@ -301,7 +301,6 @@ def post_issue_credential(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-
 @router.post("/credentials/{credential_id}/rotate")
 def post_rotate_credential(
     credential_id: str,

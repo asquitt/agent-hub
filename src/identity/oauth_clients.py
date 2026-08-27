@@ -76,10 +76,18 @@ def _normalize_redirect_uris(redirect_uris: list[str] | None) -> list[str]:
     return sorted(set(normalized))
 
 
+def _normalize_authority(value: str, *, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} is required")
+    return value.strip()
+
+
 def _validated_record(record: dict[str, Any]) -> dict[str, Any] | None:
     client_id = record.get("client_id")
     secret_hash = record.get("client_secret_hash")
     client_name = record.get("client_name")
+    owner = record.get("owner")
+    tenant_id = record.get("tenant_id")
     created_at = record.get("created_at")
     if not isinstance(client_id, str) or not client_id:
         return None
@@ -91,14 +99,16 @@ def _validated_record(record: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if not isinstance(client_name, str) or not client_name:
         return None
+    if not isinstance(owner, str) or not owner:
+        return None
+    if not isinstance(tenant_id, str) or not tenant_id:
+        return None
     if not isinstance(created_at, int) or isinstance(created_at, bool):
         return None
 
     raw_grants = record.get("grant_types")
     raw_scope = record.get("scope")
     raw_redirect_uris = record.get("redirect_uris")
-    owner = record.get("owner")
-    tenant_id = record.get("tenant_id")
     if not isinstance(raw_grants, list) or not isinstance(raw_scope, str) or not isinstance(raw_redirect_uris, list):
         return None
     if not isinstance(owner, str) or not owner.strip():
@@ -129,11 +139,11 @@ def _public_record(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "client_id": record["client_id"],
         "client_name": record["client_name"],
+        "owner": record["owner"],
+        "tenant_id": record["tenant_id"],
         "grant_types": list(record["grant_types"]),
         "scope": record["scope"],
         "redirect_uris": list(record["redirect_uris"]),
-        "owner": record["owner"],
-        "tenant_id": record["tenant_id"],
     }
 
 
@@ -177,6 +187,8 @@ class OAuthClientStore:
         if not isinstance(tenant_id, str) or not tenant_id.strip():
             raise ValueError("tenant_id is required")
 
+        normalized_owner = _normalize_authority(owner, field_name="owner")
+        normalized_tenant_id = _normalize_authority(tenant_id, field_name="tenant_id")
         normalized_grants = _normalize_grant_types(grant_types)
         normalized_scope = _normalize_scope(scope)
         registrar_scopes = {str(item).strip() for item in authorized_scopes if str(item).strip()}
@@ -197,11 +209,11 @@ class OAuthClientStore:
                 "client_id": client_id,
                 "client_secret_hash": secret_hash,
                 "client_name": client_name.strip(),
+                "owner": normalized_owner,
+                "tenant_id": normalized_tenant_id,
                 "grant_types": normalized_grants,
                 "scope": normalized_scope,
                 "redirect_uris": normalized_redirect_uris,
-                "owner": owner.strip(),
-                "tenant_id": tenant_id.strip(),
                 "created_at": utc_now_epoch(),
             }
             records.append(record)

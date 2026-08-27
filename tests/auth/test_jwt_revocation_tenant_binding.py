@@ -124,7 +124,7 @@ def test_inactive_agent_jwt_is_denied_on_the_next_request(jwt_auth_runtime: None
 def test_agent_jwt_owner_must_match_current_identity_owner(jwt_auth_runtime: None) -> None:
     with TestClient(app) as client:
         _register_agent(client)
-        _, identity_generation = get_agent_identity_auth_snapshot("agent-a")
+        _, identity_generation, _ = get_agent_identity_auth_snapshot("agent-a")
         assert identity_generation is not None
         token = issue_jwt(
             subject="owner-b",
@@ -141,6 +141,18 @@ def test_request_tenant_cannot_override_signed_agent_tenant(jwt_auth_runtime: No
         _register_agent(client)
         token = _issue_agent_jwt(client, tenant_id="tenant-a")
         _assert_agent_request_denied(client, token, tenant_id="tenant-b")
+
+
+def test_agent_jwt_issuance_must_match_persisted_identity_tenant(jwt_auth_runtime: None) -> None:
+    with TestClient(app) as client:
+        _register_agent(client)
+        response = client.post(
+            "/v1/identity/tokens/jwt",
+            json={"agent_id": "agent-a", "scopes": ["read"]},
+            headers=_api_headers(tenant_id="tenant-b"),
+        )
+
+    assert response.status_code == 403, response.text
 
 
 def test_tenantless_legacy_agent_jwt_fails_closed(jwt_auth_runtime: None) -> None:
@@ -187,34 +199,88 @@ def test_old_agent_jwt_stays_denied_after_reactivation(
         _assert_agent_request_allowed(client, replacement_token)
 
 
-def test_registered_oauth_client_jwt_remains_non_agent_auth(jwt_auth_runtime: None) -> None:
-    with TestClient(app) as client:
-        registered = client.post(
-            "/v1/oauth/register",
-            json={"client_name": "integration", "scope": "read"},
-            headers=_api_headers(),
-        )
-        assert registered.status_code == 200, registered.text
-        client_record = registered.json()
+def _register_oauth_client(client: TestClient) -> dict[str, object]:
+    registered = client.post(
+        "/v1/oauth/register",
+        json={"client_name": "integration", "scope": "read"},
+        headers=_api_headers(),
+    )
+    assert registered.status_code == 200, registered.text
+    return registered.json()
 
-        issued = client.post(
-            "/v1/oauth/token",
-            data={
-                "grant_type": "client_credentials",
-                "client_id": client_record["client_id"],
-                "client_secret": client_record["client_secret"],
-                "scope": "read",
-            },
-        )
-        assert issued.status_code == 200, issued.text
-        token = str(issued.json()["access_token"])
+
+def _issue_oauth_token(client: TestClient, client_record: dict[str, object]) -> str:
+    issued = client.post(
+        "/v1/oauth/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": str(client_record["client_id"]),
+            "client_secret": str(client_record["client_secret"]),
+            "scope": "read",
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    return str(issued.json()["access_token"])
+
+
+def test_registered_oauth_client_jwt_uses_registrar_owner_and_tenant(jwt_auth_runtime: None) -> None:
+    with TestClient(app) as client:
+        client_record = _register_oauth_client(client)
+        token = _issue_oauth_token(client, client_record)
 
         context = resolve_auth_context(
             authorization=f"Bearer {token}",
-            tenant_id="tenant-default",
+            tenant_id="tenant-a",
         )
 
+    claims = verify_jwt(token, issuer="urn:agenthub:registry")
+    assert claims["sub"] == "owner-a"
+    assert claims["agent_id"] == client_record["client_id"]
+    assert claims["tenant_id"] == "tenant-a"
     assert context is not None
-    assert context.owner == client_record["client_id"]
+    assert context.owner == "owner-a"
     assert context.agent_id == client_record["client_id"]
-    assert context.tenant_id == "tenant-default"
+    assert context.tenant_id == "tenant-a"
+
+
+def test_request_tenant_cannot_override_signed_oauth_tenant(jwt_auth_runtime: None) -> None:
+    with TestClient(app) as client:
+        client_record = _register_oauth_client(client)
+        token = _issue_oauth_token(client, client_record)
+
+        _assert_agent_request_denied(client, token, tenant_id="tenant-b")
+
+
+@pytest.mark.parametrize(
+    ("subject", "tenant_id"),
+    [("owner-b", "tenant-a"), ("owner-a", "tenant-b")],
+)
+def test_oauth_jwt_claims_must_match_durable_client_owner_and_tenant(
+    jwt_auth_runtime: None,
+    subject: str,
+    tenant_id: str,
+) -> None:
+    with TestClient(app) as client:
+        client_record = _register_oauth_client(client)
+        token = issue_jwt(
+            subject=subject,
+            agent_id=str(client_record["client_id"]),
+            tenant_id=tenant_id,
+            scopes=["read"],
+            issuer="urn:agenthub:registry",
+        )["token"]
+
+        _assert_agent_request_denied(client, token, tenant_id=tenant_id)
+
+
+def test_tenantless_legacy_oauth_jwt_fails_closed(jwt_auth_runtime: None) -> None:
+    with TestClient(app) as client:
+        client_record = _register_oauth_client(client)
+        token = issue_jwt(
+            subject="owner-a",
+            agent_id=str(client_record["client_id"]),
+            scopes=["read"],
+            issuer="urn:agenthub:registry",
+        )["token"]
+
+        _assert_agent_request_denied(client, token)

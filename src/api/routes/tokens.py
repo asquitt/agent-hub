@@ -57,7 +57,7 @@ def _authorize_jwt_issuance(request: IssueJWTRequest, context: AuthContext) -> t
         raise HTTPException(status_code=403, detail="JWT issuance requires an authorization context")
 
     try:
-        identity, identity_generation = get_agent_identity_auth_snapshot(
+        identity, identity_generation, identity_tenant_id = get_agent_identity_auth_snapshot(
             request.agent_id,
             ensure_generation=True,
         )
@@ -68,6 +68,8 @@ def _authorize_jwt_issuance(request: IssueJWTRequest, context: AuthContext) -> t
         raise HTTPException(status_code=403, detail="agent identity is not active")
     if identity["owner"] != context.owner:
         raise HTTPException(status_code=403, detail="agent identity belongs to another owner")
+    if identity_tenant_id is None or identity_tenant_id != context.tenant_id:
+        raise HTTPException(status_code=403, detail="agent identity belongs to another tenant")
     if context.agent_id is not None and context.agent_id != request.agent_id:
         raise HTTPException(status_code=403, detail="agent principal cannot issue a token for another agent")
 
