@@ -1,6 +1,7 @@
 """OAuth 2.1 dynamic client storage and validation."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 import hashlib
 import hmac
 import os
@@ -52,6 +53,18 @@ def _normalize_scope(scope: str | None) -> str:
     return " ".join(sorted(set(scope.split())))
 
 
+def _scope_allowed(scope: str, authorized_scopes: set[str]) -> bool:
+    if "*" in authorized_scopes or scope in authorized_scopes:
+        return True
+    namespace = scope.split(".", 1)[0]
+    return f"{namespace}.*" in authorized_scopes
+
+
+def _created_at_sort_key(record: dict[str, Any]) -> int:
+    created_at = record.get("created_at")
+    return created_at if isinstance(created_at, int) and not isinstance(created_at, bool) else -1
+
+
 def _normalize_redirect_uris(redirect_uris: list[str] | None) -> list[str]:
     if redirect_uris is None:
         return []
@@ -84,7 +97,13 @@ def _validated_record(record: dict[str, Any]) -> dict[str, Any] | None:
     raw_grants = record.get("grant_types")
     raw_scope = record.get("scope")
     raw_redirect_uris = record.get("redirect_uris")
+    owner = record.get("owner")
+    tenant_id = record.get("tenant_id")
     if not isinstance(raw_grants, list) or not isinstance(raw_scope, str) or not isinstance(raw_redirect_uris, list):
+        return None
+    if not isinstance(owner, str) or not owner.strip():
+        return None
+    if not isinstance(tenant_id, str) or not tenant_id.strip():
         return None
     try:
         grant_types = _normalize_grant_types(raw_grants)
@@ -100,6 +119,8 @@ def _validated_record(record: dict[str, Any]) -> dict[str, Any] | None:
         "grant_types": grant_types,
         "scope": scope,
         "redirect_uris": redirect_uris,
+        "owner": owner.strip(),
+        "tenant_id": tenant_id.strip(),
         "created_at": created_at,
     }
 
@@ -111,6 +132,8 @@ def _public_record(record: dict[str, Any]) -> dict[str, Any]:
         "grant_types": list(record["grant_types"]),
         "scope": record["scope"],
         "redirect_uris": list(record["redirect_uris"]),
+        "owner": record["owner"],
+        "tenant_id": record["tenant_id"],
     }
 
 
@@ -143,12 +166,22 @@ class OAuthClientStore:
         grant_types: list[str] | None = None,
         scope: str | None = None,
         redirect_uris: list[str] | None = None,
+        owner: str,
+        tenant_id: str,
+        authorized_scopes: Iterable[str],
     ) -> dict[str, Any]:
         if not isinstance(client_name, str) or not client_name.strip():
             raise ValueError("client_name is required")
+        if not isinstance(owner, str) or not owner.strip():
+            raise ValueError("owner is required")
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise ValueError("tenant_id is required")
 
         normalized_grants = _normalize_grant_types(grant_types)
         normalized_scope = _normalize_scope(scope)
+        registrar_scopes = {str(item).strip() for item in authorized_scopes if str(item).strip()}
+        if any(not _scope_allowed(item, registrar_scopes) for item in normalized_scope.split()):
+            raise ValueError("requested scope exceeds registrar authority")
         normalized_redirect_uris = _normalize_redirect_uris(redirect_uris)
         client_secret = secrets.token_urlsafe(48)
         secret_hash = hashlib.sha256(client_secret.encode("utf-8")).hexdigest()
@@ -167,15 +200,13 @@ class OAuthClientStore:
                 "grant_types": normalized_grants,
                 "scope": normalized_scope,
                 "redirect_uris": normalized_redirect_uris,
+                "owner": owner.strip(),
+                "tenant_id": tenant_id.strip(),
                 "created_at": utc_now_epoch(),
             }
             records.append(record)
             if len(records) > _MAX_CLIENTS:
-                records.sort(
-                    key=lambda item: item.get("created_at")
-                    if isinstance(item.get("created_at"), int)
-                    else -1
-                )
+                records.sort(key=_created_at_sort_key)
                 records = records[-_MAX_CLIENTS:]
             write_collection(
                 db_path=self._path(),

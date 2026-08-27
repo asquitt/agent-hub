@@ -22,6 +22,23 @@ def isolate_oauth_clients(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
     identity_db = tmp_path / "identity.db"
     monkeypatch.setenv("AGENTHUB_IDENTITY_DB_PATH", str(identity_db))
     monkeypatch.setenv("AGENTHUB_IDENTITY_SIGNING_SECRET", "oauth-containment-test-signing-secret-32-bytes")
+    monkeypatch.setenv(
+        "AGENTHUB_API_KEYS_JSON",
+        json.dumps(
+            {
+                "dev-owner-key": "owner-dev",
+                "limited-oauth-key": {
+                    "owner": "owner-limited",
+                    "scopes": ["oauth.register", "read"],
+                    "roles": ["member"],
+                },
+            }
+        ),
+    )
+    monkeypatch.setenv(
+        "AGENTHUB_OWNER_TENANTS_JSON",
+        json.dumps({"owner-dev": ["tenant-default"], "owner-limited": ["tenant-a"]}),
+    )
     OAUTH_CLIENT_STORE.reset_for_tests(db_path=identity_db)
     return identity_db
 
@@ -68,6 +85,43 @@ def test_token_rejects_scope_expansion_without_issuing_token() -> None:
     assert "access_token" not in response.json()
 
 
+def test_registration_rejects_scope_outside_registrar_authority() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/oauth/register",
+            json={"client_name": "scope-amplifier", "grant_types": ["client_credentials"], "scope": "*"},
+            headers={"X-API-Key": "limited-oauth-key", "X-Tenant-ID": "tenant-a"},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"] == "invalid_scope"
+
+
+def test_client_and_token_preserve_registrar_owner_and_tenant() -> None:
+    with TestClient(app) as client:
+        registration_response = client.post(
+            "/v1/oauth/register",
+            json={"client_name": "tenant-client", "grant_types": ["client_credentials"], "scope": "read"},
+            headers={"X-API-Key": "limited-oauth-key", "X-Tenant-ID": "tenant-a"},
+        )
+        assert registration_response.status_code == 200, registration_response.text
+        registration = registration_response.json()
+        token_response = _token(client, registration, scope="read")
+
+    assert registration["owner"] == "owner-limited"
+    assert registration["tenant_id"] == "tenant-a"
+    persisted = OAUTH_CLIENT_STORE.get_client(str(registration["client_id"]))
+    assert persisted is not None
+    assert persisted["owner"] == "owner-limited"
+    assert persisted["tenant_id"] == "tenant-a"
+    assert token_response.status_code == 200, token_response.text
+    claims = verify_jwt(token_response.json()["access_token"], issuer="urn:agenthub:registry")
+    assert claims["sub"] == "owner-limited"
+    assert claims["agent_id"] == registration["client_id"]
+    assert claims["tenant_id"] == "tenant-a"
+    assert claims["principal_type"] == "oauth_client"
+
+
 def test_token_rejects_unimplemented_grant() -> None:
     with TestClient(app) as client:
         registration = _register(client)
@@ -75,8 +129,8 @@ def test_token_rejects_unimplemented_grant() -> None:
             "/v1/oauth/token",
             data={
                 "grant_type": "authorization_code",
-                "client_id": registration["client_id"],
-                "client_secret": registration["client_secret"],
+                "client_id": str(registration["client_id"]),
+                "client_secret": str(registration["client_secret"]),
             },
         )
 
@@ -125,6 +179,9 @@ def test_client_record_persists_across_process_restart(isolate_oauth_clients: Pa
         client_name="persistent-client",
         grant_types=["client_credentials"],
         scope="read",
+        owner="owner-persistent",
+        tenant_id="tenant-persistent",
+        authorized_scopes=["read"],
     )
 
     with sqlite3.connect(isolate_oauth_clients) as connection:
@@ -168,6 +225,8 @@ def test_client_record_persists_across_process_restart(isolate_oauth_clients: Pa
 
     assert authenticated is not None
     assert authenticated["scope"] == "read"
+    assert authenticated["owner"] == "owner-persistent"
+    assert authenticated["tenant_id"] == "tenant-persistent"
     assert "client_secret" not in authenticated
     assert "client_secret_hash" not in authenticated
     assert OAuthClientStore(db_path=isolate_oauth_clients).authenticate_client(
@@ -206,4 +265,21 @@ def test_store_rejects_unsupported_grants_directly(isolate_oauth_clients: Path) 
             client_name="unsupported-client",
             grant_types=["authorization_code"],
             scope="read",
+            owner="owner-test",
+            tenant_id="tenant-test",
+            authorized_scopes=["read"],
+        )
+
+
+def test_store_rejects_scope_outside_registrar_authority(isolate_oauth_clients: Path) -> None:
+    store = OAuthClientStore(db_path=isolate_oauth_clients)
+
+    with pytest.raises(ValueError, match="requested scope exceeds registrar authority"):
+        store.register_client(
+            client_name="direct-scope-amplifier",
+            grant_types=["client_credentials"],
+            scope="read runtime.execute",
+            owner="owner-test",
+            tenant_id="tenant-test",
+            authorized_scopes=["read"],
         )

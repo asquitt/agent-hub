@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.api.auth import require_api_key
+from src.api.auth import AuthContext, require_api_key
 from src.identity.jwt_tokens import issue_jwt
 from src.identity.oauth_clients import OAUTH_CLIENT_STORE
 
@@ -89,7 +89,7 @@ class RegisterClientRequest(BaseModel):
 @router.post("/v1/oauth/register")
 def post_register_client(
     request: RegisterClientRequest,
-    _owner: str = Depends(require_api_key),
+    context: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Dynamic client registration (RFC 7591)."""
     unsupported = sorted(set(request.grant_types) - _SUPPORTED_GRANT_TYPES)
@@ -101,12 +101,24 @@ def post_register_client(
                 "error_description": f"unsupported grant_type: {unsupported[0]}",
             },
         )
+    requested_scopes = sorted(set((request.scope or "").split()))
+    if any(not context.allows_scope(scope) for scope in requested_scopes):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "invalid_scope",
+                "error_description": "requested scope exceeds registrar authority",
+            },
+        )
     try:
         result = OAUTH_CLIENT_STORE.register_client(
             client_name=request.client_name,
             grant_types=request.grant_types,
             scope=request.scope,
             redirect_uris=request.redirect_uris,
+            owner=context.owner,
+            tenant_id=context.tenant_id,
+            authorized_scopes=context.scopes,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -167,11 +179,15 @@ def post_token(
     granted_scopes = sorted(requested_scopes or registered_scopes)
 
     jwt_result = issue_jwt(
-        subject=client_id,
+        subject=str(client["owner"]),
         agent_id=client_id,
         scopes=granted_scopes or None,
         issuer=_DEFAULT_ISSUER,
         ttl_seconds=3600,
+        extra_claims={
+            "tenant_id": str(client["tenant_id"]),
+            "principal_type": "oauth_client",
+        },
     )
 
     response: dict[str, Any] = {
