@@ -109,3 +109,4 @@
 | S90 | CI expansion (identity/runtime tests, pip-audit) | DONE | 2026-02-14 | Platform | Yes | — |
 | S163 | P0 release containment and identity-security baseline | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S163.md |
 | S164 | MCP Streamable HTTP discovery gateway | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S164.md |
+| S165 | Durable capability-token, DID, and VC authority | IN_PROGRESS | 2026-08-27 | Identity | Yes | docs/evidence/S165.md |

@@ -2,14 +2,15 @@
 
 Split from identity.py to keep under 800-line limit.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.api.auth import require_api_key
+from src.api.auth import AuthContext, require_api_key
 from src.identity.analytics import (
     get_credential_statistics,
     get_delegation_statistics,
@@ -37,7 +38,10 @@ from src.identity.lifecycle import (
 from src.identity.capability_tokens import (
     add_third_party_block,
     attenuate_token,
+    get_capability_token,
     issue_capability_token,
+    list_capability_tokens,
+    revoke_capability_token,
     verify_capability_token,
 )
 from src.identity.spiffe import (
@@ -93,8 +97,12 @@ def post_agent_svid(
     _owner: str = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Issue a self-signed X.509 SVID for an agent."""
-    spiffe_id = generate_spiffe_id(agent_id=agent_id, workload_path=request.workload_path)
-    return generate_svid(agent_id=agent_id, spiffe_id=spiffe_id, ttl_hours=request.ttl_hours)
+    spiffe_id = generate_spiffe_id(
+        agent_id=agent_id, workload_path=request.workload_path
+    )
+    return generate_svid(
+        agent_id=agent_id, spiffe_id=spiffe_id, ttl_hours=request.ttl_hours
+    )
 
 
 @router.post("/spiffe/verify")
@@ -126,11 +134,53 @@ class IssueCapabilityTokenRequest(BaseModel):
     caveats: list[dict[str, Any]] | None = None
     ttl_seconds: int = Field(default=3600, ge=60, le=86400)
     facts: dict[str, Any] | None = None
+    audience: str = Field(min_length=1, max_length=512)
+    resource: str = Field(min_length=1, max_length=1024)
+
+    @field_validator("caveats")
+    @classmethod
+    def validate_caveats(
+        cls,
+        caveats: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]] | None:
+        if caveats is None:
+            return None
+        for caveat in caveats:
+            caveat_type = caveat.get("type")
+            list_field = (
+                {
+                    "ip": "allowed_ips",
+                    "resource": "resources",
+                    "scope": "scopes",
+                    "agent": "agent_ids",
+                }.get(caveat_type)
+                if isinstance(caveat_type, str)
+                else None
+            )
+            if list_field is not None:
+                values = caveat.get(list_field)
+                if (
+                    not isinstance(values, list)
+                    or not values
+                    or any(
+                        not isinstance(value, str) or not value.strip()
+                        for value in values
+                    )
+                ):
+                    raise ValueError(
+                        f"{caveat_type} caveat requires non-empty {list_field}"
+                    )
+            elif caveat_type == "time":
+                if not isinstance(caveat.get("not_after"), (int, float)):
+                    raise ValueError("time caveat requires numeric not_after")
+            else:
+                raise ValueError("unsupported capability caveat type")
+        return caveats
 
 
 class AttenuateCapabilityTokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    token: dict[str, Any]
+    token: dict[str, Any] = Field(min_length=1)
     scopes: list[str] | None = None
     caveats: list[dict[str, Any]] | None = None
     attenuator_agent_id: str = Field(min_length=1, max_length=256)
@@ -138,10 +188,10 @@ class AttenuateCapabilityTokenRequest(BaseModel):
 
 class VerifyCapabilityTokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    token: dict[str, Any]
+    token: dict[str, Any] = Field(min_length=1)
     required_scope: str | None = None
-    source_ip: str | None = None
-    resource: str | None = None
+    audience: str | None = Field(default=None, min_length=1, max_length=512)
+    resource: str | None = Field(default=None, min_length=1, max_length=1024)
 
 
 class ThirdPartyBlockRequest(BaseModel):
@@ -151,10 +201,15 @@ class ThirdPartyBlockRequest(BaseModel):
     verification_data: dict[str, Any] = Field(default_factory=dict)
 
 
+class RevokeCapabilityTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(default="manual", min_length=1, max_length=256)
+
+
 @router.post("/capability-tokens/issue")
 def post_issue_capability_token(
     request: IssueCapabilityTokenRequest,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Issue a new capability token with an authority block."""
     try:
@@ -165,15 +220,21 @@ def post_issue_capability_token(
             caveats=request.caveats,
             ttl_seconds=request.ttl_seconds,
             facts=request.facts,
+            audience=request.audience,
+            resource=request.resource,
+            actor=actor,
         )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, PermissionError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        status = 403 if isinstance(exc, PermissionError) else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 @router.post("/capability-tokens/attenuate")
 def post_attenuate_capability_token(
     request: AttenuateCapabilityTokenRequest,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Attenuate a capability token by adding restrictions."""
     try:
@@ -182,6 +243,7 @@ def post_attenuate_capability_token(
             scopes=request.scopes,
             caveats=request.caveats,
             attenuator_agent_id=request.attenuator_agent_id,
+            actor=actor,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -192,16 +254,23 @@ def post_attenuate_capability_token(
 @router.post("/capability-tokens/verify")
 def post_verify_capability_token(
     request: VerifyCapabilityTokenRequest,
-    _owner: str = Depends(require_api_key),
+    http_request: Request,
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Verify a capability token's signatures and caveats."""
     try:
         return verify_capability_token(
             request.token,
             required_scope=request.required_scope,
-            source_ip=request.source_ip,
+            source_ip=http_request.client.host
+            if http_request.client is not None
+            else None,
+            audience=request.audience,
             resource=request.resource,
+            actor=actor,
         )
+    except KeyError:
+        return {"valid": False, "reason": "capability token not found"}
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -209,7 +278,7 @@ def post_verify_capability_token(
 @router.post("/capability-tokens/third-party-block")
 def post_add_third_party_block(
     request: ThirdPartyBlockRequest,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Add a third-party verification block to a capability token."""
     try:
@@ -217,9 +286,42 @@ def post_add_third_party_block(
             request.token,
             verifier_id=request.verifier_id,
             verification_data=request.verification_data,
+            actor=actor,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/capability-tokens")
+def get_list_capability_tokens(
+    active_only: bool = True,
+    actor: AuthContext = Depends(require_api_key),
+) -> dict[str, Any]:
+    tokens = list_capability_tokens(actor=actor, active_only=active_only)
+    return {"count": len(tokens), "tokens": tokens}
+
+
+@router.get("/capability-tokens/{token_id}")
+def get_capability_token_record(
+    token_id: str,
+    actor: AuthContext = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        return get_capability_token(token_id, actor=actor)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/capability-tokens/{token_id}/revoke")
+def post_revoke_capability_token(
+    token_id: str,
+    request: RevokeCapabilityTokenRequest,
+    actor: AuthContext = Depends(require_api_key),
+) -> dict[str, Any]:
+    try:
+        return revoke_capability_token(token_id, actor=actor, reason=request.reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 # ── Lifecycle Orchestration ─────────────────────────────────────────
@@ -369,11 +471,19 @@ def get_analytics_health(
 # ── DIDs & Verifiable Credentials ─────────────────────────────────
 
 
+class DidServiceEndpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: str = Field(default="AgentService", min_length=1, max_length=128)
+    endpoint: str = Field(min_length=1, max_length=2048)
+
+
 class CreateDidRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     agent_id: str = Field(min_length=1, max_length=256)
     controller: str | None = Field(default=None, max_length=512)
-    service_endpoints: list[dict[str, str]] | None = None
+    service_endpoints: list[DidServiceEndpoint] | None = Field(
+        default=None, max_length=20
+    )
 
 
 class IssueVcRequest(BaseModel):
@@ -398,25 +508,38 @@ class RevokeVcRequest(BaseModel):
 @router.post("/dids")
 def post_create_did(
     request: CreateDidRequest,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Create a DID Document for an agent."""
-    return create_did(
-        agent_id=request.agent_id,
-        controller=request.controller,
-        service_endpoints=request.service_endpoints,
-    )
+    try:
+        return create_did(
+            agent_id=request.agent_id,
+            controller=request.controller,
+            service_endpoints=(
+                [endpoint.model_dump() for endpoint in request.service_endpoints]
+                if request.service_endpoints is not None
+                else None
+            ),
+            actor=actor,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        status = 409 if "deactivated" in str(exc) else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 @router.get("/dids/{did_suffix}/resolve")
 def get_resolve_did(
     did_suffix: str,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Resolve a DID to its DID Document."""
     did = f"did:agenthub:{did_suffix}"
     try:
-        return resolve_did(did)
+        return resolve_did(did, actor=actor)
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -425,12 +548,12 @@ def get_resolve_did(
 def post_deactivate_did(
     did_suffix: str,
     request: DeactivateDidRequest,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Deactivate a DID."""
     did = f"did:agenthub:{did_suffix}"
     try:
-        return deactivate_did(did, reason=request.reason)
+        return deactivate_did(did, actor=actor, reason=request.reason)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -438,17 +561,17 @@ def post_deactivate_did(
 @router.get("/dids")
 def get_list_dids(
     active_only: bool = True,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """List all DID documents."""
-    dids = list_dids(active_only=active_only)
+    dids = list_dids(actor=actor, active_only=active_only)
     return {"count": len(dids), "dids": dids}
 
 
 @router.post("/vcs/issue")
 def post_issue_vc(
     request: IssueVcRequest,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Issue a Verifiable Credential."""
     try:
@@ -458,19 +581,24 @@ def post_issue_vc(
             credential_type=request.credential_type,
             claims=request.claims,
             ttl_seconds=request.ttl_seconds,
+            actor=actor,
         )
-    except (KeyError, ValueError) as exc:
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/vcs/{vc_id}/verify")
 def get_verify_vc(
     vc_id: str,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Verify a Verifiable Credential."""
     try:
-        return verify_verifiable_credential(f"urn:uuid:{vc_id}")
+        return verify_verifiable_credential(f"urn:uuid:{vc_id}", actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -479,11 +607,15 @@ def get_verify_vc(
 def post_revoke_vc(
     vc_id: str,
     request: RevokeVcRequest,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Revoke a Verifiable Credential."""
     try:
-        return revoke_verifiable_credential(f"urn:uuid:{vc_id}", reason=request.reason)
+        return revoke_verifiable_credential(
+            f"urn:uuid:{vc_id}",
+            actor=actor,
+            reason=request.reason,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -494,7 +626,7 @@ def get_list_vcs(
     subject_did: str | None = None,
     credential_type: str | None = None,
     active_only: bool = True,
-    _owner: str = Depends(require_api_key),
+    actor: AuthContext = Depends(require_api_key),
 ) -> dict[str, Any]:
     """List verifiable credentials."""
     vcs = list_verifiable_credentials(
@@ -502,6 +634,7 @@ def get_list_vcs(
         subject_did=subject_did,
         credential_type=credential_type,
         active_only=active_only,
+        actor=actor,
     )
     return {"count": len(vcs), "credentials": vcs}
 

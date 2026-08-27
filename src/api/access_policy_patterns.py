@@ -4,6 +4,7 @@ Extracted from access_policy.py to keep file sizes manageable.
 These tuples of compiled regexes are used by access_policy.py for
 route classification and idempotency checks.
 """
+
 from __future__ import annotations
 
 import re
@@ -164,6 +165,8 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/identity/capability-tokens/attenuate$"),
     re.compile(r"^/v1/identity/capability-tokens/verify$"),
     re.compile(r"^/v1/identity/capability-tokens/third-party-block$"),
+    re.compile(r"^/v1/identity/capability-tokens$"),
+    re.compile(r"^/v1/identity/capability-tokens/[^/]+$"),
     re.compile(r"^/v1/identity/lifecycle/provision$"),
     re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/rotate$"),
     re.compile(r"^/v1/identity/lifecycle/alerts/expiry$"),
@@ -411,6 +414,7 @@ IDEMPOTENCY_OPTIONAL_PATTERNS = (
     re.compile(r"^/v1/identity/capability-tokens/attenuate$"),
     re.compile(r"^/v1/identity/capability-tokens/verify$"),
     re.compile(r"^/v1/identity/capability-tokens/third-party-block$"),
+    re.compile(r"^/v1/identity/capability-tokens/[^/]+/revoke$"),
     re.compile(r"^/v1/identity/lifecycle/provision$"),
     re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/rotate$"),
     re.compile(r"^/v1/identity/lifecycle/agents/[^/]+/deprovision$"),
