@@ -45,6 +45,25 @@ def test_relay_policy_allows_exact_live_agent_capability() -> None:
     assert decision["allowed"] is True
 
 
+def test_relay_policy_denies_wildcard_only_capability_scope() -> None:
+    target = _target()
+    decision = evaluate_mcp_relay_policy(
+        actor=_context(),
+        target=target,
+        configured_target=target,
+        capability={
+            "valid": True,
+            "token_id": "cap-a",
+            "subject": "agent-a",
+            "effective_scopes": ["*"],
+        },
+        required_scope="mcp.tools.lookup.invoke",
+    )
+
+    assert decision["allowed"] is False
+    assert decision["violated_constraints"] == ["relay.capability_scope_denied"]
+
+
 def test_relay_policy_denies_api_key_config_drift_and_wrong_subject() -> None:
     target = _target()
     configured = {**target, "endpoint_digest": "changed"}

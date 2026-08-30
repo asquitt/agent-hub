@@ -135,7 +135,7 @@ def evaluate_mcp_relay_policy(
             )
         )
     effective_scopes = capability.get("effective_scopes", [])
-    if required_scope not in effective_scopes and "*" not in effective_scopes:
+    if required_scope not in effective_scopes:
         reasons.append(
             reason(
                 "relay.capability_scope_denied",

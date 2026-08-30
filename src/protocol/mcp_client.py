@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import httpx2
 from mcp.client.client import Client
@@ -16,6 +16,7 @@ from mcp.types import CallToolResult, Tool
 from src.relay.config import MCPRelayTarget
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
+MAX_MCP_RESPONSE_BYTES = 65_536
 
 
 class MCPRelayClientError(RuntimeError):
@@ -40,6 +41,76 @@ class MCPServerIdentityDriftError(MCPRelayClientError):
 class MCPPreDispatchError(MCPRelayClientError):
     code = "relay.upstream_pre_dispatch_failed"
     definite_failure = True
+
+
+class MCPResponseTooLargeError(MCPRelayClientError, httpx2.StreamError):
+    code = "relay.upstream_response_too_large"
+
+
+class _BoundedResponseStream(httpx2.AsyncByteStream):
+    def __init__(self, stream: httpx2.AsyncByteStream, *, max_bytes: int) -> None:
+        self._stream = stream
+        self._max_bytes = max_bytes
+        self._observed_bytes = 0
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        async for chunk in self._stream:
+            self._observed_bytes += len(chunk)
+            if self._observed_bytes > self._max_bytes:
+                await self._stream.aclose()
+                raise MCPResponseTooLargeError(
+                    f"MCP response exceeds {self._max_bytes} bytes"
+                )
+            yield chunk
+
+    async def aclose(self) -> None:
+        await self._stream.aclose()
+
+
+class _BoundedHTTPTransport(httpx2.AsyncBaseTransport):
+    def __init__(self, transport: httpx2.AsyncBaseTransport, *, max_bytes: int) -> None:
+        self._transport = transport
+        self._max_bytes = max_bytes
+
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        response = await self._transport.handle_async_request(request)
+        declared_lengths = response.headers.get_list("content-length")
+        if declared_lengths:
+            normalized = {value.strip() for value in declared_lengths}
+            if len(normalized) != 1 or not next(iter(normalized)).isdigit():
+                await response.aclose()
+                raise MCPResponseTooLargeError(
+                    "MCP response has an invalid Content-Length"
+                )
+            if int(next(iter(normalized))) > self._max_bytes:
+                await response.aclose()
+                raise MCPResponseTooLargeError(
+                    f"MCP response exceeds {self._max_bytes} bytes"
+                )
+        response.stream = _BoundedResponseStream(
+            cast(httpx2.AsyncByteStream, response.stream),
+            max_bytes=self._max_bytes,
+        )
+        return response
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
+
+
+def _find_response_too_large(
+    exc: BaseException,
+) -> MCPResponseTooLargeError | None:
+    if isinstance(exc, MCPResponseTooLargeError):
+        return exc
+    if isinstance(exc, BaseExceptionGroup):
+        matched_error: MCPResponseTooLargeError | None = None
+        for nested in exc.exceptions:
+            matched = _find_response_too_large(nested)
+            if matched is None:
+                return None
+            matched_error = matched
+        return matched_error
+    return None
 
 
 def _canonical_json(value: object) -> str:
@@ -239,7 +310,10 @@ async def _configured_client(
 ) -> AsyncIterator[Client]:
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be greater than zero")
-    http_transport = httpx2.AsyncHTTPTransport(retries=0)
+    http_transport = _BoundedHTTPTransport(
+        httpx2.AsyncHTTPTransport(retries=0),
+        max_bytes=MAX_MCP_RESPONSE_BYTES,
+    )
     async with httpx2.AsyncClient(
         follow_redirects=False,
         timeout=httpx2.Timeout(timeout_seconds),
@@ -326,13 +400,23 @@ async def call_tool(
                 raise MCPRelayClientError(
                     f"unexpected MCP tools/call result type: {type(result).__name__}"
                 )
-            payload = result.model_dump(mode="json", by_alias=True, exclude_none=False)
+            serialized_result = result.model_dump_json(
+                by_alias=True,
+                exclude_none=False,
+            )
+            if len(serialized_result.encode("utf-8")) > MAX_MCP_RESPONSE_BYTES:
+                raise MCPResponseTooLargeError(
+                    f"MCP tools/call result exceeds {MAX_MCP_RESPONSE_BYTES} bytes"
+                )
+            payload = json.loads(serialized_result)
+            if not isinstance(payload, dict):  # pragma: no cover - pydantic contract
+                raise MCPRelayClientError("MCP tools/call result is not an object")
             return MCPCallOutcome(
                 inspection=inspection,
-                content=deepcopy(payload["content"]),
-                structured_content=deepcopy(payload.get("structuredContent")),
+                content=payload["content"],
+                structured_content=payload.get("structuredContent"),
                 is_error=bool(payload.get("isError", False)),
-                meta=deepcopy(payload.get("_meta")),
+                meta=payload.get("_meta"),
             )
     except (
         MCPToolNotFoundError,
@@ -343,6 +427,9 @@ async def call_tool(
         raise
     except Exception as exc:
         if tool_call_started:
+            oversized = _find_response_too_large(exc)
+            if oversized is not None:
+                raise oversized from exc
             raise
         raise MCPPreDispatchError(
             "MCP connection or discovery failed before tools/call"

@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, ConfigDict
 
 
@@ -36,6 +36,24 @@ def main() -> None:
         current = int(args.counter.read_text(encoding="utf-8"))
         args.counter.write_text(str(current + 1), encoding="utf-8")
         return LookupResult(answer=f"found:{q}")
+
+    @server.tool(
+        name="oversized_lookup",
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )
+    def oversized_lookup(q: str) -> CallToolResult:
+        current = int(args.counter.read_text(encoding="utf-8"))
+        args.counter.write_text(str(current + 1), encoding="utf-8")
+        return CallToolResult(
+            content=[TextContent(type="text", text="x" * 70_000)],
+            structured_content={"answer": f"found:{q}"},
+            is_error=False,
+        )
 
     server.run(
         "streamable-http",

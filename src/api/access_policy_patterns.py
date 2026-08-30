@@ -385,8 +385,10 @@ IDENTITY_PATTERNS = (
     re.compile(r"^/v1/policy-sim/simulations/[^/]+$"),
 )
 
-# Endpoints with local write semantics where idempotency is intentionally optional.
+# Endpoints exempt from the generic HTTP response-cache idempotency middleware.
+# Some routes, including the relay call below, enforce domain idempotency themselves.
 IDEMPOTENCY_OPTIONAL_PATTERNS = (
+    re.compile(r"^/v1/relay/mcp/call$"),
     re.compile(r"^/v1/relay/receipts/verify$"),
     re.compile(r"^/v1/auth/tokens$"),
     re.compile(r"^/v1/provenance/manifests/sign$"),

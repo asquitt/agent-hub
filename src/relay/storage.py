@@ -259,12 +259,19 @@ class RelayStorage:
                         )
                     self._conn.commit()
                     return self._invocation_row(existing), False
+                target = self._conn.execute(
+                    "SELECT * FROM relay_targets WHERE target_id = ?", (target_id,)
+                ).fetchone()
+                if target is None:
+                    raise KeyError(f"relay target not found: {target_id}")
+                target_snapshot = self._target_row(target)
                 self._conn.execute(
                     """
                     INSERT INTO relay_invocations(
                         invocation_id, owner, tenant_id, agent_id, idempotency_key,
-                        request_hash, target_id, capability_token_id, status, input_hash
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                        request_hash, target_id, capability_token_id, status, input_hash,
+                        target_snapshot_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                     """,
                     (
                         invocation_id,
@@ -276,6 +283,7 @@ class RelayStorage:
                         target_id,
                         capability_token_id,
                         input_hash,
+                        _json(target_snapshot),
                     ),
                 )
                 row = self._conn.execute(

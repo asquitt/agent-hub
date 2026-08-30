@@ -13,9 +13,12 @@ from mcp.types import CallToolResult, Implementation, TextContent, Tool
 
 from src.protocol import mcp_client
 from src.protocol.mcp_client import (
+    MAX_MCP_RESPONSE_BYTES,
     MCPPreDispatchError,
+    MCPResponseTooLargeError,
     MCPServerIdentityDriftError,
     MCPToolContractDriftError,
+    _BoundedHTTPTransport,
     _tool_contract,
     call_tool,
     inspect_target,
@@ -278,6 +281,24 @@ class _FakeSession:
         )
 
 
+class _OversizedFakeSession(_FakeSession):
+    async def call_tool(
+        self, name: str, arguments: dict[str, object], **kwargs: object
+    ) -> CallToolResult:
+        result = await super().call_tool(name, arguments, **kwargs)
+        return result.model_copy(
+            update={
+                "content": [
+                    TextContent(
+                        type="text",
+                        text="x" * (MAX_MCP_RESPONSE_BYTES + 1),
+                    )
+                ],
+                "structured_content": {"title": "small"},
+            }
+        )
+
+
 class _FakeClient:
     protocol_version = "2025-06-18"
     server_info = Implementation(
@@ -380,6 +401,29 @@ def test_call_freshly_lists_and_invokes_exactly_once(
     assert outcome.is_error is False
 
 
+def test_call_bounds_complete_result_before_application_copies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _FakeClient(_fake_tool())
+    fake.session = _OversizedFakeSession()
+    _install_fake_client(monkeypatch, fake)
+
+    with pytest.raises(MCPResponseTooLargeError, match="result exceeds"):
+        asyncio.run(
+            call_tool(
+                target,
+                arguments={"id": "item-1"},
+                expected_schema_digest=_tool_contract(fake.tool).schema_digest,
+                expected_server_name="upstream-catalog",
+                expected_server_version="1.4.2",
+                expected_protocol_version="2025-06-18",
+            )
+        )
+
+    assert fake.session.call_count == 1
+
+
 def test_call_blocks_fresh_schema_drift_before_remote_invocation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -452,6 +496,96 @@ def test_connection_failure_before_tools_call_is_definite_and_uncharged(
     assert exc_info.value.definite_failure is True
 
 
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"content-length": "1"},
+    ],
+)
+def test_bounded_transport_counts_streamed_bytes_when_length_is_missing_or_false(
+    headers: dict[str, str],
+) -> None:
+    class ChunkStream(mcp_client.httpx2.AsyncByteStream):
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"a" * MAX_MCP_RESPONSE_BYTES
+            yield b"b"
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    stream = ChunkStream()
+
+    class InnerTransport(mcp_client.httpx2.AsyncBaseTransport):
+        async def handle_async_request(
+            self, request: mcp_client.httpx2.Request
+        ) -> mcp_client.httpx2.Response:
+            return mcp_client.httpx2.Response(
+                200,
+                headers=headers,
+                stream=stream,
+                request=request,
+            )
+
+    async def read_response() -> None:
+        transport = _BoundedHTTPTransport(
+            InnerTransport(), max_bytes=MAX_MCP_RESPONSE_BYTES
+        )
+        request = mcp_client.httpx2.Request("POST", "https://mcp.example.test")
+        response = await transport.handle_async_request(request)
+        with pytest.raises(MCPResponseTooLargeError, match="response exceeds"):
+            await response.aread()
+
+    asyncio.run(read_response())
+    assert stream.closed is True
+
+
+@pytest.mark.parametrize(
+    "content_length",
+    [str(MAX_MCP_RESPONSE_BYTES + 1), "not-a-number", "10, 11"],
+)
+def test_bounded_transport_rejects_invalid_or_oversized_declared_length(
+    content_length: str,
+) -> None:
+    class EmptyStream(mcp_client.httpx2.AsyncByteStream):
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            if False:  # pragma: no cover
+                yield b""
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    stream = EmptyStream()
+
+    class InnerTransport(mcp_client.httpx2.AsyncBaseTransport):
+        async def handle_async_request(
+            self, request: mcp_client.httpx2.Request
+        ) -> mcp_client.httpx2.Response:
+            return mcp_client.httpx2.Response(
+                200,
+                headers={"content-length": content_length},
+                stream=stream,
+                request=request,
+            )
+
+    async def open_response() -> None:
+        transport = _BoundedHTTPTransport(
+            InnerTransport(), max_bytes=MAX_MCP_RESPONSE_BYTES
+        )
+        request = mcp_client.httpx2.Request("POST", "https://mcp.example.test")
+        with pytest.raises(MCPResponseTooLargeError):
+            await transport.handle_async_request(request)
+
+    asyncio.run(open_response())
+    assert stream.closed is True
+
+
 def test_transport_uses_official_stream_client_without_redirects_or_retries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -508,7 +642,10 @@ def test_transport_uses_official_stream_client_without_redirects_or_retries(
     http_client_kwargs = observed["http_client_kwargs"]
     assert http_client_kwargs["follow_redirects"] is False
     assert str(http_client_kwargs["timeout"]) == str(mcp_client.httpx2.Timeout(7.0))
-    assert isinstance(http_client_kwargs["transport"], FakeHTTPTransport)
+    bounded_transport = http_client_kwargs["transport"]
+    assert isinstance(bounded_transport, _BoundedHTTPTransport)
+    assert isinstance(bounded_transport._transport, FakeHTTPTransport)
+    assert bounded_transport._max_bytes == MAX_MCP_RESPONSE_BYTES
     assert http_client_kwargs["trust_env"] is False
     assert observed["stream_url"] == target.endpoint_url
     assert observed["stream_kwargs"]["http_client"] is observed["http_client"]

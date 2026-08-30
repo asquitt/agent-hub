@@ -133,6 +133,14 @@ def set_relay_target_enabled(
 @router.post("/mcp/call")
 async def call_mcp_tool(body: RelayCallRequest, request: Request) -> dict[str, Any]:
     idempotency_key = str(request.headers.get("Idempotency-Key", "")).strip()
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "relay.idempotency_required",
+                "message": "relay calls require an Idempotency-Key header",
+            },
+        )
     tenant_id = str(getattr(request.state, "agenthub_tenant_id", "tenant-default"))
     x_api_key = request.headers.get("X-API-Key")
     authorization = request.headers.get("Authorization")

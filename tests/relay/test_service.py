@@ -193,6 +193,56 @@ async def test_governed_call_succeeds_once_and_replays_stored_receipt(
 
 
 @pytest.mark.anyio
+async def test_wildcard_only_capability_is_denied_before_dispatch(
+    relay_runtime: tuple[RelayService, RelayStorage, FakeTransport],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, store, transport = relay_runtime
+    await service.import_target("catalog", actor=_context(admin=True))
+    store.set_budget(
+        owner="owner-a",
+        tenant_id="tenant-a",
+        capability_token_id="cap-a",
+        max_budget_usd=10.0,
+    )
+    monkeypatch.setattr(
+        "src.relay.service.verify_capability_token",
+        lambda *_args, **_kwargs: {
+            "valid": True,
+            "token_id": "cap-a",
+            "issuer": "agent-a",
+            "subject": "agent-a",
+            "audience": "agenthub://mcp-relay",
+            "resource": "urn:agenthub:mcp-relay:catalog:lookup",
+            "effective_scopes": ["*"],
+        },
+    )
+
+    with pytest.raises(RelayServiceError) as denied:
+        await service.invoke(
+            target_id="catalog",
+            capability_token={"token_id": "cap-a"},
+            arguments={"q": "invoice"},
+            idempotency_key="wildcard-only",
+            source_ip="127.0.0.1",
+            reauthenticate=_context,
+        )
+
+    assert denied.value.code == "relay.policy_denied"
+    assert denied.value.record is not None
+    assert denied.value.record["network_started_at"] is None
+    assert denied.value.record["policy"]["violated_constraints"] == [
+        "relay.capability_scope_denied"
+    ]
+    assert transport.call_count == 0
+    budget = store.get_budget(
+        owner="owner-a", tenant_id="tenant-a", capability_token_id="cap-a"
+    )
+    assert budget["reserved_usd"] == 0
+    assert budget["spent_usd"] == 0
+
+
+@pytest.mark.anyio
 async def test_import_maps_upstream_and_contract_failures_to_stable_errors(
     relay_runtime: tuple[RelayService, RelayStorage, FakeTransport],
 ) -> None:
@@ -430,6 +480,40 @@ async def test_restart_signs_terminal_recovery_left_without_receipt(
         reconciled[0]["receipt"]["payload"]["schema_digest"]
         == original_target["schema_digest"]
     )
+    assert restarted.reconcile_abandoned() == []
+
+
+@pytest.mark.anyio
+async def test_restart_signs_pre_dispatch_recovery_once(
+    relay_runtime: tuple[RelayService, RelayStorage, FakeTransport],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, store, _transport = relay_runtime
+    await _prepare(service, store, monkeypatch)
+    original_target = store.get_target("catalog")
+    invocation, created = store.reserve_invocation(
+        owner="owner-a",
+        tenant_id="tenant-a",
+        agent_id="agent-a",
+        idempotency_key="pre-dispatch-crash",
+        request_hash="request-hash",
+        target_id="catalog",
+        capability_token_id="cap-a",
+        input_hash="input-hash",
+    )
+    assert created is True
+    assert invocation["target_snapshot"] == original_target
+
+    restarted = RelayService(
+        transport=FakeTransport(), config_loader=_config, storage=store
+    )
+    reconciled = restarted.reconcile_abandoned()
+    assert len(reconciled) == 1
+    assert reconciled[0]["status"] == "failed"
+    assert reconciled[0]["error_code"] == "relay.recovered_before_dispatch"
+    assert reconciled[0]["receipt"]
+    assert verify_receipt(reconciled[0]["receipt"], receipt_public_jwk())["valid"]
+    assert reconciled[0]["receipt"]["payload"]["server_name"] == "catalog-server"
     assert restarted.reconcile_abandoned() == []
 
 
