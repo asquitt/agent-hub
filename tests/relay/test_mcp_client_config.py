@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import hashlib
 import json
 from collections.abc import AsyncIterator
@@ -501,6 +502,7 @@ def test_connection_failure_before_tools_call_is_definite_and_uncharged(
     [
         {},
         {"content-length": "1"},
+        {"content-encoding": "Identity"},
     ],
 )
 def test_bounded_transport_counts_streamed_bytes_when_length_is_missing_or_false(
@@ -540,6 +542,67 @@ def test_bounded_transport_counts_streamed_bytes_when_length_is_missing_or_false
             await response.aread()
 
     asyncio.run(read_response())
+    assert stream.closed is True
+
+
+@pytest.mark.parametrize("content_type", ["application/json", "text/event-stream"])
+@pytest.mark.parametrize(
+    "content_encoding",
+    ["gzip", "deflate", "br", "zstd", "gzip, identity", ""],
+)
+def test_bounded_transport_rejects_encoded_expansion_before_decoding(
+    content_type: str,
+    content_encoding: str,
+) -> None:
+    decoded = b"x" * (MAX_MCP_RESPONSE_BYTES * 4)
+    encoded = gzip.compress(decoded)
+    observed_request_headers: dict[str, str] = {}
+
+    class EncodedStream(mcp_client.httpx2.AsyncByteStream):
+        def __init__(self) -> None:
+            self.closed = False
+            self.iterated = False
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            self.iterated = True
+            yield encoded
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    stream = EncodedStream()
+
+    class InnerTransport(mcp_client.httpx2.AsyncBaseTransport):
+        async def handle_async_request(
+            self, request: mcp_client.httpx2.Request
+        ) -> mcp_client.httpx2.Response:
+            observed_request_headers.update(dict(request.headers))
+            return mcp_client.httpx2.Response(
+                200,
+                headers={
+                    "content-encoding": content_encoding,
+                    "content-length": str(len(encoded)),
+                    "content-type": content_type,
+                },
+                stream=stream,
+                request=request,
+            )
+
+    async def read_response() -> None:
+        transport = _BoundedHTTPTransport(
+            InnerTransport(), max_bytes=MAX_MCP_RESPONSE_BYTES
+        )
+        async with mcp_client.httpx2.AsyncClient(transport=transport) as client:
+            with pytest.raises(
+                MCPResponseTooLargeError, match="Content-Encoding must be identity"
+            ):
+                await client.get("https://mcp.example.test")
+
+    assert len(encoded) < MAX_MCP_RESPONSE_BYTES
+    assert len(decoded) > MAX_MCP_RESPONSE_BYTES
+    asyncio.run(read_response())
+    assert observed_request_headers["accept-encoding"] == "identity"
+    assert stream.iterated is False
     assert stream.closed is True
 
 

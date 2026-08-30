@@ -73,7 +73,20 @@ class _BoundedHTTPTransport(httpx2.AsyncBaseTransport):
         self._max_bytes = max_bytes
 
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        request.headers["Accept-Encoding"] = "identity"
         response = await self._transport.handle_async_request(request)
+        declared_encodings = response.headers.get_list("content-encoding")
+        if declared_encodings:
+            encodings = [
+                token.strip().lower()
+                for value in declared_encodings
+                for token in value.split(",")
+            ]
+            if not encodings or any(encoding != "identity" for encoding in encodings):
+                await response.aclose()
+                raise MCPResponseTooLargeError(
+                    "MCP response Content-Encoding must be identity"
+                )
         declared_lengths = response.headers.get_list("content-length")
         if declared_lengths:
             normalized = {value.strip() for value in declared_lengths}
