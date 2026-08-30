@@ -25,7 +25,9 @@ from src.api.auth import AuthContext
 _log = logging.getLogger("agenthub.access_policy")
 
 
-AccessClassification = Literal["public", "authenticated", "tenant_scoped", "admin_scoped", "denied"]
+AccessClassification = Literal[
+    "public", "authenticated", "tenant_scoped", "admin_scoped", "denied"
+]
 AccessMode = Literal["warn", "enforce"]
 
 DEFAULT_OWNER_TENANTS = {
@@ -104,7 +106,7 @@ def _route_family(path: str) -> str | None:
 
 
 _ACTION_SUFFIX = re.compile(
-    r"/(access|activate|attenuate|check|complete|consume|deactivate|decide|disable|execute|promote|"
+    r"/(access|activate|attenuate|call|check|complete|consume|deactivate|decide|disable|execute|promote|"
     r"reconcile|refresh|refund|register|remove|revoke|rotate|settle|sign|terminate|unregister|verify|vote)$"
 )
 
@@ -123,9 +125,15 @@ def _required_scopes(method: str, path: str, resource: str | None) -> tuple[str,
     return tuple(dict.fromkeys(scopes))
 
 
-def _route_access(classification: AccessClassification, method: str, path: str) -> RouteAccess:
+def _route_access(
+    classification: AccessClassification, method: str, path: str
+) -> RouteAccess:
     resource = _route_family(path)
-    scopes = () if classification in {"public", "denied"} else _required_scopes(method, path, resource)
+    scopes = (
+        ()
+        if classification in {"public", "denied"}
+        else _required_scopes(method, path, resource)
+    )
     return RouteAccess(
         classification,
         method=method,
@@ -171,10 +179,14 @@ def _owner_tenants() -> dict[str, list[str]] | None:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        _log.error("AGENTHUB_OWNER_TENANTS_JSON is malformed; denying tenant-scoped access")
+        _log.error(
+            "AGENTHUB_OWNER_TENANTS_JSON is malformed; denying tenant-scoped access"
+        )
         return None
     if not isinstance(parsed, dict):
-        _log.error("AGENTHUB_OWNER_TENANTS_JSON is not a JSON object; denying tenant-scoped access")
+        _log.error(
+            "AGENTHUB_OWNER_TENANTS_JSON is not a JSON object; denying tenant-scoped access"
+        )
         return None
 
     out: dict[str, list[str]] = {}
@@ -196,7 +208,10 @@ def _tenant_allowed(owner: str, tenant_id: str) -> bool:
     if not allowed:
         # Preserve the legacy tenant-default only when no explicit policy exists.
         # Once a policy is configured, omitted owners are denied rather than inferred.
-        return not os.getenv("AGENTHUB_OWNER_TENANTS_JSON") and tenant_id == "tenant-default"
+        return (
+            not os.getenv("AGENTHUB_OWNER_TENANTS_JSON")
+            and tenant_id == "tenant-default"
+        )
     return "*" in allowed or tenant_id in allowed
 
 
@@ -249,14 +264,20 @@ def evaluate_access(
     if classification_value == "public":
         return None
     if classification_value == "denied":
-        return AccessViolation(code="route.unclassified", message="route has no explicit access policy")
+        return AccessViolation(
+            code="route.unclassified", message="route has no explicit access policy"
+        )
     context = _as_context(owner)
     if context is None:
         return AccessViolation(code="auth.required", message="authentication required")
     if not _tenant_allowed(owner=context.owner, tenant_id=tenant_id):
-        return AccessViolation(code="tenant.forbidden", message="owner is not allowed for tenant scope")
+        return AccessViolation(
+            code="tenant.forbidden", message="owner is not allowed for tenant scope"
+        )
     if classification_value == "admin_scoped" and "admin" not in context.roles:
-        return AccessViolation(code="auth.admin_required", message="admin role required")
+        return AccessViolation(
+            code="auth.admin_required", message="admin role required"
+        )
     if route is not None and route.required_scopes:
         if not any(context.allows_scope(scope) for scope in route.required_scopes):
             return AccessViolation(
@@ -265,20 +286,43 @@ def evaluate_access(
             )
         resource_owner, lookup_failed = _resource_owner(route.path)
         if lookup_failed:
-            return AccessViolation(code="authz.unavailable", message="resource authorization is unavailable")
+            return AccessViolation(
+                code="authz.unavailable",
+                message="resource authorization is unavailable",
+            )
         if resource_owner is not None and resource_owner != context.owner:
-            return AccessViolation(code="owner.forbidden", message="resource belongs to another owner")
+            return AccessViolation(
+                code="owner.forbidden", message="resource belongs to another owner"
+            )
         agent_id = _identity_path_agent_id(route.path)
-        if context.agent_id is not None and agent_id is not None and context.agent_id != agent_id:
-            return AccessViolation(code="agent.forbidden", message="agent credential cannot access another agent")
+        if (
+            context.agent_id is not None
+            and agent_id is not None
+            and context.agent_id != agent_id
+        ):
+            return AccessViolation(
+                code="agent.forbidden",
+                message="agent credential cannot access another agent",
+            )
     return None
 
 
 def route_policy_map(routes: Sequence[object]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    for route in routes:
-        if not isinstance(route, APIRoute):
-            continue
+
+    def concrete_routes(values: Sequence[object]) -> list[APIRoute]:
+        concrete: list[APIRoute] = []
+        for value in values:
+            if isinstance(value, APIRoute):
+                concrete.append(value)
+                continue
+            original_router = getattr(value, "original_router", None)
+            nested = getattr(original_router, "routes", None)
+            if isinstance(nested, Sequence):
+                concrete.extend(concrete_routes(nested))
+        return concrete
+
+    for route in concrete_routes(routes):
         for method in sorted(route.methods or []):
             if method in {"HEAD", "OPTIONS"}:
                 continue
@@ -287,7 +331,9 @@ def route_policy_map(routes: Sequence[object]) -> list[dict[str, str]]:
                     "method": method,
                     "path": route.path,
                     "classification": classify_route(method, route.path),
-                    "requires_idempotency": "true" if requires_idempotency(method, route.path) else "false",
+                    "requires_idempotency": "true"
+                    if requires_idempotency(method, route.path)
+                    else "false",
                 }
             )
     rows.sort(key=lambda item: (item["path"], item["method"]))

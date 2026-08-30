@@ -16,8 +16,8 @@ def test_route_policy_map_snapshot_stable() -> None:
     rows = route_policy_map(app.routes)
     payload = json.dumps(rows, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    assert len(rows) == 440
-    assert digest == "cc50093634ec1b5c0cc03992c6ac0213a8ac56bfc3be31cca36773bbc6ee193f"
+    assert len(rows) == 448
+    assert digest == "2919ed27423ea58ce7541c913497dbeb3ba28ee703e59417f9ff06aac494926d"
 
 
 def test_route_policy_map_has_no_unclassified_v1_routes() -> None:

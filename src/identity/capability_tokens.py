@@ -18,6 +18,7 @@ from src.identity.storage import (
     ResourceAuthContext,
     require_resource_actor,
 )
+from src.identity.authority_fence import serialized_authority_mutation
 
 _log = logging.getLogger("agenthub.capability_tokens")
 
@@ -586,6 +587,7 @@ def add_third_party_block(
     return result
 
 
+@serialized_authority_mutation
 def revoke_capability_token(
     token_id: str,
     *,

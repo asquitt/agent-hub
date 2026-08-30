@@ -26,6 +26,7 @@ def marketing_home() -> str:
 # Health & Readiness
 # ---------------------------------------------------------------------------
 
+
 def _check_db(storage: Any) -> dict[str, str]:
     """Ping a SQLite storage singleton with SELECT 1."""
     try:
@@ -53,6 +54,7 @@ def _readiness_checks() -> dict[str, Any]:
     # Database connectivity
     try:
         from src.identity.storage import IDENTITY_STORAGE
+
         checks["identity_db"] = _check_db(IDENTITY_STORAGE)
         checks["identity_quarantine"] = _check_identity_quarantine(IDENTITY_STORAGE)
     except (ImportError, RuntimeError):
@@ -61,24 +63,52 @@ def _readiness_checks() -> dict[str, Any]:
 
     try:
         from src.runtime.storage import RUNTIME_STORAGE
+
         checks["runtime_db"] = _check_db(RUNTIME_STORAGE)
     except (ImportError, RuntimeError):
         checks["runtime_db"] = {"status": "not_configured"}
 
     try:
         from src.delegation.storage import DelegationStorage
+
         checks["delegation_db"] = _check_db(DelegationStorage())
     except (ImportError, RuntimeError):
         checks["delegation_db"] = {"status": "not_configured"}
 
     try:
         from src.idempotency.storage import IdempotencyStorage
+
         checks["idempotency_db"] = _check_db(IdempotencyStorage())
     except (ImportError, RuntimeError):
         checks["idempotency_db"] = {"status": "not_configured"}
 
+    from src.relay.config import TARGETS_ENV
+
+    if TARGETS_ENV not in os.environ:
+        checks["mcp_relay"] = {"status": "ok", "mode": "disabled"}
+    else:
+        try:
+            from src.relay.config import load_mcp_relay_target
+            from src.relay.receipts import validate_receipt_configuration
+            from src.relay.storage import RELAY_STORAGE
+
+            target = load_mcp_relay_target()
+            validate_receipt_configuration()
+            relay_db = _check_db(RELAY_STORAGE)
+            checks["mcp_relay"] = {
+                "status": relay_db["status"],
+                "mode": "configured",
+                "target_id": target.target_id,
+            }
+        except Exception:  # noqa: BLE001
+            checks["mcp_relay"] = {"status": "unhealthy", "mode": "configured"}
+
     # Required env vars (names not exposed publicly — use /v1/system/startup-diagnostics for details)
-    missing_count = sum(1 for variable in REQUIRED_ENV_VARS if not str(os.environ.get(variable, "")).strip())
+    missing_count = sum(
+        1
+        for variable in REQUIRED_ENV_VARS
+        if not str(os.environ.get(variable, "")).strip()
+    )
     checks["required_env_vars"] = {
         "status": "ok" if missing_count == 0 else "degraded",
         "missing_count": missing_count,
@@ -107,13 +137,14 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-
 @router.get("/readyz")
 def readyz() -> JSONResponse:
     """Full readiness: DB connectivity + env vars all pass."""
     body = _readiness_payload()
     ready = body["status"] == "ok"
-    return JSONResponse(status_code=200 if ready else 503, content={"ready": ready, **body})
+    return JSONResponse(
+        status_code=200 if ready else 503, content={"ready": ready, **body}
+    )
 
 
 @router.get("/.well-known/agent-card.json")

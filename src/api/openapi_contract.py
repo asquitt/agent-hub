@@ -5,6 +5,8 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
+from src.api.access_policy import classify_route
+
 Maturity = str
 
 _DEFERRED_PREFIXES = (
@@ -25,6 +27,12 @@ _STUB_PREFIXES = (
 
 def operation_maturity(path: str) -> tuple[Maturity, str]:
     """Return an evidence-bounded implementation label for an API path."""
+    if path.startswith("/v1/relay"):
+        return (
+            "prototype",
+            "one operator-attested, server-declared read-only MCP target is proven locally; "
+            "distributed production operation is not proven",
+        )
     if path.startswith(_DEFERRED_PREFIXES):
         return (
             "deferred",
@@ -65,6 +73,17 @@ def install_openapi_contract(app: FastAPI) -> None:
                     "scheme": "bearer",
                     "bearerFormat": "JWT",
                 },
+                "AgentCredentialAuth": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "Authorization",
+                    "description": "AgentCredential scheme",
+                },
+                "DelegationTokenAuth": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "X-Delegation-Token",
+                },
             }
         )
 
@@ -84,6 +103,23 @@ def install_openapi_contract(app: FastAPI) -> None:
                     continue
                 operation["x-agenthub-maturity"] = maturity
                 operation["x-agenthub-evidence-boundary"] = boundary
+                access = classify_route(method, path)
+                operation["x-agenthub-access"] = access.classification
+                if access.classification == "public":
+                    operation["security"] = []
+                elif path == "/v1/relay/mcp/call":
+                    operation["security"] = [
+                        {"BearerAuth": []},
+                        {"AgentCredentialAuth": []},
+                        {"DelegationTokenAuth": []},
+                    ]
+                else:
+                    operation["security"] = [
+                        {"ApiKeyAuth": []},
+                        {"BearerAuth": []},
+                        {"AgentCredentialAuth": []},
+                        {"DelegationTokenAuth": []},
+                    ]
 
         schema["x-agenthub-production-ready"] = False
         schema["x-agenthub-deployment-boundary"] = (

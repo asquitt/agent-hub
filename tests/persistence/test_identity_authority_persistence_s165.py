@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,7 @@ from src.identity.did import (
     verify_verifiable_credential,
 )
 from src.identity.revocation import revoke_agent
+from src.identity.authority_fence import authority_fence
 
 
 AUDIENCE = "agenthub://s165-persistence"
@@ -282,6 +285,32 @@ def test_configuration_checksum_change_rotates_generation_and_invalidates_old_au
     assert "generation" in str(token_result["reason"]).lower()
     assert vc_result["valid"] is False
     assert vc_result["issuer_identity_generation_current"] is False
+
+
+def test_configuration_checksum_mutation_waits_for_authority_fence(
+    authority_runtime: Path,
+) -> None:
+    del authority_runtime
+    actor = _actor()
+    _register_agents(actor, "checksum-fenced")
+    started = threading.Event()
+    finished = threading.Event()
+
+    def mutate() -> None:
+        started.set()
+        identity_storage.set_configuration_checksum_for_actor(
+            "checksum-fenced", "sha256:new-configuration", actor
+        )
+        finished.set()
+
+    worker = threading.Thread(target=mutate)
+    with authority_fence():
+        worker.start()
+        assert started.wait(timeout=1)
+        time.sleep(0.05)
+        assert finished.is_set() is False
+    worker.join(timeout=1)
+    assert finished.is_set() is True
 
 
 def test_legacy_version_one_capability_token_fails_closed(

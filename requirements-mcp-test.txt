@@ -1,3 +1,3 @@
-# The official MCP SDK requires a newer Pydantic than AgentHub currently pins.
-# Install this exact client into a separate test-only virtual environment.
+# Retained for the S164 isolated-client compatibility lane. The application
+# runtime now installs the same official SDK for governed outbound relay use.
 mcp==2.1.1

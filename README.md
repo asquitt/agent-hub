@@ -1,14 +1,14 @@
 # AgentHub
 
-AgentHub is a local control-plane prototype for agent identity, delegated authority, capability discovery, revocation, and policy research. It is not production-ready and does not yet execute remote agent workloads.
+AgentHub is a local control-plane prototype for agent identity, delegated authority, capability discovery, revocation, and policy research. It is not production-ready. Its only remote execution path is one operator-attested, server-declared read-only/idempotent, auth-none MCP tool behind the governed relay v0 boundary.
 
 ## Current Status
 - The repository contains many historical segments, but segment completion is not equivalent to production or customer readiness.
-- S163-S165 provide the current evidence-backed baseline: P0 containment, an authenticated inbound MCP discovery endpoint, and durable local identity authority.
+- S163-S167 provide the current evidence-backed local baseline: P0 containment, authenticated inbound MCP discovery, durable local identity authority, and the bounded governed MCP relay v0.
 - Identity, revocation, and discovery behavior is proven only in the documented local single-process SQLite boundary.
 - Runtime, delegation, federation execution, webhook delivery, and customer journeys remain simulators or control-plane state machines; they do not prove external execution.
 - Billing, marketplace settlement, procurement charging, and synthetic delegation charging are disabled by default pending transactional-integrity proof.
-- Hosted CI, public deployment, multi-replica safety, production migrations, real customer outcomes, and a governed remote tool invocation are not proven.
+- Hosted CI, public deployment, multi-replica safety, production migrations, general remote workloads, upstream-authenticated tools, write tools, and real customer outcomes are not proven.
 - Source of truth for delivery status and evidence:
   - `docs/DELIVERABLE_LOG.md`
   - `docs/evidence/`
@@ -20,7 +20,7 @@ AgentHub is a local control-plane prototype for agent identity, delegated author
 AgentHub is organized as two connected layers:
 
 - Agent DevHub (human-facing): registry, versioning, trust/evals, release review/promotion workflows, operator views.
-- Agent Runtime Infrastructure (agent-native): capability discovery plus prototype contracts and policy primitives. Real governed remote invocation remains unfinished.
+- Agent Runtime Infrastructure (agent-native): capability discovery plus prototype contracts, policy primitives, and one bounded governed MCP relay.
 
 ## Implemented Platform Domains
 | Domain | Primary Endpoints | Notes |
@@ -28,6 +28,7 @@ AgentHub is organized as two connected layers:
 | Marketing Site | `GET /` | Public-facing value proposition, product positioning, and primary CTA navigation |
 | Registry + Versioning | `POST /v1/agents`, `GET /v1/agents/{agent_id}/versions`, `GET /v1/agents/{agent_id}/compare/{base_version}/{target_version}` | Canonical manifest registration and behavioral diffing |
 | Capability Search + Discovery | `POST /v1/capabilities/search`, `POST /v1/discovery/search`, `POST /mcp` | Policy-aware discovery plus an authenticated MCP Streamable HTTP gateway backed by the canonical discovery service |
+| Governed MCP Relay v0 | `POST /v1/relay/mcp/import`, `POST /v1/relay/mcp/call`, `GET /v1/relay/mcp/receipts/{id}` | One exact operator-attested, server-declared read-only/idempotent auth-none tool; fresh revocation-aware admission, durable idempotency/budget state, crash ambiguity handling, and Ed25519 receipts |
 | Delegation Simulator | `POST /v1/delegations`, `GET /v1/delegations/{delegation_id}/status`, `GET /v1/delegations/contract` | Development-only synthetic lifecycle; disabled by default because no delegate is invoked |
 | Lease + Install Control | `POST /v1/capabilities/lease`, `POST /v1/capabilities/leases/{lease_id}/promote`, `POST /v1/capabilities/installs/{install_id}/rollback` | Lease-first capability acquisition and promotion gates |
 | Trust + Evals + Provenance | `GET /v1/agents/{agent_id}/trust`, `POST /v1/provenance/manifests/sign`, `POST /v1/provenance/artifacts/verify` | Trust scoring, tiered eval integration, signed provenance envelopes |
@@ -119,7 +120,7 @@ OAuth clients should request a resource-bound access token by sending `resource=
 
 This surface currently supports API-key authentication and OAuth `client_credentials`. It does not claim authorization-code, PKCE, browser login, SSE session resumption, or managed remote execution.
 
-Run the official SDK interoperability gate in an isolated client environment so its dependency versions do not replace AgentHub runtime pins:
+The application runtime now pins the official MCP SDK used by both inbound compatibility and the governed outbound relay. The isolated compatibility lane remains available to verify the same SDK independently:
 
 ```bash
 python -m venv .venv-mcp-client
@@ -127,6 +128,14 @@ python -m venv .venv-mcp-client
 AGENTHUB_OFFICIAL_MCP_PYTHON="$PWD/.venv-mcp-client/bin/python" \
   python -m pytest -q tests/protocol/test_mcp_official_sdk_s164.py
 ```
+
+## Governed MCP Relay v0
+
+The outbound relay accepts no request-supplied URL. An operator must configure exactly one target through `AGENTHUB_MCP_RELAY_TARGETS_JSON`, explicitly set `operator_attests_read_only: true`, import the server-declared tool contract, and provision a budget for the persisted capability-token root. MCP annotations are untrusted hints; this boundary relies on the operator's attestation to the exact endpoint, tool, and contract digest rather than claiming technical prevention of upstream side effects. A call then requires an agent-bound credential, `relay.call`, the exact `mcp.tools.<tool>.invoke` scope, a matching capability audience/resource/subject, strict input/output schemas, and an `Idempotency-Key`.
+
+The last authority and policy check runs immediately before the network boundary. The relay issues exactly one upstream call with redirects and retries disabled. A crash after dispatch is recovered as `indeterminate` and is never automatically replayed. Every final outcome receives an Ed25519 receipt. `POST /v1/relay/receipts/verify` uses AgentHub's configured key rather than caller-selected key material; `GET /v1/relay/receipt-keys/current` and `tools/relay/verify_receipt.py` support explicit offline verification.
+
+This is a local proof boundary, not a general connector platform. It excludes upstream authentication, write/destructive tools, arbitrary target routing, automatic retries, distributed coordination, customer onboarding UI, approvals, marketplace settlement, and production deployment.
 
 ## Agent Identity Authentication (S72-S78)
 AgentHub supports three authentication methods, checked in order:
@@ -330,6 +339,10 @@ Compose includes one API container (`8000`) and one local data volume. The API u
 - `AGENTHUB_OWNER_TENANTS_JSON` (owner-to-tenant mapping)
 - `AGENTHUB_BASE_URL` (canonical public origin used for MCP resource and OAuth metadata URLs)
 - `AGENTHUB_MCP_ALLOWED_ORIGINS_JSON` (additional browser origins allowed to call `/mcp`)
+- `AGENTHUB_MCP_RELAY_TARGETS_JSON` (required only when relay v0 is enabled; exactly one operator-owned auth-none target)
+- `AGENTHUB_MCP_RELAY_ALLOW_LOOPBACK_HTTP` (`false` by default; exact `true` is test/development-only)
+- `AGENTHUB_MCP_RECEIPT_PRIVATE_KEY_B64` (required only when relay v0 is enabled; 32-byte Ed25519 private seed)
+- `AGENTHUB_RELAY_DB_PATH` (relay SQLite path; defaults to `data/relay/relay.db`)
 - `AGENTHUB_IDENTITY_SIGNING_SECRET` (required for agent credential and delegation token signing)
 - `AGENTHUB_IDENTITY_DB_PATH` (identity SQLite path; defaults to `data/identity/identity.db`)
 - `AGENTHUB_REGISTRY_DB_PATH` (registry SQLite path)
