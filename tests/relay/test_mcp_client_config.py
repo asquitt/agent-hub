@@ -712,6 +712,77 @@ def test_call_propagates_dispatch_admission_denial_without_invocation(
     assert fake.session.call_count == 0
 
 
+def test_call_preserves_dispatch_denial_wrapped_during_client_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _FakeClient(_fake_tool())
+    denial = PermissionError("authority revoked during discovery")
+
+    @asynccontextmanager
+    async def wrapped_client(*_: object, **__: object) -> AsyncIterator[_FakeClient]:
+        try:
+            yield fake
+        except Exception as exc:
+            raise ExceptionGroup(
+                "MCP teardown",
+                [RuntimeError("transport cleanup"), ExceptionGroup("request", [exc])],
+            ) from exc
+
+    monkeypatch.setattr(mcp_client, "_configured_client", wrapped_client)
+
+    def deny_dispatch() -> None:
+        raise denial
+
+    with pytest.raises(PermissionError) as exc_info:
+        asyncio.run(
+            call_tool(
+                target,
+                arguments={"id": "item-1"},
+                before_dispatch=deny_dispatch,
+                expected_schema_digest=_tool_contract(fake.tool).schema_digest,
+                expected_server_name="upstream-catalog",
+                expected_server_version="1.4.2",
+                expected_protocol_version="2025-06-18",
+            )
+        )
+
+    assert exc_info.value is denial
+    assert fake.session.call_count == 0
+
+
+def test_call_recovers_one_listing_error_wrapped_during_client_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _PaginatedFakeClient(
+        {
+            None: ([_fake_tool()], "opaque-repeat"),
+            "opaque-repeat": ([], "opaque-repeat"),
+        }
+    )
+
+    @asynccontextmanager
+    async def wrapped_client(
+        *_: object, **__: object
+    ) -> AsyncIterator[_PaginatedFakeClient]:
+        try:
+            yield fake
+        except Exception as exc:
+            raise ExceptionGroup(
+                "MCP teardown",
+                [RuntimeError("transport cleanup"), ExceptionGroup("request", [exc])],
+            ) from exc
+
+    monkeypatch.setattr(mcp_client, "_configured_client", wrapped_client)
+
+    with pytest.raises(MCPToolListingError, match="repeated a pagination cursor"):
+        asyncio.run(_call_fake_target(target))
+
+    assert fake.observed_cursors == [None, "opaque-repeat"]
+    assert fake.session.call_count == 0
+
+
 def test_call_bounds_complete_result_before_application_copies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

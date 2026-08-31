@@ -325,6 +325,7 @@ async def test_malformed_tool_pagination_is_failed_uncharged_before_dispatch(
         )
 
     assert exc_info.value.code == "relay.upstream_tool_listing_invalid"
+    assert exc_info.value.status_code == 502
     assert exc_info.value.record is not None
     assert exc_info.value.record["status"] == "failed"
     assert exc_info.value.record["network_started_at"] is None

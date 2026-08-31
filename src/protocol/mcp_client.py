@@ -134,6 +134,19 @@ def _find_response_too_large(
     return None
 
 
+def _find_nested_mcp_error(exc: BaseException) -> MCPRelayClientError | None:
+    if isinstance(exc, MCPRelayClientError):
+        return exc
+    if not isinstance(exc, BaseExceptionGroup):
+        return None
+    matches = [
+        matched
+        for nested in exc.exceptions
+        if (matched := _find_nested_mcp_error(nested)) is not None
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _canonical_json(value: object) -> str:
     return json.dumps(
         value,
@@ -433,7 +446,7 @@ async def call_tool(
     if not isinstance(expected_schema_digest, str) or not expected_schema_digest:
         raise ValueError("expected_schema_digest is required")
 
-    before_dispatch_started = False
+    before_dispatch_error: Exception | None = None
     tool_call_started = False
     try:
         async with _configured_client(
@@ -465,8 +478,11 @@ async def call_tool(
                     f"expected {expected_schema_digest}, observed {observed_digest}"
                 )
 
-            before_dispatch_started = True
-            before_dispatch()
+            try:
+                before_dispatch()
+            except Exception as exc:
+                before_dispatch_error = exc
+                raise
             tool_call_started = True
             result = await client.session.call_tool(
                 target.tool_name,
@@ -505,13 +521,16 @@ async def call_tool(
     ):
         raise
     except Exception as exc:
+        if before_dispatch_error is not None:
+            raise before_dispatch_error from exc
         if tool_call_started:
             oversized = _find_response_too_large(exc)
             if oversized is not None:
                 raise oversized from exc
             raise
-        if before_dispatch_started:
-            raise
+        nested_mcp_error = _find_nested_mcp_error(exc)
+        if nested_mcp_error is not None:
+            raise nested_mcp_error from exc
         raise MCPPreDispatchError(
             "MCP connection or discovery failed before tools/call"
         ) from exc

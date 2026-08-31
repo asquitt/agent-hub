@@ -128,14 +128,21 @@ def test_unclassified_routes_fail_closed_without_relabeling_known_prototypes() -
     for path in {
         "/v1/unclassified/new-capability",
         "/v1/agents-extra",
+        "/v1/agents/unregistered-child",
+        "/v1/oauth/unregistered-child",
+        "/v1/federation/unregistered-child",
         "/v1/relay-shadow",
     }:
-        maturity, boundary = operation_maturity(path)
+        maturity, boundary = operation_maturity("GET", path)
         assert maturity == "stub"
         assert "unclassified route" in boundary
 
-    known_maturity, _ = operation_maturity("/v1/agents")
+    known_maturity, _ = operation_maturity("GET", "/v1/agents")
     assert known_maturity == "prototype"
+
+    new_method_maturity, boundary = operation_maturity("TRACE", "/v1/agents")
+    assert new_method_maturity == "stub"
+    assert "unclassified route" in boundary
 
 
 def test_public_claims_name_the_actual_product_boundary() -> None:

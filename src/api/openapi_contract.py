@@ -6,69 +6,9 @@ from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
 from src.api.access_policy import classify_route
+from src.api.openapi_maturity_registry import PROTOTYPE_OPERATIONS
 
 Maturity = str
-
-_PROTOTYPE_PATHS = frozenset(
-    {
-        "/",
-        "/.well-known/agent-card.json",
-        "/.well-known/agent.json",
-        "/.well-known/oauth-authorization-server",
-        "/.well-known/oauth-protected-resource",
-        "/customer",
-        "/healthz",
-        "/mcp",
-        "/operator",
-        "/operator/versioning",
-        "/readyz",
-    }
-)
-
-_PROTOTYPE_PREFIXES = (
-    "/scim/v2",
-    "/v1/a2a",
-    "/v1/access-review",
-    "/v1/activity",
-    "/v1/agents",
-    "/v1/approval",
-    "/v1/audit",
-    "/v1/auth",
-    "/v1/capabilities",
-    "/v1/chain-viz",
-    "/v1/compliance",
-    "/v1/consents",
-    "/v1/cost",
-    "/v1/credential-bindings",
-    "/v1/devhub",
-    "/v1/discovery",
-    "/v1/entitlements",
-    "/v1/environments",
-    "/v1/eval",
-    "/v1/federation",
-    "/v1/grants",
-    "/v1/groups",
-    "/v1/identity",
-    "/v1/intent",
-    "/v1/ip-rules",
-    "/v1/keys",
-    "/v1/knowledge",
-    "/v1/namespaces",
-    "/v1/oauth",
-    "/v1/operator",
-    "/v1/policy",
-    "/v1/policy-sim",
-    "/v1/provenance",
-    "/v1/quotas",
-    "/v1/rate-policies",
-    "/v1/rbac",
-    "/v1/reliability",
-    "/v1/scope-narrowing",
-    "/v1/sessions",
-    "/v1/system",
-    "/v1/threat-intel",
-    "/v1/vault",
-)
 
 _DEFERRED_PREFIXES = (
     "/v1/billing",
@@ -130,8 +70,8 @@ def _matches_prefix(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(f"{prefix}/")
 
 
-def operation_maturity(path: str) -> tuple[Maturity, str]:
-    """Return an evidence-bounded implementation label for an API path."""
+def operation_maturity(method: str, path: str) -> tuple[Maturity, str]:
+    """Return an evidence-bounded label for one exact OpenAPI operation."""
     if path in _STUB_PATH_BOUNDARIES:
         return "stub", _STUB_PATH_BOUNDARIES[path]
     for prefix, boundary in _STUB_PREFIX_BOUNDARIES:
@@ -142,15 +82,13 @@ def operation_maturity(path: str) -> tuple[Maturity, str]:
             "deferred",
             "financial mutations are disabled pending transactional integrity proof",
         )
-    if _matches_prefix(path, "/v1/relay"):
-        return (
-            "prototype",
-            "one operator-attested, server-declared read-only MCP target is proven locally; "
-            "distributed production operation is not proven",
-        )
-    if path in _PROTOTYPE_PATHS or any(
-        _matches_prefix(path, prefix) for prefix in _PROTOTYPE_PREFIXES
-    ):
+    if (method.upper(), path) in PROTOTYPE_OPERATIONS:
+        if _matches_prefix(path, "/v1/relay"):
+            return (
+                "prototype",
+                "one operator-attested, server-declared read-only MCP target is proven locally; "
+                "distributed production operation is not proven",
+            )
         return (
             "prototype",
             "locally tested control-plane behavior; production deployment is not proven",
@@ -200,7 +138,6 @@ def install_openapi_contract(app: FastAPI) -> None:
         )
 
         for path, path_item in schema.get("paths", {}).items():
-            maturity, boundary = operation_maturity(path)
             for method, operation in path_item.items():
                 if method.lower() not in {
                     "get",
@@ -213,6 +150,7 @@ def install_openapi_contract(app: FastAPI) -> None:
                     "trace",
                 }:
                     continue
+                maturity, boundary = operation_maturity(method, path)
                 operation["x-agenthub-maturity"] = maturity
                 operation["x-agenthub-evidence-boundary"] = boundary
                 access = classify_route(method, path)

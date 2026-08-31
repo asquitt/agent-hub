@@ -574,7 +574,7 @@ class RelayService:
                         else "relay.upstream_pre_dispatch_failed"
                     ),
                     message="upstream discovery failed before remote dispatch",
-                    status_code=409 if definite else 502,
+                    status_code=502,
                     policy=policy,
                     budget=budget,
                     cause=exc,
