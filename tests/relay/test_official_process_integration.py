@@ -253,6 +253,7 @@ async def test_official_server_oversized_text_with_small_structured_output_fails
             await call_tool(
                 target,
                 arguments={"q": "bounded"},
+                before_dispatch=lambda: None,
                 expected_schema_digest=inspection.tool.schema_digest,
                 expected_server_name=inspection.server.name,
                 expected_server_version=inspection.server.version,

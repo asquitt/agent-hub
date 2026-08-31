@@ -19,6 +19,8 @@ from src.protocol.mcp_client import (
     MCPResponseTooLargeError,
     MCPServerIdentityDriftError,
     MCPToolContractDriftError,
+    MCPToolListingError,
+    MCPToolNotFoundError,
     _BoundedHTTPTransport,
     _tool_contract,
     call_tool,
@@ -29,6 +31,7 @@ from src.relay.config import (
     ALLOW_LOOPBACK_HTTP_ENV,
     TARGETS_ENV,
     MCPRelayConfigError,
+    MCPRelayTarget,
     endpoint_digest,
     load_mcp_relay_target,
     parse_mcp_relay_targets_json,
@@ -313,15 +316,52 @@ class _FakeClient:
         self.list_count = 0
         self.session = _FakeSession()
 
-    async def list_tools(self, **_: object) -> SimpleNamespace:
+    async def list_tools(
+        self, *, cursor: str | None = None, **_: object
+    ) -> SimpleNamespace:
         self.list_count += 1
         return SimpleNamespace(tools=[self.tool], next_cursor=None)
 
 
-def _fake_tool(*, read_only: bool = True) -> Tool:
+class _PaginatedFakeClient(_FakeClient):
+    def __init__(
+        self,
+        pages: dict[str | None, tuple[list[Tool], str | None]],
+        *,
+        max_list_calls: int | None = None,
+    ) -> None:
+        super().__init__(_fake_tool())
+        self.pages = pages
+        self.max_list_calls = max_list_calls
+        self.observed_cursors: list[str | None] = []
+
+    async def list_tools(
+        self, *, cursor: str | None = None, **_: object
+    ) -> SimpleNamespace:
+        self.list_count += 1
+        self.observed_cursors.append(cursor)
+        if self.max_list_calls is not None and self.list_count > self.max_list_calls:
+            raise AssertionError("tool discovery exceeded the expected request bound")
+        tools, next_cursor = self.pages[cursor]
+        return SimpleNamespace(tools=tools, next_cursor=next_cursor)
+
+
+class _BlockingDiscoveryFakeClient(_FakeClient):
+    def __init__(self) -> None:
+        super().__init__(_fake_tool())
+        self.list_started = False
+
+    async def list_tools(self, **_: object) -> SimpleNamespace:
+        self.list_count += 1
+        self.list_started = True
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+def _fake_tool(*, name: str = "catalog.lookup", read_only: bool = True) -> Tool:
     return Tool.model_validate(
         {
-            "name": "catalog.lookup",
+            "name": name,
             "description": "Read one catalog entry",
             "inputSchema": {
                 "type": "object",
@@ -347,6 +387,236 @@ def _install_fake_client(monkeypatch: pytest.MonkeyPatch, fake: _FakeClient) -> 
         yield fake
 
     monkeypatch.setattr(mcp_client, "_configured_client", configured_client)
+
+
+async def _call_fake_target(
+    target: MCPRelayTarget,
+    *,
+    timeout_seconds: float = mcp_client.DEFAULT_TIMEOUT_SECONDS,
+) -> mcp_client.MCPCallOutcome:
+    return await call_tool(
+        target,
+        arguments={"id": "item-1"},
+        before_dispatch=lambda: None,
+        expected_schema_digest=_tool_contract(_fake_tool()).schema_digest,
+        expected_server_name="upstream-catalog",
+        expected_server_version="1.4.2",
+        expected_protocol_version="2025-06-18",
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def test_call_rejects_repeated_pagination_cursor_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    opaque_cursor = "opaque-cursor-value"
+    fake = _PaginatedFakeClient(
+        {
+            None: ([], opaque_cursor),
+            opaque_cursor: ([_fake_tool()], opaque_cursor),
+        },
+        max_list_calls=2,
+    )
+    _install_fake_client(monkeypatch, fake)
+
+    with pytest.raises(
+        MCPPreDispatchError, match="repeated a pagination cursor"
+    ) as exc:
+        asyncio.run(_call_fake_target(target))
+
+    assert exc.value.definite_failure is True
+    assert exc.value.code == "relay.upstream_tool_listing_invalid"
+    assert opaque_cursor not in str(exc.value)
+    assert fake.observed_cursors == [None, opaque_cursor]
+    assert fake.session.call_count == 0
+
+
+def test_call_rejects_multi_cursor_pagination_cycle_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _PaginatedFakeClient(
+        {
+            None: ([], "cursor-a"),
+            "cursor-a": ([_fake_tool()], "cursor-b"),
+            "cursor-b": ([], "cursor-a"),
+        },
+        max_list_calls=3,
+    )
+    _install_fake_client(monkeypatch, fake)
+
+    with pytest.raises(MCPPreDispatchError, match="repeated a pagination cursor"):
+        asyncio.run(_call_fake_target(target))
+
+    assert fake.observed_cursors == [None, "cursor-a", "cursor-b"]
+    assert fake.session.call_count == 0
+
+
+def test_call_enforces_discovery_page_cap_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mcp_client, "MAX_MCP_DISCOVERY_PAGES", 2, raising=False)
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _PaginatedFakeClient(
+        {
+            None: ([_fake_tool()], "cursor-a"),
+            "cursor-a": ([], "cursor-b"),
+        },
+        max_list_calls=2,
+    )
+    _install_fake_client(monkeypatch, fake)
+
+    with pytest.raises(MCPPreDispatchError, match="page limit") as exc:
+        asyncio.run(_call_fake_target(target))
+
+    assert exc.value.definite_failure is True
+    assert fake.observed_cursors == [None, "cursor-a"]
+    assert fake.session.call_count == 0
+
+
+def test_call_enforces_total_advertised_tool_cap_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mcp_client, "MAX_MCP_DISCOVERY_TOOLS", 2, raising=False)
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _PaginatedFakeClient(
+        {
+            None: (
+                [_fake_tool(name="catalog.other-a")],
+                "cursor-a",
+            ),
+            "cursor-a": (
+                [_fake_tool(name="catalog.other-b"), _fake_tool()],
+                None,
+            ),
+        }
+    )
+    _install_fake_client(monkeypatch, fake)
+
+    with pytest.raises(MCPToolListingError, match="aggregate tool limit") as exc:
+        asyncio.run(_call_fake_target(target))
+
+    assert exc.value.definite_failure is True
+    assert fake.list_count == 2
+    assert fake.session.call_count == 0
+
+
+def test_call_enforces_per_page_advertised_tool_cap_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        mcp_client, "MAX_MCP_DISCOVERY_TOOLS_PER_PAGE", 2, raising=False
+    )
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _PaginatedFakeClient(
+        {
+            None: (
+                [
+                    _fake_tool(name="catalog.other-a"),
+                    _fake_tool(name="catalog.other-b"),
+                    _fake_tool(),
+                ],
+                None,
+            )
+        }
+    )
+    _install_fake_client(monkeypatch, fake)
+
+    with pytest.raises(MCPToolListingError, match="per-page tool limit"):
+        asyncio.run(_call_fake_target(target))
+
+    assert fake.list_count == 1
+    assert fake.session.call_count == 0
+
+
+def test_call_enforces_one_total_discovery_deadline_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _BlockingDiscoveryFakeClient()
+    _install_fake_client(monkeypatch, fake)
+
+    async def bounded_call() -> mcp_client.MCPCallOutcome:
+        return await asyncio.wait_for(
+            _call_fake_target(target, timeout_seconds=0.01), timeout=0.25
+        )
+
+    with pytest.raises(MCPPreDispatchError, match="discovery deadline") as exc:
+        asyncio.run(bounded_call())
+
+    assert exc.value.definite_failure is True
+    assert fake.list_started is True
+    assert fake.session.call_count == 0
+
+
+def test_call_accepts_valid_bounded_pagination_with_one_exact_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mcp_client, "MAX_MCP_DISCOVERY_PAGES", 3, raising=False)
+    monkeypatch.setattr(mcp_client, "MAX_MCP_DISCOVERY_TOOLS", 3, raising=False)
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _PaginatedFakeClient(
+        {
+            None: ([_fake_tool(name="catalog.other-a")], "cursor-a"),
+            "cursor-a": ([_fake_tool()], "cursor-b"),
+            "cursor-b": ([_fake_tool(name="catalog.other-b")], None),
+        }
+    )
+    _install_fake_client(monkeypatch, fake)
+    real_timeout = asyncio.timeout
+    timeout_calls: list[float | None] = []
+
+    def tracked_timeout(delay: float | None) -> asyncio.Timeout:
+        timeout_calls.append(delay)
+        return real_timeout(delay)
+
+    monkeypatch.setattr(mcp_client.asyncio, "timeout", tracked_timeout)
+
+    outcome = asyncio.run(_call_fake_target(target))
+
+    assert fake.observed_cursors == [None, "cursor-a", "cursor-b"]
+    assert timeout_calls == [mcp_client.DEFAULT_TIMEOUT_SECONDS]
+    assert fake.session.call_count == 1
+    assert outcome.structured_content == {"title": "Example"}
+
+
+def test_call_rejects_duplicate_exact_match_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _PaginatedFakeClient(
+        {
+            None: ([_fake_tool()], "cursor-a"),
+            "cursor-a": ([_fake_tool()], None),
+        }
+    )
+    _install_fake_client(monkeypatch, fake)
+
+    with pytest.raises(MCPToolListingError, match="advertised more than once") as exc:
+        asyncio.run(_call_fake_target(target))
+
+    assert exc.value.code == "relay.upstream_tool_listing_invalid"
+    assert fake.session.call_count == 0
+
+
+def test_call_exhaustion_without_match_is_definite_and_never_dispatches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _PaginatedFakeClient(
+        {
+            None: ([_fake_tool(name="catalog.other-a")], "cursor-a"),
+            "cursor-a": ([_fake_tool(name="catalog.other-b")], None),
+        }
+    )
+    _install_fake_client(monkeypatch, fake)
+
+    with pytest.raises(MCPToolNotFoundError) as exc:
+        asyncio.run(_call_fake_target(target))
+
+    assert exc.value.definite_failure is True
+    assert fake.session.call_count == 0
 
 
 def test_inspect_preserves_server_protocol_and_exact_tool_contract(
@@ -384,11 +654,19 @@ def test_call_freshly_lists_and_invokes_exactly_once(
     fake = _FakeClient(_fake_tool())
     _install_fake_client(monkeypatch, fake)
     expected = _tool_contract(fake.tool).schema_digest
+    callback_count = 0
+
+    def before_dispatch() -> None:
+        nonlocal callback_count
+        callback_count += 1
+        assert fake.list_count == 1
+        assert fake.session.call_count == 0
 
     outcome = asyncio.run(
         call_tool(
             target,
             arguments={"id": "item-1"},
+            before_dispatch=before_dispatch,
             expected_schema_digest=expected,
             expected_server_name="upstream-catalog",
             expected_server_version="1.4.2",
@@ -397,9 +675,41 @@ def test_call_freshly_lists_and_invokes_exactly_once(
     )
 
     assert fake.list_count == 1
+    assert callback_count == 1
     assert fake.session.call_count == 1
     assert outcome.structured_content == {"title": "Example"}
     assert outcome.is_error is False
+
+
+def test_call_propagates_dispatch_admission_denial_without_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = parse_mcp_relay_targets_json(_raw(_target()))
+    fake = _FakeClient(_fake_tool())
+    _install_fake_client(monkeypatch, fake)
+    callback_count = 0
+
+    def deny_dispatch() -> None:
+        nonlocal callback_count
+        callback_count += 1
+        raise PermissionError("authority revoked during discovery")
+
+    with pytest.raises(PermissionError, match="authority revoked during discovery"):
+        asyncio.run(
+            call_tool(
+                target,
+                arguments={"id": "item-1"},
+                before_dispatch=deny_dispatch,
+                expected_schema_digest=_tool_contract(fake.tool).schema_digest,
+                expected_server_name="upstream-catalog",
+                expected_server_version="1.4.2",
+                expected_protocol_version="2025-06-18",
+            )
+        )
+
+    assert fake.list_count == 1
+    assert callback_count == 1
+    assert fake.session.call_count == 0
 
 
 def test_call_bounds_complete_result_before_application_copies(
@@ -415,6 +725,7 @@ def test_call_bounds_complete_result_before_application_copies(
             call_tool(
                 target,
                 arguments={"id": "item-1"},
+                before_dispatch=lambda: None,
                 expected_schema_digest=_tool_contract(fake.tool).schema_digest,
                 expected_server_name="upstream-catalog",
                 expected_server_version="1.4.2",
@@ -438,6 +749,9 @@ def test_call_blocks_fresh_schema_drift_before_remote_invocation(
             call_tool(
                 target,
                 arguments={"id": "item-1"},
+                before_dispatch=lambda: pytest.fail(
+                    "schema drift must fail before dispatch admission"
+                ),
                 expected_schema_digest=expected,
                 expected_server_name="upstream-catalog",
                 expected_server_version="1.4.2",
@@ -461,6 +775,9 @@ def test_call_blocks_server_identity_drift_before_remote_invocation(
             call_tool(
                 target,
                 arguments={"id": "item-1"},
+                before_dispatch=lambda: pytest.fail(
+                    "identity drift must fail before dispatch admission"
+                ),
                 expected_schema_digest=_tool_contract(fake.tool).schema_digest,
                 expected_server_name="different-server",
                 expected_server_version="1.4.2",
@@ -488,6 +805,9 @@ def test_connection_failure_before_tools_call_is_definite_and_uncharged(
             call_tool(
                 target,
                 arguments={"id": "item-1"},
+                before_dispatch=lambda: pytest.fail(
+                    "connection failure must fail before dispatch admission"
+                ),
                 expected_schema_digest="schema-digest",
                 expected_server_name="upstream-catalog",
                 expected_server_version="1.4.2",

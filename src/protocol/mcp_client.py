@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass
@@ -16,6 +17,9 @@ from mcp.types import CallToolResult, Tool
 from src.relay.config import MCPRelayTarget
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
+MAX_MCP_DISCOVERY_PAGES = 32
+MAX_MCP_DISCOVERY_TOOLS_PER_PAGE = 256
+MAX_MCP_DISCOVERY_TOOLS = 1_024
 MAX_MCP_RESPONSE_BYTES = 65_536
 
 
@@ -41,6 +45,10 @@ class MCPServerIdentityDriftError(MCPRelayClientError):
 class MCPPreDispatchError(MCPRelayClientError):
     code = "relay.upstream_pre_dispatch_failed"
     definite_failure = True
+
+
+class MCPToolListingError(MCPPreDispatchError):
+    code = "relay.upstream_tool_listing_invalid"
 
 
 class MCPResponseTooLargeError(MCPRelayClientError, httpx2.StreamError):
@@ -271,19 +279,56 @@ def _tool_contract(tool: Tool) -> MCPToolContract:
     )
 
 
-async def _fresh_exact_tool(client: Client, tool_name: str) -> MCPToolContract:
+async def _fresh_exact_tool(
+    client: Client,
+    tool_name: str,
+    *,
+    timeout_seconds: float,
+) -> MCPToolContract:
     matches: list[Tool] = []
+    seen_cursors: set[str] = set()
     cursor: str | None = None
-    while True:
-        page = await client.list_tools(cursor=cursor, cache_mode="refresh")
-        matches.extend(tool for tool in page.tools if tool.name == tool_name)
-        cursor = page.next_cursor
-        if cursor is None:
-            break
+    page_count = 0
+    tool_count = 0
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            while True:
+                page = await client.list_tools(cursor=cursor, cache_mode="refresh")
+                page_count += 1
+                if len(page.tools) > MAX_MCP_DISCOVERY_TOOLS_PER_PAGE:
+                    raise MCPToolListingError(
+                        "MCP tool discovery exceeded the per-page tool limit before "
+                        "tools/call"
+                    )
+                tool_count += len(page.tools)
+                if tool_count > MAX_MCP_DISCOVERY_TOOLS:
+                    raise MCPToolListingError(
+                        "MCP tool discovery exceeded the aggregate tool limit before "
+                        "tools/call"
+                    )
+                matches.extend(tool for tool in page.tools if tool.name == tool_name)
+                next_cursor = page.next_cursor
+                if next_cursor is None:
+                    break
+                if next_cursor in seen_cursors:
+                    raise MCPToolListingError(
+                        "MCP tool discovery repeated a pagination cursor before "
+                        "tools/call"
+                    )
+                seen_cursors.add(next_cursor)
+                if page_count >= MAX_MCP_DISCOVERY_PAGES:
+                    raise MCPToolListingError(
+                        "MCP tool discovery exceeded the page limit before tools/call"
+                    )
+                cursor = next_cursor
+    except TimeoutError as exc:
+        raise MCPToolListingError(
+            "MCP tool discovery deadline elapsed before tools/call"
+        ) from exc
     if not matches:
         raise MCPToolNotFoundError(f"configured MCP tool not found: {tool_name}")
     if len(matches) != 1:
-        raise MCPRelayClientError(
+        raise MCPToolListingError(
             f"configured MCP tool is advertised more than once: {tool_name}"
         )
     return _tool_contract(matches[0])
@@ -301,8 +346,17 @@ def _server_identity(client: Client) -> MCPServerIdentity:
     )
 
 
-async def _inspect_connected(client: Client, target: MCPRelayTarget) -> MCPInspection:
-    tool = await _fresh_exact_tool(client, target.tool_name)
+async def _inspect_connected(
+    client: Client,
+    target: MCPRelayTarget,
+    *,
+    timeout_seconds: float,
+) -> MCPInspection:
+    tool = await _fresh_exact_tool(
+        client,
+        target.tool_name,
+        timeout_seconds=timeout_seconds,
+    )
     return MCPInspection(
         target_id=target.target_id,
         tenant_id=target.tenant_id,
@@ -355,13 +409,18 @@ async def inspect_target(
 ) -> MCPInspection:
     """Initialize the configured server and inspect its exact allowlisted tool."""
     async with _configured_client(target, timeout_seconds=timeout_seconds) as client:
-        return await _inspect_connected(client, target)
+        return await _inspect_connected(
+            client,
+            target,
+            timeout_seconds=timeout_seconds,
+        )
 
 
 async def call_tool(
     target: MCPRelayTarget,
     *,
     arguments: Mapping[str, Any],
+    before_dispatch: Callable[[], None],
     expected_schema_digest: str,
     expected_server_name: str,
     expected_server_version: str,
@@ -374,12 +433,17 @@ async def call_tool(
     if not isinstance(expected_schema_digest, str) or not expected_schema_digest:
         raise ValueError("expected_schema_digest is required")
 
+    before_dispatch_started = False
     tool_call_started = False
     try:
         async with _configured_client(
             target, timeout_seconds=timeout_seconds
         ) as client:
-            inspection = await _inspect_connected(client, target)
+            inspection = await _inspect_connected(
+                client,
+                target,
+                timeout_seconds=timeout_seconds,
+            )
             observed_identity = (
                 inspection.server.name,
                 inspection.server.version,
@@ -401,6 +465,8 @@ async def call_tool(
                     f"expected {expected_schema_digest}, observed {observed_digest}"
                 )
 
+            before_dispatch_started = True
+            before_dispatch()
             tool_call_started = True
             result = await client.session.call_tool(
                 target.tool_name,
@@ -443,6 +509,8 @@ async def call_tool(
             oversized = _find_response_too_large(exc)
             if oversized is not None:
                 raise oversized from exc
+            raise
+        if before_dispatch_started:
             raise
         raise MCPPreDispatchError(
             "MCP connection or discovery failed before tools/call"

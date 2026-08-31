@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
 import hashlib
-from typing import Any, Protocol, cast
+from typing import Any, NoReturn, Protocol, cast
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
@@ -45,6 +45,7 @@ class RelayTransport(Protocol):
         target: dict[str, Any],
         *,
         arguments: dict[str, Any],
+        before_dispatch: Callable[[], None],
         expected_schema_digest: str,
     ) -> dict[str, Any]: ...
 
@@ -134,6 +135,12 @@ class RelayService:
         try:
             inspected = _mapping(await self._transport.inspect(configured))
         except Exception as exc:
+            if bool(getattr(exc, "definite_failure", False)):
+                raise RelayServiceError(
+                    str(getattr(exc, "code", "relay.upstream_pre_dispatch_failed")),
+                    "configured upstream MCP tool listing was rejected",
+                    status_code=409,
+                ) from exc
             raise RelayServiceError(
                 "relay.upstream_unavailable",
                 "configured upstream MCP server could not be inspected",
@@ -385,77 +392,92 @@ class RelayService:
                 policy=policy,
             )
         budget: dict[str, Any] | None = None
-        with authority_fence():
+
+        def refreshed_authority() -> tuple[
+            dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]
+        ]:
             try:
-                final_context = _principal(reauthenticate())
+                refreshed_context = _principal(reauthenticate())
             except Exception as exc:
-                return self._reject_before_dispatch(
+                self._reject_before_dispatch(
                     invocation=invocation,
                     target=target,
                     capability=capability,
                     code="relay.authority_revoked",
-                    message="relay authority changed before network dispatch",
+                    message="relay authority changed before remote dispatch",
                     status_code=403,
                     policy=policy,
                     budget=budget,
                     cause=exc,
                 )
             if (
-                final_context.owner != context.owner
-                or final_context.tenant_id != context.tenant_id
-                or final_context.agent_id != context.agent_id
-                or final_context.auth_method != context.auth_method
+                refreshed_context.owner != context.owner
+                or refreshed_context.tenant_id != context.tenant_id
+                or refreshed_context.agent_id != context.agent_id
+                or refreshed_context.auth_method != context.auth_method
             ):
-                return self._reject_before_dispatch(
+                self._reject_before_dispatch(
                     invocation=invocation,
                     target=target,
                     capability=capability,
                     code="relay.principal_changed",
-                    message="authenticated principal changed during admission",
+                    message="authenticated principal changed before remote dispatch",
                     status_code=403,
                     policy=policy,
                     budget=budget,
                 )
             try:
-                final_capability = verify_capability_token(
+                refreshed_capability = verify_capability_token(
                     capability_token,
-                    actor=final_context,
+                    actor=refreshed_context,
                     source_ip=source_ip,
                     audience=RELAY_AUDIENCE,
                     resource=resource,
                     required_scope=required_scope,
                 )
-                final_target = self._storage.get_target(target_id)
-                final_policy = evaluate_mcp_relay_policy(
-                    actor=final_context,
-                    target=final_target,
-                    configured_target=_mapping(self._config_loader(target_id)),
-                    capability=final_capability,
+                refreshed_target = self._storage.get_target(target_id)
+                refreshed_config = _mapping(self._config_loader(target_id))
+                refreshed_policy = evaluate_mcp_relay_policy(
+                    actor=refreshed_context,
+                    target=refreshed_target,
+                    configured_target=refreshed_config,
+                    capability=refreshed_capability,
                     required_scope=required_scope,
                 )
             except Exception as exc:
-                return self._reject_before_dispatch(
+                self._reject_before_dispatch(
                     invocation=invocation,
                     target=target,
                     capability=capability,
                     code="relay.authority_revoked",
-                    message="relay authority changed before network dispatch",
+                    message="relay authority changed before remote dispatch",
                     status_code=403,
                     policy=policy,
                     budget=budget,
                     cause=exc,
                 )
-            if not final_policy["allowed"]:
-                return self._reject_before_dispatch(
+            if not refreshed_policy["allowed"]:
+                self._reject_before_dispatch(
                     invocation=invocation,
-                    target=target,
-                    capability=final_capability,
+                    target=refreshed_target,
+                    capability=refreshed_capability,
                     code="relay.authority_revoked",
-                    message="relay authority changed before network dispatch",
+                    message="relay authority changed before remote dispatch",
                     status_code=403,
-                    policy=final_policy,
-                    budget=None,
+                    policy=refreshed_policy,
+                    budget=budget,
                 )
+            return (
+                refreshed_capability,
+                refreshed_target,
+                refreshed_config,
+                refreshed_policy,
+            )
+
+        with authority_fence():
+            final_capability, final_target, _, final_policy = (
+                refreshed_authority()
+            )
             try:
                 budget = self._storage.reserve_budget(
                     invocation_id=invocation["invocation_id"],
@@ -474,29 +496,89 @@ class RelayService:
                     budget=exc.budget,
                     cause=exc,
                 )
-            invocation = self._storage.mark_network_started(
-                str(invocation["invocation_id"]), target_snapshot=final_target
-            )
             target = final_target
             capability = final_capability
             policy = final_policy
 
         assert budget is not None
         transport_target = {**configured, **target}
+        dispatch_admitted = False
+
+        def before_dispatch() -> None:
+            nonlocal invocation, target, capability, policy, dispatch_admitted
+            with authority_fence():
+                (
+                    dispatch_capability,
+                    dispatch_target,
+                    dispatch_configured,
+                    dispatch_policy,
+                ) = refreshed_authority()
+                if (
+                    dispatch_target != target
+                    or dispatch_configured != configured
+                ):
+                    self._reject_before_dispatch(
+                        invocation=invocation,
+                        target=dispatch_target,
+                        capability=dispatch_capability,
+                        code="relay.authority_revoked",
+                        message="relay authority changed before remote dispatch",
+                        status_code=403,
+                        policy=dispatch_policy,
+                        budget=budget,
+                    )
+                invocation = self._storage.mark_network_started(
+                    str(invocation["invocation_id"]),
+                    target_snapshot=dispatch_target,
+                )
+                target = dispatch_target
+                capability = dispatch_capability
+                policy = dispatch_policy
+                dispatch_admitted = True
 
         try:
             raw_result = await self._transport.call(
                 transport_target,
                 arguments=arguments,
+                before_dispatch=before_dispatch,
                 expected_schema_digest=str(target["schema_digest"]),
             )
+            if not dispatch_admitted:
+                return self._reject_before_dispatch(
+                    invocation=invocation,
+                    target=target,
+                    capability=capability,
+                    code="relay.transport_dispatch_not_admitted",
+                    message="relay transport returned without dispatch admission",
+                    status_code=502,
+                    policy=policy,
+                    budget=budget,
+                )
             result = _mapping(raw_result)
             if self._after_remote_result is not None:
                 self._after_remote_result(result)
         except RelayCrashAfterRemoteResult:
             raise
+        except RelayServiceError:
+            raise
         except Exception as exc:
             definite = bool(getattr(exc, "definite_failure", False))
+            if not dispatch_admitted:
+                return self._reject_before_dispatch(
+                    invocation=invocation,
+                    target=target,
+                    capability=capability,
+                    code=(
+                        str(getattr(exc, "code", "relay.upstream_pre_dispatch_failed"))
+                        if definite
+                        else "relay.upstream_pre_dispatch_failed"
+                    ),
+                    message="upstream discovery failed before remote dispatch",
+                    status_code=409 if definite else 502,
+                    policy=policy,
+                    budget=budget,
+                    cause=exc,
+                )
             return self._finalize_remote(
                 invocation=invocation,
                 target=target,
@@ -644,7 +726,7 @@ class RelayService:
         policy: dict[str, Any] | None = None,
         budget: dict[str, Any] | None = None,
         cause: BaseException | None = None,
-    ) -> dict[str, Any]:
+    ) -> NoReturn:
         invocation = self._storage.get_invocation_unscoped(
             str(invocation["invocation_id"])
         )
