@@ -4,7 +4,7 @@
 
 **NO-GO for production or customer pilots.** PR #5 merged S167 to `main` at `adccd28eb6a0e1a8bfdb779341f28dbc15213e11`, but AgentHub remains a single-process local control-plane prototype. The merged boundary proves one operator-attested, server-declared read-only/idempotent, auth-none MCP call with revocation-aware admission and Ed25519 receipts. The post-merge correction candidate bounds MCP discovery, repeats authority checks at the last pre-dispatch boundary, and fails closed on unclassified API maturity. General remote workloads, upstream authentication, write tools, webhook delivery, distributed persistence, production deployment, and customer outcomes are not proven.
 
-The post-merge correction candidate is `913 passed, 1 skipped`; its official MCP server process and packaging/deployment-containment gates also pass in the pinned application dependency environment. This is repository evidence only, not hosted CI, deployment, provider, or customer evidence.
+The post-merge correction candidate is `917 passed, 1 skipped`; its official MCP server process and packaging/deployment-containment gates also pass in the pinned application dependency environment. This is repository evidence only, not hosted CI, deployment, provider, or customer evidence.
 
 ## Status Definitions
 
@@ -22,7 +22,7 @@ The post-merge correction candidate is `913 passed, 1 skipped`; its official MCP
 | AH-001 | VALIDATION_FREEZE | S167 is merged and the bounded post-merge corrections are locally verified. No broader platform work is approved without explicit owner authorization after the reopening gates below pass. |
 | AH-002 | COMPLETE_LOCAL | Every OpenAPI operation is explicitly classified `prototype`, `stub`, or `deferred`; unknown operations fail closed as `stub`. The correction inventory contains 448 operations: 369 prototype, 55 stub, and 24 deferred. |
 | AH-003 | COMPLETE_LOCAL | README, marketing, runtime, webhook, OpenAPI, and ledger claims match the documented local evidence boundary. |
-| AH-004 | PARTIAL | The correction candidate is `913 passed, 1 skipped`; GitHub Actions remains manual-only with no PR or merge run, and no required hosted CI is proven. |
+| AH-004 | PARTIAL | The correction candidate is `917 passed, 1 skipped`; GitHub Actions remains manual-only with no PR or merge run, and no required hosted CI is proven. |
 | AH-005 | PARTIAL | Strict local dependency audits have passed; no provider-enforced blocking gate is proven. |
 | AH-006 | COMPLETE_LOCAL | Typed auth context preserves owner, tenant, scopes, roles, auth method, agent, and delegation metadata. |
 | AH-007 | PARTIAL | Identity/vault boundaries are repaired and S166 closes reproduced cross-owner delegation status. Comprehensive object authorization remains unproven outside the bounded relay. |
