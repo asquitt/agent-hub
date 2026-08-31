@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.app import app
+from src.api.openapi_contract import operation_maturity
 from src.persistence.singleton_guard import (
     acquire_singleton_guard,
     release_singleton_guard,
@@ -43,6 +44,8 @@ def test_every_openapi_operation_has_evidence_maturity() -> None:
         for operation in operations
     )
     assert all("x-agenthub-evidence-boundary" in operation for operation in operations)
+    assert all("x-agenthub-access" in operation for operation in operations)
+    assert all("security" in operation for operation in operations)
     assert not any(
         operation["x-agenthub-maturity"] == "production" for operation in operations
     )
@@ -65,6 +68,8 @@ def test_every_openapi_operation_has_evidence_maturity() -> None:
     }
     assert len(relay_operations) == 8
     for (method, path), operation in relay_operations.items():
+        assert operation["x-agenthub-maturity"] == "prototype"
+        assert "one operator-attested" in operation["x-agenthub-evidence-boundary"]
         if (method, path) in {
             ("GET", "/v1/relay/receipt-keys/current"),
             ("POST", "/v1/relay/receipts/verify"),
@@ -77,6 +82,60 @@ def test_every_openapi_operation_has_evidence_maturity() -> None:
     assert {"ApiKeyAuth": []} not in relay_operations[("POST", "/v1/relay/mcp/call")][
         "security"
     ]
+
+
+def test_known_simulation_and_metadata_routes_are_truthfully_stubbed() -> None:
+    schema = TestClient(app).get("/openapi.json").json()
+
+    pqc_paths = {
+        path: path_item
+        for path, path_item in schema["paths"].items()
+        if path.startswith("/v1/identity/pqc")
+    }
+    assert pqc_paths
+    for path_item in pqc_paths.values():
+        for method, operation in path_item.items():
+            if method in {"get", "post"}:
+                assert operation["x-agenthub-maturity"] == "stub"
+                assert (
+                    "no NIST post-quantum implementation"
+                    in operation["x-agenthub-evidence-boundary"]
+                )
+
+    for path in {
+        "/v1/identity/agents/{agent_id}/spiffe-id",
+        "/v1/identity/agents/{agent_id}/svid",
+        "/v1/identity/spiffe/bundle",
+        "/v1/identity/spiffe/verify",
+    }:
+        for method, operation in schema["paths"][path].items():
+            if method in {"get", "post"}:
+                assert operation["x-agenthub-maturity"] == "stub"
+                assert (
+                    "no SPIRE workload attestation or CA-issued X.509 SVID"
+                    in operation["x-agenthub-evidence-boundary"]
+                )
+
+    authorize = schema["paths"]["/v1/oauth/authorize"]["get"]
+    assert authorize["x-agenthub-maturity"] == "stub"
+    assert (
+        "only rejects unsupported interactive grants"
+        in authorize["x-agenthub-evidence-boundary"]
+    )
+
+
+def test_unclassified_routes_fail_closed_without_relabeling_known_prototypes() -> None:
+    for path in {
+        "/v1/unclassified/new-capability",
+        "/v1/agents-extra",
+        "/v1/relay-shadow",
+    }:
+        maturity, boundary = operation_maturity(path)
+        assert maturity == "stub"
+        assert "unclassified route" in boundary
+
+    known_maturity, _ = operation_maturity("/v1/agents")
+    assert known_maturity == "prototype"
 
 
 def test_public_claims_name_the_actual_product_boundary() -> None:
