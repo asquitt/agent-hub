@@ -2,9 +2,9 @@
 
 ## Current Verdict
 
-**NO-GO for production or customer pilots.** PR #5 merged S167 to `main` at `adccd28eb6a0e1a8bfdb779341f28dbc15213e11`, but AgentHub remains a single-process local control-plane prototype. The merged boundary proves one operator-attested, server-declared read-only/idempotent, auth-none MCP call with revocation-aware admission and Ed25519 receipts. The post-merge correction candidate bounds MCP discovery, repeats authority checks at the last pre-dispatch boundary, and fails closed on unclassified API maturity. General remote workloads, upstream authentication, write tools, webhook delivery, distributed persistence, production deployment, and customer outcomes are not proven.
+**NO-GO for production or customer pilots.** PR #5 merged S167 to `main` at `adccd28eb6a0e1a8bfdb779341f28dbc15213e11`; PR #6 merged the bounded correction at `3588b455b7fcc4524497d11a120810096256e5f0`. AgentHub remains a single-process local control-plane prototype. The merged boundary proves one operator-attested, server-declared read-only/idempotent, auth-none MCP call with revocation-aware admission and Ed25519 receipts. The correction bounds MCP discovery, repeats authority checks at the last pre-dispatch boundary, and fails closed on unclassified API maturity. General remote workloads, upstream authentication, write tools, webhook delivery, distributed persistence, production deployment, and customer outcomes are not proven.
 
-The post-merge correction candidate is `917 passed, 1 skipped`; its official MCP server process and packaging/deployment-containment gates also pass in the pinned application dependency environment. This is repository evidence only, not hosted CI, deployment, provider, or customer evidence.
+The merged correction candidate was `917 passed, 1 skipped`; its official MCP server process and packaging/deployment-containment gates also passed in the pinned application dependency environment. This is repository evidence only, not hosted CI, deployment, provider, or customer evidence.
 
 ## Status Definitions
 
@@ -19,10 +19,10 @@ The post-merge correction candidate is `917 passed, 1 skipped`; its official MCP
 
 | ID | Status | Current disposition |
 |---|---|---|
-| AH-001 | VALIDATION_FREEZE | S167 is merged and the bounded post-merge corrections are locally verified and exact-commit approved with zero HIGH/MEDIUM findings. No broader platform work is approved without explicit owner authorization after the reopening gates below pass. |
+| AH-001 | VALIDATION_FREEZE | S167 and its bounded correction are merged, locally verified at the merged tree, and exact-commit approved with zero HIGH/MEDIUM findings. No broader platform work is approved without explicit owner authorization after the reopening gates below pass. |
 | AH-002 | COMPLETE_LOCAL | Every OpenAPI operation is explicitly classified `prototype`, `stub`, or `deferred`; unknown operations fail closed as `stub`. The correction inventory contains 448 operations: 369 prototype, 55 stub, and 24 deferred. |
 | AH-003 | COMPLETE_LOCAL | README, marketing, runtime, webhook, OpenAPI, and ledger claims match the documented local evidence boundary. |
-| AH-004 | PARTIAL | The correction candidate is `917 passed, 1 skipped`; GitHub Actions remains manual-only with no PR or merge run, and no required hosted CI is proven. |
+| AH-004 | PARTIAL | The merged correction candidate was `917 passed, 1 skipped`; GitHub Actions remains manual-only with no PR or merge workflow run, and no required hosted CI is proven. |
 | AH-005 | PARTIAL | Strict local dependency audits have passed; no provider-enforced blocking gate is proven. |
 | AH-006 | COMPLETE_LOCAL | Typed auth context preserves owner, tenant, scopes, roles, auth method, agent, and delegation metadata. |
 | AH-007 | PARTIAL | Identity/vault boundaries are repaired and S166 closes reproduced cross-owner delegation status. Comprehensive object authorization remains unproven outside the bounded relay. |
@@ -31,7 +31,7 @@ The post-merge correction candidate is `917 passed, 1 skipped`; its official MCP
 | AH-010 | COMPLETE_LOCAL | Unsafe billing, marketplace, procurement, and delegated charging are disabled before mutation by default. |
 | AH-011 | COMPLETE_LOCAL | Rate limit, timeout, readiness, and delegation breaker behavior is locally tested. |
 | AH-012 | COMPLETE_LOCAL | Wheel packaging and the merged S167 exact-image clean build/boot/readiness proof are complete locally; no hosted artifact or deployment is claimed. |
-| AH-013 | COMPLETE_LOCAL | S163-S167 use exact local evidence, PR #5 merge identity is recorded, and unsupported historical `DONE` rows remain blocked rather than inferred. |
+| AH-013 | COMPLETE_LOCAL | S163-S167 use exact local evidence, PR #5 and PR #6 merge identities are recorded, and unsupported historical `DONE` rows remain blocked rather than inferred. |
 
 ## P0B: Functional Product Core
 
@@ -87,7 +87,7 @@ AH-046 exact-version assurance exchange, AH-047 evidence-backed reputation, AH-0
 ## Execution Order
 
 1. **S166 containment:** complete on the merged baseline.
-2. **S167 governed MCP relay v0:** merged in PR #5; bounded post-merge discovery, pre-dispatch authority, and product-truth corrections are the final engineering closure slice.
+2. **S167 governed MCP relay v0:** merged in PR #5; bounded discovery, pre-dispatch authority, and product-truth corrections merged in PR #6 as the final engineering closure slice.
 3. **Validation freeze:** do not start PostgreSQL, Redis, Alembic, outbox, broader runtime, marketplace, public deployment, or customer-product expansion.
 4. **Reopening gate:** require an identified design partner, a written workflow and threat boundary, real governed-call demand, an owner for pilot operations, and explicit authorization to resume.
 5. **Promotion gate:** before production or customer-pilot claims, prove reliability on real workloads, positive design-partner ROI, sustainable unit economics, and end-to-end revocation, receipt, approval, and incident handling.
