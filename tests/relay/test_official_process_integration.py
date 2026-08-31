@@ -23,10 +23,11 @@ from src.api.auth import AuthContext
 from src.identity import storage as identity_storage
 from src.protocol.mcp_client import (
     MCPResponseTooLargeError,
+    MCPToolListingError,
     call_tool,
     inspect_target,
 )
-from src.relay.config import load_mcp_relay_target
+from src.relay.config import load_mcp_relay_target, parse_mcp_relay_targets_json
 from src.relay.defaults import OfficialMCPRelayTransport
 from src.relay.receipts import receipt_public_jwk, verify_receipt
 from src.relay.service import (
@@ -35,8 +36,12 @@ from src.relay.service import (
     RelayServiceError,
 )
 from src.relay.storage import RELAY_STORAGE, RelayStorage
+import src.relay.service as relay_service_module
 
 FIXTURE_SERVER = Path(__file__).parent / "fixtures" / "official_readonly_server.py"
+REPEATING_CURSOR_SERVER = (
+    Path(__file__).parent / "fixtures" / "repeating_cursor_server.py"
+)
 ROOT = Path(__file__).resolve().parents[2]
 CRASH_ONCE_APP = "tests.relay.fixtures.crash_once_app:app"
 CRASH_EXIT_CODE = 91
@@ -83,6 +88,55 @@ def _official_server(tmp_path: Path) -> Iterator[tuple[int, Path]]:
         else:
             raise TimeoutError("official MCP fixture did not become ready")
         yield port, counter
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        log.close()
+
+
+@contextmanager
+def _repeating_cursor_server(tmp_path: Path) -> Iterator[tuple[int, Path, Path]]:
+    port = _free_port()
+    list_counter = tmp_path / "upstream-list-calls.txt"
+    call_counter = tmp_path / "upstream-tool-calls.txt"
+    list_counter.write_text("0", encoding="utf-8")
+    call_counter.write_text("0", encoding="utf-8")
+    log = (tmp_path / "repeating-cursor.log").open("w", encoding="utf-8")
+    process = subprocess.Popen(  # noqa: S603
+        [
+            sys.executable,
+            str(REPEATING_CURSOR_SERVER),
+            "--port",
+            str(port),
+            "--list-counter",
+            str(list_counter),
+            "--call-counter",
+            str(call_counter),
+        ],
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                log.flush()
+                raise RuntimeError(
+                    (tmp_path / "repeating-cursor.log").read_text(encoding="utf-8")
+                )
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise TimeoutError("repeating-cursor MCP fixture did not become ready")
+        yield port, list_counter, call_counter
     finally:
         process.terminate()
         try:
@@ -253,6 +307,7 @@ async def test_official_server_oversized_text_with_small_structured_output_fails
             await call_tool(
                 target,
                 arguments={"q": "bounded"},
+                before_dispatch=lambda: None,
                 expected_schema_digest=inspection.tool.schema_digest,
                 expected_server_name=inspection.server.name,
                 expected_server_version=inspection.server.version,
@@ -260,6 +315,122 @@ async def test_official_server_oversized_text_with_small_structured_output_fails
             )
 
         assert counter.read_text(encoding="utf-8") == "1"
+
+
+@pytest.mark.anyio
+async def test_official_server_repeated_cursor_preserves_stable_listing_error(
+    tmp_path: Path,
+) -> None:
+    with _repeating_cursor_server(tmp_path) as (port, list_counter, call_counter):
+        target = parse_mcp_relay_targets_json(
+            _target_json(port), allow_loopback_http=True
+        )
+        admission_calls = 0
+
+        def before_dispatch() -> None:
+            nonlocal admission_calls
+            admission_calls += 1
+
+        with pytest.raises(MCPToolListingError) as exc_info:
+            await call_tool(
+                target,
+                arguments={"q": "must-not-dispatch"},
+                before_dispatch=before_dispatch,
+                expected_schema_digest="unused-before-listing-rejection",
+                expected_server_name="repeating-cursor",
+                expected_server_version="1.0.0",
+                expected_protocol_version="2025-11-25",
+                timeout_seconds=5,
+            )
+
+        assert exc_info.value.code == "relay.upstream_tool_listing_invalid"
+        assert "opaque-repeat" not in str(exc_info.value)
+        assert list_counter.read_text(encoding="utf-8") == "2"
+        assert call_counter.read_text(encoding="utf-8") == "0"
+        assert admission_calls == 0
+
+
+@pytest.mark.anyio
+async def test_official_transport_preserves_final_admission_revocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTHUB_MCP_RECEIPT_PRIVATE_KEY_B64", _seed())
+    monkeypatch.setenv("AGENTHUB_POLICY_SIGNING_SECRET", "s167-policy-secret")
+    with _official_server(tmp_path) as (port, counter):
+        target = parse_mcp_relay_targets_json(
+            _target_json(port), allow_loopback_http=True
+        )
+        store = RelayStorage()
+        store.reset_for_tests(tmp_path / "relay-revocation.db")
+        service = RelayService(
+            transport=OfficialMCPRelayTransport(),
+            config_loader=lambda _target_id: target,
+            storage=store,
+        )
+
+        def context(*, admin: bool = False) -> AuthContext:
+            return AuthContext(
+                "owner-a",
+                scopes=["*" if admin else "relay.call"],
+                roles=["admin" if admin else "member"],
+                tenant_id="tenant-a",
+                auth_method="api_key" if admin else "agent_credential",
+                agent_id=None if admin else "agent-a",
+            )
+
+        await service.import_target("catalog", actor=context(admin=True))
+        store.set_budget(
+            owner="owner-a",
+            tenant_id="tenant-a",
+            capability_token_id="cap-a",
+            max_budget_usd=1,
+        )
+        capability = {
+            "valid": True,
+            "token_id": "cap-a",
+            "issuer": "agent-a",
+            "subject": "agent-a",
+            "audience": "agenthub://mcp-relay",
+            "resource": "urn:agenthub:mcp-relay:catalog:lookup",
+            "effective_scopes": ["mcp.tools.lookup.invoke"],
+        }
+        monkeypatch.setattr(
+            relay_service_module,
+            "verify_capability_token",
+            lambda *_args, **_kwargs: dict(capability),
+        )
+        reauthentication_calls = 0
+
+        def reauthenticate() -> AuthContext:
+            nonlocal reauthentication_calls
+            reauthentication_calls += 1
+            if reauthentication_calls == 3:
+                raise PermissionError("revoked at final dispatch admission")
+            return context()
+
+        with pytest.raises(RelayServiceError) as exc_info:
+            await service.invoke(
+                target_id="catalog",
+                capability_token=capability,
+                arguments={"q": "must-not-dispatch"},
+                idempotency_key="real-runtime-revocation",
+                source_ip="127.0.0.1",
+                reauthenticate=reauthenticate,
+            )
+
+        assert exc_info.value.code == "relay.authority_revoked"
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.record is not None
+        assert exc_info.value.record["status"] == "failed"
+        assert exc_info.value.record["network_started_at"] is None
+        assert exc_info.value.record["charged_cost_usd"] == 0
+        assert counter.read_text(encoding="utf-8") == "0"
+        budget = store.get_budget(
+            owner="owner-a", tenant_id="tenant-a", capability_token_id="cap-a"
+        )
+        assert budget["reserved_usd"] == 0
+        assert reauthentication_calls == 3
 
 
 def _headers(

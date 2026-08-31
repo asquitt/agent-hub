@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from pathlib import Path
 import threading
 import time
@@ -9,7 +10,7 @@ from typing import Any
 import pytest
 
 from src.api.auth import AuthContext
-from src.protocol.mcp_client import MCPToolContractDriftError
+from src.protocol.mcp_client import MCPToolContractDriftError, MCPToolListingError
 from src.relay.receipts import receipt_public_jwk, verify_receipt
 from src.relay.service import (
     RelayCrashAfterRemoteResult,
@@ -24,10 +25,15 @@ class FakeTransport:
         self.inspect_count = 0
         self.call_count = 0
         self.failure: Exception | None = None
+        self.inspect_failure: Exception | None = None
+        self.during_discovery: Callable[[], None] | None = None
+        self.invoke_before_dispatch = True
         self.inspection: dict[str, Any] | None = None
 
     async def inspect(self, target: dict[str, Any]) -> dict[str, Any]:
         self.inspect_count += 1
+        if self.inspect_failure is not None:
+            raise self.inspect_failure
         return self.inspection or {
             "server_name": "catalog-server",
             "server_version": "1.0.0",
@@ -59,9 +65,18 @@ class FakeTransport:
         target: dict[str, Any],
         *,
         arguments: dict[str, Any],
+        before_dispatch: Callable[[], None],
         expected_schema_digest: str,
     ) -> dict[str, Any]:
-        self.call_count += 1
+        if self.during_discovery is not None:
+            self.during_discovery()
+        if self.failure is not None and bool(
+            getattr(self.failure, "definite_failure", False)
+        ):
+            raise self.failure
+        if self.invoke_before_dispatch:
+            before_dispatch()
+            self.call_count += 1
         if self.failure is not None:
             raise self.failure
         return {
@@ -269,6 +284,62 @@ async def test_import_maps_upstream_and_contract_failures_to_stable_errors(
 
 
 @pytest.mark.anyio
+async def test_malformed_tool_pagination_prevents_target_import(
+    relay_runtime: tuple[RelayService, RelayStorage, FakeTransport],
+) -> None:
+    service, store, transport = relay_runtime
+    transport.inspect_failure = MCPToolListingError(
+        "MCP tool discovery repeated a pagination cursor before tools/call"
+    )
+
+    with pytest.raises(RelayServiceError) as exc_info:
+        await service.import_target("catalog", actor=_context(admin=True))
+
+    assert exc_info.value.code == "relay.upstream_tool_listing_invalid"
+    assert exc_info.value.status_code == 502
+    assert str(exc_info.value) == "configured upstream MCP tool listing was rejected"
+    assert transport.inspect_count == 1
+    with pytest.raises(KeyError):
+        store.get_target("catalog")
+
+
+@pytest.mark.anyio
+async def test_malformed_tool_pagination_is_failed_uncharged_before_dispatch(
+    relay_runtime: tuple[RelayService, RelayStorage, FakeTransport],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, store, transport = relay_runtime
+    await _prepare(service, store, monkeypatch)
+    transport.failure = MCPToolListingError(
+        "MCP tool discovery repeated a pagination cursor before tools/call"
+    )
+
+    with pytest.raises(RelayServiceError) as exc_info:
+        await service.invoke(
+            target_id="catalog",
+            capability_token={"token_id": "cap-a"},
+            arguments={"q": "invoice"},
+            idempotency_key="invalid-pagination",
+            source_ip=None,
+            reauthenticate=_context,
+        )
+
+    assert exc_info.value.code == "relay.upstream_tool_listing_invalid"
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.record is not None
+    assert exc_info.value.record["status"] == "failed"
+    assert exc_info.value.record["network_started_at"] is None
+    assert exc_info.value.record["remote_result_observed"] is False
+    assert exc_info.value.record["charged_cost_usd"] == 0
+    assert transport.call_count == 0
+    budget = store.get_budget(
+        owner="owner-a", tenant_id="tenant-a", capability_token_id="cap-a"
+    )
+    assert budget["reserved_usd"] == 0
+    assert budget["spent_usd"] == 0
+
+
+@pytest.mark.anyio
 async def test_authority_change_before_network_fails_and_releases_budget(
     relay_runtime: tuple[RelayService, RelayStorage, FakeTransport],
     monkeypatch: pytest.MonkeyPatch,
@@ -297,6 +368,81 @@ async def test_authority_change_before_network_fails_and_releases_budget(
     assert exc_info.value.code == "relay.authority_revoked"
     assert exc_info.value.record is not None
     assert exc_info.value.record["network_started_at"] is None
+    assert transport.call_count == 0
+    budget = store.get_budget(
+        owner="owner-a", tenant_id="tenant-a", capability_token_id="cap-a"
+    )
+    assert budget["reserved_usd"] == 0
+    assert budget["spent_usd"] == 0
+
+
+@pytest.mark.anyio
+async def test_revocation_during_discovery_denies_final_dispatch_and_releases_budget(
+    relay_runtime: tuple[RelayService, RelayStorage, FakeTransport],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, store, transport = relay_runtime
+    await _prepare(service, store, monkeypatch)
+    revoked = False
+
+    def revoke_during_discovery() -> None:
+        nonlocal revoked
+        revoked = True
+
+    def reauthenticate() -> AuthContext:
+        if revoked:
+            raise PermissionError("revoked during discovery")
+        return _context()
+
+    transport.during_discovery = revoke_during_discovery
+    with pytest.raises(RelayServiceError) as exc_info:
+        await service.invoke(
+            target_id="catalog",
+            capability_token={"token_id": "cap-a"},
+            arguments={"q": "invoice"},
+            idempotency_key="revoked-during-discovery",
+            source_ip=None,
+            reauthenticate=reauthenticate,
+        )
+
+    assert exc_info.value.code == "relay.authority_revoked"
+    assert exc_info.value.record is not None
+    assert exc_info.value.record["status"] == "failed"
+    assert exc_info.value.record["network_started_at"] is None
+    assert exc_info.value.record["remote_result_observed"] is False
+    assert exc_info.value.record["charged_cost_usd"] == 0
+    assert transport.call_count == 0
+    budget = store.get_budget(
+        owner="owner-a", tenant_id="tenant-a", capability_token_id="cap-a"
+    )
+    assert budget["reserved_usd"] == 0
+    assert budget["spent_usd"] == 0
+
+
+@pytest.mark.anyio
+async def test_transport_return_without_dispatch_callback_fails_closed(
+    relay_runtime: tuple[RelayService, RelayStorage, FakeTransport],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, store, transport = relay_runtime
+    await _prepare(service, store, monkeypatch)
+    transport.invoke_before_dispatch = False
+
+    with pytest.raises(RelayServiceError) as exc_info:
+        await service.invoke(
+            target_id="catalog",
+            capability_token={"token_id": "cap-a"},
+            arguments={"q": "invoice"},
+            idempotency_key="missing-dispatch-admission",
+            source_ip=None,
+            reauthenticate=_context,
+        )
+
+    assert exc_info.value.code == "relay.transport_dispatch_not_admitted"
+    assert exc_info.value.record is not None
+    assert exc_info.value.record["status"] == "failed"
+    assert exc_info.value.record["network_started_at"] is None
+    assert exc_info.value.record["charged_cost_usd"] == 0
     assert transport.call_count == 0
     budget = store.get_budget(
         owner="owner-a", tenant_id="tenant-a", capability_token_id="cap-a"

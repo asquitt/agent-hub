@@ -113,4 +113,4 @@
 | S164 | MCP Streamable HTTP discovery gateway | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S164.md |
 | S165 | Durable capability-token, DID, and VC authority | DONE | 2026-08-27 | Identity | Yes | docs/evidence/S165.md |
 | S166 | Product-truth and unsafe-surface containment | DONE | 2026-08-27 | Platform | Yes | docs/evidence/S166.md |
-| S167 | Governed MCP relay v0 | DONE | 2026-08-29 | Platform | Yes | docs/evidence/S167.md |
+| S167 | Governed MCP relay v0 | DONE - VALIDATION FREEZE | 2026-08-31 | Platform | Yes | docs/evidence/S167.md |

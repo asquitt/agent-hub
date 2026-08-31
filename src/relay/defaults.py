@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from src.protocol.mcp_client import call_tool, inspect_target
@@ -44,11 +45,13 @@ class OfficialMCPRelayTransport:
         target: dict[str, Any],
         *,
         arguments: dict[str, Any],
+        before_dispatch: Callable[[], None],
         expected_schema_digest: str,
     ) -> dict[str, Any]:
         outcome = await call_tool(
             _target(target),
             arguments=arguments,
+            before_dispatch=before_dispatch,
             expected_schema_digest=expected_schema_digest,
             expected_server_name=str(target["server_name"]),
             expected_server_version=str(target["server_version"]),
