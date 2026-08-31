@@ -139,7 +139,7 @@ class RelayService:
                 raise RelayServiceError(
                     str(getattr(exc, "code", "relay.upstream_pre_dispatch_failed")),
                     "configured upstream MCP tool listing was rejected",
-                    status_code=409,
+                    status_code=502,
                 ) from exc
             raise RelayServiceError(
                 "relay.upstream_unavailable",

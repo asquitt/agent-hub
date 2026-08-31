@@ -296,7 +296,7 @@ async def test_malformed_tool_pagination_prevents_target_import(
         await service.import_target("catalog", actor=_context(admin=True))
 
     assert exc_info.value.code == "relay.upstream_tool_listing_invalid"
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 502
     assert str(exc_info.value) == "configured upstream MCP tool listing was rejected"
     assert transport.inspect_count == 1
     with pytest.raises(KeyError):
