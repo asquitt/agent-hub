@@ -19,7 +19,7 @@ The post-merge correction candidate is `917 passed, 1 skipped`; its official MCP
 
 | ID | Status | Current disposition |
 |---|---|---|
-| AH-001 | VALIDATION_FREEZE | S167 is merged and the bounded post-merge corrections are locally verified. No broader platform work is approved without explicit owner authorization after the reopening gates below pass. |
+| AH-001 | VALIDATION_FREEZE | S167 is merged and the bounded post-merge corrections are locally verified and exact-commit approved with zero HIGH/MEDIUM findings. No broader platform work is approved without explicit owner authorization after the reopening gates below pass. |
 | AH-002 | COMPLETE_LOCAL | Every OpenAPI operation is explicitly classified `prototype`, `stub`, or `deferred`; unknown operations fail closed as `stub`. The correction inventory contains 448 operations: 369 prototype, 55 stub, and 24 deferred. |
 | AH-003 | COMPLETE_LOCAL | README, marketing, runtime, webhook, OpenAPI, and ledger claims match the documented local evidence boundary. |
 | AH-004 | PARTIAL | The correction candidate is `917 passed, 1 skipped`; GitHub Actions remains manual-only with no PR or merge run, and no required hosted CI is proven. |
