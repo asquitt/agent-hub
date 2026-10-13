@@ -1,73 +1,100 @@
 # AgentHub
 
-### Identity, scoped authority, and accountable tool calls for AI agents.
+Identity, permissions, and signed audit receipts for AI agent tool calls.
 
-An agent finding a tool is easy. Deciding whether it may call that tool, whether its authority has been revoked, and what happened after a timeout is the harder systems problem.
+`Python` `FastAPI` `SQLite` `MCP` `Ed25519`
 
-AgentHub explores that boundary with a Python control plane: agent identities, policy-aware capability discovery, short-lived delegation, and a narrowly scoped MCP relay with signed execution receipts.
+> One of four projects on running AI agents safely: **AgentHub** · [AgentGuard](https://github.com/asquitt/agent-guard) · [AgentTrace](https://github.com/asquitt/agent-trace) · [SynthArena](https://github.com/asquitt/synth-arena)
 
-**Start with:** [relay implementation](src/relay/service.py) · [authorization policy](src/policy/mcp_relay.py) · [failure-path tests](tests/relay/) · [architecture](architecture.md)
+## Overview
 
-## The interesting engineering
+Getting an AI agent to call a tool is easy. The hard part is everything around the call: who is the agent, what is it allowed to do, was that permission revoked a second ago, and what happens if the call times out halfway through?
 
-| Problem | Approach | Read the code |
-| --- | --- | --- |
-| Delegation must not create more authority | Scoped credentials and attenuated delegation chains | [Identity](src/identity/) |
-| A previously valid credential may be revoked before dispatch | Recheck authority at the network boundary | [Relay service](src/relay/service.py) |
-| A crash can leave the outcome of a remote call unknown | Persist idempotency and budget state; retain an indeterminate outcome without automatic replay | [Relay storage](src/relay/storage.py) |
-| An execution record needs verifiable provenance | Ed25519-signed receipts and an offline verifier | [Receipts](src/relay/receipts.py) · [Verifier](tools/relay/verify_receipt.py) |
-| Discovery must respect policy before ranking | Filter capabilities against the caller's constraints | [Discovery](src/discovery/) |
+AgentHub is a FastAPI service that answers those questions. It gives each agent an identity, lets agents hand off limited authority to each other, checks policy before every call, and forwards approved calls to an MCP tool. Every call ends with a signed receipt.
 
-## One tool call, end to end
+## Features
+
+- **Agent identity.** Each agent gets its own credentials, and those credentials can be revoked. See [`src/identity/`](src/identity/).
+- **Scoped delegation.** An agent can pass part of its authority to another agent, but never more than it holds.
+- **Policy-aware discovery.** Capability search drops tools the caller isn't allowed to use *before* ranking results. See [`src/discovery/`](src/discovery/).
+- **Governed MCP relay.** Identity, scope, budget, and revocation are all checked right before dispatch. Every call needs an `Idempotency-Key`. See [`src/relay/service.py`](src/relay/service.py).
+- **Crash-safe calls.** Idempotency and budget state are saved to disk. If a crash leaves a call's outcome unknown, AgentHub marks it as unknown instead of retrying it automatically. See [`src/relay/storage.py`](src/relay/storage.py).
+- **Signed receipts.** Each call outcome gets an Ed25519-signed receipt that you can check offline with [`tools/relay/verify_receipt.py`](tools/relay/verify_receipt.py).
+
+## How it works
 
 ```mermaid
 flowchart LR
     A[Agent credential] --> B[Identity and scope checks]
-    B --> C[Policy and budget admission]
-    C --> D[Durable idempotency record]
+    B --> C[Policy and budget checks]
+    C --> D[Save idempotency record]
     D --> E[Final revocation check]
-    E --> F[Configured MCP tool]
-    F --> G[Signed outcome receipt]
+    E --> F[MCP tool]
+    F --> G[Signed receipt]
 ```
 
-The relay targets one operator-attested, server-declared read-only/idempotent tool without upstream authentication. It rejects caller-supplied target URLs and disables redirects and automatic retries. Read-only behavior depends on the operator's attestation of the upstream tool; MCP annotations alone cannot enforce it.
+A call only reaches the tool if every step passes. The revocation check runs again at the last moment, so a credential revoked mid-flight can't slip through. The relay never accepts a target URL from the caller, and it doesn't follow redirects or retry on its own.
 
-This is a local, single-process SQLite implementation. Other runtime, federation, and delegation surfaces include simulations; they should not be mistaken for remote workload execution. General-purpose remote execution and multi-replica coordination are outside this implementation's verified boundary.
+## Quick start
 
-## Explore locally
-
-Requires **Python 3.11+**. Use an isolated development environment.
+Requires Python 3.11+.
 
 ```bash
 git clone https://github.com/asquitt/agent-hub.git
 cd agent-hub
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m pip install -e .
+pip install -r requirements.txt
+pip install -e .
+```
+
+The server won't start without these settings. The values below are placeholders for local use only:
+
+```bash
+export AGENTHUB_API_KEYS_JSON='{"local-dev-key": "owner-dev"}'
+export AGENTHUB_FEDERATION_DOMAIN_TOKENS_JSON='{"local.test": "local-federation-token"}'
+export AGENTHUB_AUTH_TOKEN_SECRET=local-auth-secret
+export AGENTHUB_IDENTITY_SIGNING_SECRET=local-identity-secret
+export AGENTHUB_POLICY_SIGNING_SECRET=local-policy-secret
+export AGENTHUB_PROVENANCE_SIGNING_SECRET=local-provenance-secret
+export AGENTHUB_VAULT_KEY=local-vault-key
+
 uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open [API documentation](http://127.0.0.1:8000/docs) or the [operator console](http://127.0.0.1:8000/operator). Local development credentials are defined in the source and are for loopback use only.
+Then open the [API docs](http://127.0.0.1:8000/docs) or the [operator console](http://127.0.0.1:8000/operator), or make a request:
 
-Run focused relay checks:
+```bash
+curl -H "X-API-Key: local-dev-key" http://127.0.0.1:8000/v1/agents
+```
+
+## Running tests
 
 ```bash
 python -m pytest tests/relay/test_policy.py tests/relay/test_storage.py tests/relay/test_receipts.py -q
 ```
 
-The [relay integration tests](tests/relay/test_official_process_integration.py) exercise separate local processes and crash recovery. Tests using local MCP fixtures establish behavior against those fixtures, not arbitrary provider compatibility.
+[`tests/relay/`](tests/relay/) also has integration tests that start separate local processes and cover crash recovery.
 
-## Repository map
+## Project structure
 
-- [`src/identity/`](src/identity/): credentials, delegation, revocation, and identity storage.
-- [`src/discovery/`](src/discovery/) and [`src/policy/`](src/policy/): capability selection and admission rules.
-- [`src/relay/`](src/relay/): transport boundary, durable call state, and receipts.
-- [`specs/`](specs/): schemas and protocol contracts.
-- [`tests/`](tests/): authorization, failure recovery, protocol, and packaging checks.
+```text
+src/identity/     credentials, delegation, revocation
+src/discovery/    capability search
+src/policy/       authorization rules
+src/relay/        MCP relay, durable call state, signed receipts
+src/api/          FastAPI app and routes
+specs/            schemas and protocol contracts
+tests/            unit, integration, and failure-recovery tests
+tools/relay/      offline receipt verifier
+```
 
-## Discuss or contribute
+## Status
 
-Especially interested in minimal reproductions for revocation races, ambiguous remote outcomes, capability attenuation, and MCP interoperability. Open an issue with the expected behavior, observed result, and a small test case.
+- AgentHub is a local prototype, not a production service. It runs as a single process on SQLite. Postgres and Redis are not connected or included.
+- The only remote execution path is one operator-attested, server-declared read-only/idempotent MCP tool with no upstream authentication. MCP annotations are untrusted hints, so the read-only guarantee comes from the operator's attestation, not from technical enforcement.
+- Delegation, federation, and the Runtime State Simulator record lifecycle state only. They don't run remote workloads.
 
-Built by [Demario Asquitt](https://github.com/asquitt). [More projects](https://github.com/asquitt#selected-work).
+## Author
+
+Built by [Demario Asquitt](https://github.com/asquitt). Bug reports with a small failing test are welcome, especially for revocation races and MCP compatibility.
